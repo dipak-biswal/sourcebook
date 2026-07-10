@@ -192,3 +192,82 @@ class UsageEvent(Base):
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )
+
+
+class Note(Base):
+    __tablename__ = "notes"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    workspace_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("workspaces.id", ondelete="CASCADE"), index=True
+    )
+
+    user_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("users.id", ondelete="SET NULL"),
+        index=True,
+        nullable=True,
+    )
+    title: Mapped[str] = mapped_column(String(300))
+    body: Mapped[str] = mapped_column(Text, default="")
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+
+
+class AgentRun(Base):
+    __tablename__ = "agent_runs"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    workspace_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("workspaces.id", ondelete="CASCADE"), index=True
+    )
+
+    user_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("users.id", ondelete="CASCADE"),
+        index=True,
+    )
+    goal: Mapped[str] = mapped_column(Text)
+    status: Mapped[str] = mapped_column(String(50), default="running")
+    final_answer: Mapped[str | None] = mapped_column(Text, nullable=True)
+    error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    token_usage: Mapped[int | None] = mapped_column(nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+    steps: Mapped[list["AgentStep"]] = relationship(
+        back_populates="run",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+        order_by="AgentStep.step_index",
+    )
+
+
+class AgentStep(Base):
+    __tablename__ = "agent_steps"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    run_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("agent_runs.id", ondelete="CASCADE"), index=True
+    )
+    step_index: Mapped[int] = mapped_column()
+    type: Mapped[str] = mapped_column(String(50))
+    tool_name: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    input: Mapped[dict | list | str | None] = mapped_column(JSON, nullable=True)
+    output: Mapped[dict | list | str | None] = mapped_column(JSON, nullable=True)
+
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+    run: Mapped["AgentRun"] = relationship(back_populates="steps")

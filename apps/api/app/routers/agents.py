@@ -1,0 +1,102 @@
+import uuid
+
+from fastapi import APIRouter, Depends, HTTPException, status
+from sqlalchemy.orm import Session, joinedload
+
+from app.agents.runner import run_agent
+from app.db import get_db
+from app.deps import get_current_user
+from app.models import AgentRun, User, WorkspaceMember
+from app.schemas import AgentRunCreate, AgentRunResponse
+
+router = APIRouter(prefix="/agents", tags=["agents"])
+
+
+def _require_member(db: Session, user_id: uuid.UUID, workspace_id: uuid.UUID) -> None:
+    ok = (
+        db.query(WorkspaceMember)
+        .filter(
+            WorkspaceMember.user_id == user_id,
+            WorkspaceMember.workspace_id == workspace_id,
+        )
+        .first()
+    )
+    if not ok:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Not a member of this workspace",
+        )
+
+
+def _load_run(db: Session, run_id: uuid.UUID, user_id: uuid.UUID) -> AgentRun | None:
+    return (
+        db.query(AgentRun)
+        .options(joinedload(AgentRun.steps))
+        .filter(AgentRun.id == run_id, AgentRun.user_id == user_id)
+        .first()
+    )
+
+
+@router.post("/runs", response_model=AgentRunResponse, status_code=201)
+def start_agent_run(
+    body: AgentRunCreate,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    _require_member(db, current_user.id, body.workspace_id)
+    if not body.goal.strip():
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail="goal is empty"
+        )
+
+    try:
+        run = run_agent(
+            db,
+            workspace_id=body.workspace_id,
+            user_id=current_user.id,
+            goal=body.goal.strip(),
+            max_steps=min(max(body.max_steps, 1), 8),
+        )
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e)
+        ) from e
+
+    loaded = _load_run(db, run.id, current_user.id)
+    if not loaded:
+        raise HTTPException(status_code=500, detail="Run missing after create")
+    return loaded
+
+
+@router.get("/runs/{run_id}", response_model=AgentRunResponse)
+def get_agent_run(
+    run_id: uuid.UUID,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    run = _load_run(db, run_id, current_user.id)
+    if not run:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Run not found"
+        )
+    return run
+
+
+@router.get("/runs", response_model=list[AgentRunResponse])
+def list_agent_runs(
+    workspace_id: uuid.UUID,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    _require_member(db, current_user.id, workspace_id)
+    return (
+        db.query(AgentRun)
+        .options(joinedload(AgentRun.steps))
+        .filter(
+            AgentRun.workspace_id == workspace_id,
+            AgentRun.user_id == current_user.id,
+        )
+        .order_by(AgentRun.created_at.desc())
+        .limit(30)
+        .all()
+    )

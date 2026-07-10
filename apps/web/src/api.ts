@@ -210,6 +210,21 @@ export const api = {
 
   usageEvents: (limit = 50) =>
     request<UsageEventRow[]>(`/usage/events?limit=${limit}`),
+
+  startAgentRun: (workspaceId: string, goal: string, maxSteps = 5) =>
+    request<AgentRun>("/agents/runs", {
+      method: "POST",
+      body: JSON.stringify({
+        workspace_id: workspaceId,
+        goal,
+        max_steps: maxSteps,
+      }),
+    }),
+
+  agentRuns: (workspaceId: string) =>
+    request<AgentRun[]>(`/agents/runs?workspace_id=${workspaceId}`),
+
+  agentRun: (runId: string) => request<AgentRun>(`/agents/runs/${runId}`),
 };
 
 export type UsageEventRow = {
@@ -228,4 +243,27 @@ export type UsageSummary = {
   total_tokens: number;
   by_kind: Record<string, number>;
   recent: UsageEventRow[];
+};
+
+export type AgentStep = {
+  id: string;
+  step_index: number;
+  type: string;
+  tool_name: string | null;
+  input?: unknown;
+  output?: unknown;
+  created_at: string;
+};
+
+export type AgentRun = {
+  id: string;
+  workspace_id: string;
+  user_id: string;
+  goal: string;
+  status: string;
+  final_answer: string | null;
+  error: string | null;
+  token_usage: number | null;
+  created_at: string;
+  steps: AgentStep[];
 };

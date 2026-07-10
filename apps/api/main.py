@@ -2,7 +2,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import settings
-from app.routers import auth, chat, documents, health, ingest, usage, workspaces
+from app.routers import agents, auth, chat, documents, health, ingest, usage, workspaces
 
 app = FastAPI(
     title="Sourcebook",
@@ -30,6 +30,7 @@ app.include_router(documents.router)
 app.include_router(ingest.router)
 app.include_router(chat.router)
 app.include_router(usage.router)
+app.include_router(agents.router)
 
 if __name__ == "__main__":
     import uvicorn

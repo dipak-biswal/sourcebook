@@ -79,3 +79,36 @@ class ChatResponse(BaseModel):
     conversation_id: uuid.UUID
     message: str
     citations: list[dict] = []
+
+
+class AgentRunCreate(BaseModel):
+    workspace_id: uuid.UUID
+    goal: str
+    max_steps: int = 5
+
+
+class AgentStepResponse(BaseModel):
+    id: uuid.UUID
+    step_index: int
+    type: str
+    tool_name: str | None
+    input: object | None = None
+    output: object | None = None
+    created_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
+class AgentRunResponse(BaseModel):
+    id: uuid.UUID
+    workspace_id: uuid.UUID
+    user_id: uuid.UUID
+    goal: str
+    status: str
+    final_answer: str | None
+    error: str | None
+    token_usage: int | None
+    created_at: datetime
+    steps: list[AgentStepResponse] = []
+
+    model_config = {"from_attributes": True}
