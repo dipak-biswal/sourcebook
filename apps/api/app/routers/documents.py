@@ -7,7 +7,7 @@ from sqlalchemy.orm import Session
 from app.config import settings
 from app.db import get_db
 from app.deps import get_current_user
-from app.models import Document, User, WorkspaceMember
+from app.models import Chunk, Document, User, WorkspaceMember
 from app.schemas import DocumentResponse
 
 router = APIRouter(prefix="/documents", tags=["documents"])
@@ -109,6 +109,10 @@ def delete_document(
     if path.is_file():
         path.unlink()
 
+    # Delete chunks first so SQLAlchemy does not NULL out document_id
+    db.query(Chunk).filter(Chunk.document_id == doc.id).delete(
+        synchronize_session=False
+    )
     db.delete(doc)
     db.commit()
 

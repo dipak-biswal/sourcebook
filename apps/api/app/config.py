@@ -24,8 +24,9 @@ class Settings(BaseSettings):
     embedding_model: str = "text-embedding-3-small"
     chat_model: str = "gpt-4o-mini"
     rag_top_k: int = 5
-    # Cosine similarity floor for retrieval (0–1). Lower = more chunks kept.
-    rag_min_score: float = 0.12
+    # Cosine floor: below this → no hits, no sources (off-topic questions).
+    # Raise (e.g. 0.25) if off-topic still retrieves; lower if on-topic misses.
+    rag_min_score: float = 0.22
 
 
 settings = Settings()

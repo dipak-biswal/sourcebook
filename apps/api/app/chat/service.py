@@ -1,13 +1,35 @@
+from collections.abc import Generator
+import json
+
 from openai import OpenAI
 from sqlalchemy.orm import Session
 
 from app.config import settings
 from app.ingestion.retrieve import retrieve_chunks
-from app.models import Conversation, Message
+from app.models import Conversation, Document, Message
 
 
 def _client() -> OpenAI:
     return OpenAI(api_key=settings.openai_api_key, base_url=settings.openai_base_url)
+
+
+def _citation_dict(db: Session, ch, score: float, index: int) -> dict:
+    doc = db.get(Document, ch.document_id)
+    return {
+        "index": index,
+        "chunk_id": str(ch.id),
+        "document_id": str(ch.document_id),
+        "filename": doc.filename if doc else None,
+        "score": round(score, 4),
+        "snippet": (ch.content or "")[:240],
+    }
+
+
+DENIAL_MESSAGE = (
+    "I don't know — no relevant indexed chunks matched your question. "
+    "Upload a .txt/.md, click Ingest until status is ready, then ask again "
+    "using terms that appear in the document."
+)
 
 
 def _build_answer_from_context(user_text: str, context: str) -> str:
@@ -77,25 +99,14 @@ def run_rag_chat(
     )
 
     if not hits:
-        answer = (
-            "I don't know — no relevant indexed chunks matched your question. "
-            "Upload a .txt/.md, click Ingest until status is ready, then ask again "
-            "using terms that appear in the document."
-        )
+        answer = DENIAL_MESSAGE
         citations: list[dict] = []
     else:
         context_blocks = []
         citations = []
         for i, (ch, score) in enumerate(hits, start=1):
             context_blocks.append(f"[{i}] (relevance={score:.3f})\n{ch.content}")
-            citations.append(
-                {
-                    "chunk_id": str(ch.id),
-                    "document_id": str(ch.document_id),
-                    "score": round(score, 4),
-                    "snippet": ch.content[:240],
-                }
-            )
+            citations.append(_citation_dict(db, ch, score, i))
         context = "\n\n".join(context_blocks)
         answer = _build_answer_from_context(user_text, context)
 
@@ -108,11 +119,7 @@ def run_rag_chat(
         }:
             # Use the best chunk as a grounded fallback so the UI is never empty of content
             best = hits[0][0].content.strip()
-            answer = (
-                "Based on the retrieved document text:\n\n"
-                f"{best[:1200]}"
-                f"\n\n[1]"
-            )
+            answer = f"Based on the retrieved document text:\n\n{best[:1200]}\n\n[1]"
 
     asst_msg = Message(
         conversation_id=conversation.id,
@@ -127,3 +134,101 @@ def run_rag_chat(
     db.refresh(asst_msg)
 
     return user_msg, asst_msg, citations
+
+
+def iter_rag_chat_sse(
+    db: Session, *, conversation: Conversation, user_text: str
+) -> Generator[str, None, None]:
+    """
+    Yields SSE lines:
+    data: {"type":"meta","conversation_id":"..."}
+    data: {"type":"token","content":"..."}
+    data: {"type":"citations","citations":[]}
+    data: {"type":"done"}
+    data: {"type":"error","detail":"..."}
+    """
+
+    user_msg = Message(conversation_id=conversation.id, role="user", content=user_text)
+
+    db.add(user_msg)
+    db.flush()
+
+    if not conversation.title or conversation.title.strip().lower() in {
+        "new chat",
+        "new conversation",
+        "",
+    }:
+        conversation.title = user_text.strip()[:80] or "New chat"
+        db.add(conversation)
+
+    hits = retrieve_chunks(
+        db,
+        workspace_id=conversation.workspace_id,
+        query=user_text,
+        top_k=settings.rag_top_k,
+        min_score=settings.rag_min_score,
+    )
+
+    yield _sse({"type": "meta", "conversation_id": str(conversation.id)})
+
+    citations: list[dict] = []
+    answer_parts: list[str] = []
+
+    if not hits:
+        answer = DENIAL_MESSAGE
+        yield _sse({"type": "token", "content": answer})
+        answer_parts.append(answer)
+    else:
+        context_blocks = []
+
+        for i, (ch, score) in enumerate(hits, start=1):
+            context_blocks.append(f"[{i}] (relevance={score:.3f})\n{ch.content}")
+            citations.append(_citation_dict(db, ch, score, i))
+        context = "\n\n".join(context_blocks)
+
+        prompt = f"""You are Sourcebook. Answer using ONLY the excerpts below.
+        Cite like [1], [2]. Be Concise. Prefer answering from excerpts over refusing.
+
+        EXCERPTS:
+        {context}
+
+QUESTION: {user_text}
+ANSWER:"""
+        client = _client()
+
+        stream = client.chat.completions.create(
+            model=settings.chat_model,
+            messages=[
+                {
+                    "role": "system",
+                    "content": "Answer from document excerpts. Be specific and grounded.",
+                },
+                {"role": "user", "content": prompt},
+            ],
+            temperature=0.1,
+            stream=True,
+        )
+
+        for event in stream:
+            delta = event.choices[0].delta.content if event.choices else None
+            if delta:
+                answer_parts.append(delta)
+                yield _sse({"type": "token", "content": delta})
+
+    full_answer = "".join(answer_parts).strip()
+    asst_msg = Message(
+        conversation_id=conversation.id,
+        role="assistant",
+        content=full_answer or "(empty)",
+        citations=citations,
+    )
+
+    db.add(asst_msg)
+    db.commit()
+
+    yield _sse({"type": "citations", "citations": citations})
+    yield _sse({"type": "done"})
+
+
+def _sse(payload: dict) -> str:
+    return f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"

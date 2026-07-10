@@ -26,9 +26,14 @@ def retrieve_chunks(
     workspace_id: uuid.UUID,
     query: str,
     top_k: int = 5,
-    min_score: float = 0.15,
+    min_score: float = 0.2,
 ) -> list[tuple[Chunk, float]]:
-    """Return top-k chunks for the workspace with cosine score >= min_score."""
+    """
+    Return top-k chunks with cosine score >= min_score.
+
+    Does NOT fall back to weak matches — off-topic questions should return []
+    so the UI shows no sources.
+    """
     q_vec = embed_query(query)
     chunks = (
         db.query(Chunk)
@@ -48,16 +53,4 @@ def retrieve_chunks(
             scored.append((ch, score))
 
     scored.sort(key=lambda x: x[1], reverse=True)
-
-    # If nothing passed the threshold but chunks exist, still return top_k
-    # so the user gets an answer attempt (scores may be low).
-    if not scored and chunks:
-        all_scored = [
-            (ch, _cosine(q_vec, list(ch.embedding)))
-            for ch in chunks
-            if ch.embedding
-        ]
-        all_scored.sort(key=lambda x: x[1], reverse=True)
-        return all_scored[:top_k]
-
     return scored[:top_k]

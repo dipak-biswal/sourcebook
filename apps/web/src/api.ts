@@ -64,6 +64,87 @@ export type ChatResponse = {
   citations?: Array<Record<string, unknown>>;
 };
 
+export type StreamChatHandlers = {
+  onToken?: (text: string) => void;
+  onCitations?: (citations: Array<Record<string, unknown>>) => void;
+  onDone?: () => void;
+  onError?: (detail: string) => void;
+};
+
+/** Consume POST /chat/stream (SSE). */
+export async function streamChat(
+  conversationId: string,
+  message: string,
+  handlers: StreamChatHandlers = {},
+): Promise<void> {
+  const token = getToken();
+  const res = await fetch(`${API_URL}/chat/stream`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    },
+    body: JSON.stringify({
+      conversation_id: conversationId,
+      message,
+    }),
+  });
+
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(text || res.statusText);
+  }
+  if (!res.body) {
+    throw new Error("No response body for stream");
+  }
+
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+
+    const parts = buffer.split("\n\n");
+    buffer = parts.pop() ?? "";
+
+    for (const part of parts) {
+      const line = part
+        .split("\n")
+        .map((l) => l.trim())
+        .find((l) => l.startsWith("data:"));
+      if (!line) continue;
+      const raw = line.replace(/^data:\s*/, "");
+      if (!raw || raw === "[DONE]") continue;
+
+      let payload: {
+        type?: string;
+        content?: string;
+        citations?: Array<Record<string, unknown>>;
+        detail?: string;
+      };
+      try {
+        payload = JSON.parse(raw) as typeof payload;
+      } catch {
+        continue;
+      }
+
+      if (payload.type === "token" && payload.content) {
+        handlers.onToken?.(payload.content);
+      } else if (payload.type === "citations" && payload.citations) {
+        handlers.onCitations?.(payload.citations);
+      } else if (payload.type === "done") {
+        handlers.onDone?.();
+      } else if (payload.type === "error") {
+        handlers.onError?.(payload.detail || "Stream error");
+        throw new Error(payload.detail || "Stream error");
+      }
+    }
+  }
+}
+
 export const api = {
   login: (email: string, password: string) =>
     request<TokenResponse>("/auth/login", {
@@ -121,4 +202,7 @@ export const api = {
         message,
       }),
     }),
+
+  /** Streaming chat (preferred for UI). */
+  chatStream: streamChat,
 };

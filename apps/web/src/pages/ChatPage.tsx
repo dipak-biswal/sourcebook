@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
 import { Link, Navigate, useNavigate } from "react-router-dom";
 import {
+  AlertCircle,
   Loader2,
   MessageCircle,
   Plus,
@@ -14,23 +15,16 @@ import {
   type Conversation,
   type Workspace,
 } from "@/api";
+import {
+  CitationList,
+  isDenialMessage,
+  shouldShowSources,
+} from "@/components/chat/CitationList";
 import { AppHeader } from "@/components/layout/AppHeader";
 import { Alert } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { cn, formatError } from "@/lib/utils";
-
-type Citation = {
-  chunk_id?: string;
-  document_id?: string;
-  score?: number;
-  snippet?: string;
-};
-
-function asCitations(value: unknown): Citation[] {
-  if (!Array.isArray(value)) return [];
-  return value as Citation[];
-}
 
 function formatSessionDate(iso: string): string {
   try {
@@ -178,14 +172,24 @@ export function ChatPage() {
     setError(null);
     setInput("");
 
-    const tempId = `temp-${Date.now()}`;
+    const userTempId = `temp-user-${Date.now()}`;
+    const asstTempId = `temp-asst-${Date.now()}`;
+
     setMessages((prev) => [
       ...prev,
       {
-        id: tempId,
+        id: userTempId,
         conversation_id: conversationId || "pending",
         role: "user",
         content: text,
+        created_at: new Date().toISOString(),
+      },
+      {
+        id: asstTempId,
+        conversation_id: conversationId || "pending",
+        role: "assistant",
+        content: "",
+        citations: [],
         created_at: new Date().toISOString(),
       },
     ]);
@@ -198,13 +202,33 @@ export function ChatPage() {
         setConversationId(convId);
       }
 
-      await api.chat(convId, text);
+      await api.chatStream(convId, text, {
+        onToken: (chunk) => {
+          setMessages((prev) =>
+            prev.map((m) =>
+              m.id === asstTempId
+                ? { ...m, content: m.content + chunk }
+                : m,
+            ),
+          );
+        },
+        onCitations: (citations) => {
+          setMessages((prev) =>
+            prev.map((m) =>
+              m.id === asstTempId ? { ...m, citations } : m,
+            ),
+          );
+        },
+      });
+
+      // Sync with DB (ids, ordering) after stream completes
       await loadMessages(convId);
-      // refresh session titles (first message renames "New chat")
       await loadConversations(workspaceId, convId);
     } catch (err) {
       setError(formatError(err));
-      setMessages((prev) => prev.filter((m) => m.id !== tempId));
+      setMessages((prev) =>
+        prev.filter((m) => m.id !== userTempId && m.id !== asstTempId),
+      );
       setInput(text);
     } finally {
       setSending(false);
@@ -405,7 +429,8 @@ export function ChatPage() {
               <div className="mx-auto flex max-w-2xl flex-col gap-4">
                 {messages.map((m) => {
                   const isUser = m.role === "user";
-                  const citations = asCitations(m.citations);
+                  const denial =
+                    !isUser && m.content && isDenialMessage(m.content);
                   return (
                     <div
                       key={m.id}
@@ -414,50 +439,56 @@ export function ChatPage() {
                         isUser ? "items-end" : "items-start",
                       )}
                     >
-                      <div
-                        className={cn(
-                          "max-w-[90%] rounded-vercel-md border px-3.5 py-2.5 text-body-sm leading-relaxed",
-                          isUser
-                            ? "border-ink bg-ink text-[var(--canvas)]"
-                            : "border-hairline bg-canvas text-body shadow-[var(--elevation-2)]",
-                        )}
-                      >
-                        <div className="whitespace-pre-wrap">{m.content}</div>
-                      </div>
-                      {!isUser && citations.length > 0 && (
-                        <div className="mt-2 max-w-[90%] space-y-1.5">
-                          <div className="text-[11px] font-medium uppercase tracking-wide text-mute">
-                            Sources
+                      {denial ? (
+                        <div className="max-w-[90%] rounded-vercel-md border border-amber-200 bg-[#fffbeb] px-3.5 py-3 text-body-sm text-[#92400e]">
+                          <div className="mb-1.5 flex items-center gap-1.5 font-medium">
+                            <AlertCircle
+                              className="h-4 w-4 shrink-0"
+                              strokeWidth={1.5}
+                            />
+                            No grounded match
                           </div>
-                          {citations.map((c, i) => (
-                            <div
-                              key={c.chunk_id ?? i}
-                              className="rounded-[6px] border border-hairline bg-canvas px-2.5 py-2 text-xs text-body"
-                            >
-                              <span className="font-medium text-ink">
-                                [{i + 1}]
-                              </span>{" "}
-                              {typeof c.score === "number" && (
-                                <span className="text-mute">
-                                  score {c.score.toFixed(3)} ·{" "}
-                                </span>
-                              )}
-                              <span className="text-mute">
-                                {c.snippet ?? "…"}
-                              </span>
-                            </div>
-                          ))}
+                          <div className="whitespace-pre-wrap leading-relaxed">
+                            {m.content}
+                          </div>
+                          <button
+                            type="button"
+                            className="mt-3 text-xs font-medium text-ink underline-offset-2 hover:underline"
+                            onClick={() => navigate("/documents")}
+                          >
+                            Go to Documents → ingest
+                          </button>
+                        </div>
+                      ) : (
+                        <div
+                          className={cn(
+                            "max-w-[90%] rounded-vercel-md border px-3.5 py-2.5 text-body-sm leading-relaxed",
+                            isUser
+                              ? "border-ink bg-ink text-[var(--canvas)]"
+                              : "border-hairline bg-canvas text-body shadow-[var(--elevation-2)]",
+                          )}
+                        >
+                          <div className="whitespace-pre-wrap">{m.content}</div>
                         </div>
                       )}
+                      {!isUser &&
+                        shouldShowSources(m.content, m.citations) && (
+                          <CitationList citations={m.citations} />
+                        )}
                     </div>
                   );
                 })}
-                {sending && (
-                  <div className="flex items-center gap-2 text-sm text-mute">
-                    <Loader2 className="h-4 w-4 animate-spin" />
-                    Thinking…
-                  </div>
-                )}
+                {sending &&
+                  !(
+                    messages.length > 0 &&
+                    messages[messages.length - 1]?.role === "assistant" &&
+                    messages[messages.length - 1]?.content
+                  ) && (
+                    <div className="flex items-center gap-2 text-sm text-mute">
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                      Retrieving & generating…
+                    </div>
+                  )}
                 <div ref={bottomRef} />
               </div>
             )}

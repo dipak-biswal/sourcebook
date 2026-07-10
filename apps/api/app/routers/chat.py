@@ -1,9 +1,11 @@
 import uuid
+import json
 
 from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 
-from app.chat.service import run_rag_chat
+from app.chat.service import run_rag_chat, iter_rag_chat_sse
 from app.db import get_db
 from app.deps import get_current_user
 from app.models import Conversation, Message, User, WorkspaceMember
@@ -14,6 +16,7 @@ from app.schemas import (
     ConversationResponse,
     MessageResponse,
 )
+
 
 router = APIRouter(tags=["chat"])
 
@@ -149,4 +152,43 @@ def chat(
         conversation_id=conv.id,
         message=asst_msg.content,
         citations=citations,
+    )
+
+
+@router.post("/chat/stream")
+def chat_stream(
+    body: ChatRequest,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    if not body.message.strip():
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail="Message is empty"
+        )
+
+    conv = db.get(Conversation, body.conversation_id)
+
+    if not conv or conv.user_id != current_user.id:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Conversation not found"
+        )
+
+    _require_member(db, current_user.id, conv.workspace_id)
+
+    def event_gen():
+        try:
+            yield from iter_rag_chat_sse(
+                db, conversation=conv, user_text=body.message.strip()
+            )
+        except Exception as e:
+            yield f"data: {json.dumps({'type': 'error', 'detail': str(e)})}\n\n"
+
+    return StreamingResponse(
+        event_gen(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
     )

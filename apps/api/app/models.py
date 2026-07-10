@@ -77,7 +77,13 @@ class Document(Base):
     )
 
     workspace: Mapped["Workspace"] = relationship(back_populates="documents")
-    chunks: Mapped[list["Chunk"]] = relationship(back_populates="document")
+    # delete-orphan: remove chunks when document is deleted (ORM)
+    # passive_deletes: let DB ON DELETE CASCADE handle it when possible
+    chunks: Mapped[list["Chunk"]] = relationship(
+        back_populates="document",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+    )
 
 
 class Chunk(Base):
@@ -87,7 +93,10 @@ class Chunk(Base):
         UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
     )
     document_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("documents.id", ondelete="CASCADE"), index=True
+        UUID(as_uuid=True),
+        ForeignKey("documents.id", ondelete="CASCADE"),
+        index=True,
+        nullable=False,
     )
 
     workspace_id: Mapped[uuid.UUID] = mapped_column(
@@ -122,7 +131,11 @@ class Conversation(Base):
         DateTime(timezone=True), server_default=func.now()
     )
 
-    messages: Mapped[list["Message"]] = relationship(back_populates="conversation")
+    messages: Mapped[list["Message"]] = relationship(
+        back_populates="conversation",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+    )
 
 
 class Message(Base):
