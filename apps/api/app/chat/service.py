@@ -7,6 +7,7 @@ from sqlalchemy.orm import Session
 from app.config import settings
 from app.ingestion.retrieve import retrieve_chunks
 from app.models import Conversation, Document, Message
+from app.usage import estimate_tokens, log_usage
 
 
 def _client() -> OpenAI:
@@ -129,6 +130,20 @@ def run_rag_chat(
     )
 
     db.add(asst_msg)
+    log_usage(
+        db,
+        kind="chat",
+        model=settings.chat_model if hits else None,
+        user_id=conversation.user_id,
+        workspace_id=conversation.workspace_id,
+        total_tokens=estimate_tokens(user_text, answer),
+        meta={
+            "conversation_id": str(conversation.id),
+            "estimated": True,
+            "denied": not bool(hits),
+            "hit_count": len(hits),
+        },
+    )
     db.commit()
     db.refresh(user_msg)
     db.refresh(asst_msg)
@@ -173,6 +188,7 @@ def iter_rag_chat_sse(
 
     citations: list[dict] = []
     answer_parts: list[str] = []
+    usage = None
 
     if not hits:
         answer = DENIAL_MESSAGE
@@ -207,9 +223,12 @@ ANSWER:"""
             ],
             temperature=0.1,
             stream=True,
+            stream_options={"include_usage": True},
         )
 
         for event in stream:
+            if getattr(event, "usage", None):
+                usage = event.usage
             delta = event.choices[0].delta.content if event.choices else None
             if delta:
                 answer_parts.append(delta)
@@ -222,8 +241,39 @@ ANSWER:"""
         content=full_answer or "(empty)",
         citations=citations,
     )
-
     db.add(asst_msg)
+
+    if usage is not None:
+        log_usage(
+            db,
+            kind="chat_stream",
+            model=settings.chat_model,
+            user_id=conversation.user_id,
+            workspace_id=conversation.workspace_id,
+            prompt_tokens=getattr(usage, "prompt_tokens", None),
+            completion_tokens=getattr(usage, "completion_tokens", None),
+            total_tokens=getattr(usage, "total_tokens", None),
+            meta={
+                "conversation_id": str(conversation.id),
+                "hit_count": len(hits),
+            },
+        )
+    else:
+        log_usage(
+            db,
+            kind="chat_stream",
+            model=settings.chat_model if hits else None,
+            user_id=conversation.user_id,
+            workspace_id=conversation.workspace_id,
+            total_tokens=estimate_tokens(user_text, full_answer),
+            meta={
+                "conversation_id": str(conversation.id),
+                "estimated": True,
+                "denied": not bool(hits),
+                "hit_count": len(hits),
+            },
+        )
+
     db.commit()
 
     yield _sse({"type": "citations", "citations": citations})

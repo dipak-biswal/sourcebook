@@ -4,6 +4,7 @@ import { ThemeProvider } from "@/components/theme/ThemeProvider";
 import { DocumentsPage } from "@/pages/DocumentsPage";
 import { LoginPage } from "@/pages/LoginPage";
 import { ChatPage } from "@/pages/ChatPage";
+import { UsagePage } from "@/pages/UsagePage";
 
 function HomeRedirect() {
   return <Navigate to={getToken() ? "/documents" : "/login"} replace />;
@@ -18,6 +19,7 @@ export default function App() {
           <Route path="/login" element={<LoginPage />} />
           <Route path="/chat" element={<ChatPage />} />
           <Route path="/documents" element={<DocumentsPage />} />
+          <Route path="/usage" element={<UsagePage />} />
           <Route path="*" element={<HomeRedirect />} />
         </Routes>
       </BrowserRouter>

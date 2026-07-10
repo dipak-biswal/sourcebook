@@ -1,5 +1,5 @@
 import { Link, useLocation } from "react-router-dom";
-import { Files, LogOut, MessageCircle } from "lucide-react";
+import { Activity, Files, LogOut, MessageCircle } from "lucide-react";
 import { SourcebookIcon } from "@/components/branding/SourcebookIcon";
 import { ThemeToggle } from "@/components/theme/ThemeToggle";
 import { Button } from "@/components/ui/button";
@@ -59,6 +59,18 @@ export function AppHeader({
             >
               <MessageCircle className="h-3.5 w-3.5" strokeWidth={1.5} />
               Chat
+            </Link>
+            <Link
+              to="/usage"
+              className={cn(
+                "flex items-center gap-1.5 rounded-[6px] px-2.5 py-1.5 text-[13px] font-medium transition-colors",
+                location.pathname.startsWith("/usage")
+                  ? "bg-canvas-soft-2 text-ink"
+                  : "text-body hover:bg-canvas-soft-2 hover:text-ink",
+              )}
+            >
+              <Activity className="h-3.5 w-3.5" strokeWidth={1.5} />
+              Usage
             </Link>
           </>
         )}

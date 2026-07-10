@@ -205,4 +205,27 @@ export const api = {
 
   /** Streaming chat (preferred for UI). */
   chatStream: streamChat,
+
+  usageSummary: () => request<UsageSummary>("/usage/summary"),
+
+  usageEvents: (limit = 50) =>
+    request<UsageEventRow[]>(`/usage/events?limit=${limit}`),
+};
+
+export type UsageEventRow = {
+  id: string;
+  kind: string;
+  model: string | null;
+  prompt_tokens: number | null;
+  completion_tokens: number | null;
+  total_tokens: number | null;
+  meta?: Record<string, unknown> | null;
+  created_at: string;
+};
+
+export type UsageSummary = {
+  event_count: number;
+  total_tokens: number;
+  by_kind: Record<string, number>;
+  recent: UsageEventRow[];
 };
