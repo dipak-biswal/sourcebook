@@ -76,7 +76,7 @@ async def upload_document(
     dest_path.write_bytes(content)
 
     doc = Document(
-        id=id,
+        id=doc_id,
         workspace_id=workspace_id,
         filename=safe_name,
         content_type=file.content_type,
