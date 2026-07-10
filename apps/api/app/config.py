@@ -18,5 +18,14 @@ class Settings(BaseSettings):
 
     upload_dir: str = "./data/uploads"
 
+    # Embeddings
+    openai_api_key: str = ""
+    openai_base_url: str = "https://api.openai.com/v1"
+    embedding_model: str = "text-embedding-3-small"
+    chat_model: str = "gpt-4o-mini"
+    rag_top_k: int = 5
+    # Cosine similarity floor for retrieval (0–1). Lower = more chunks kept.
+    rag_min_score: float = 0.12
+
 
 settings = Settings()

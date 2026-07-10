@@ -42,3 +42,40 @@ class DocumentResponse(BaseModel):
     created_at: datetime
 
     model_config = {"from_attributes": True}
+
+
+class ConversationCreate(BaseModel):
+    workspace_id: uuid.UUID
+    title: str = "New chat"
+
+
+class ConversationResponse(BaseModel):
+    id: uuid.UUID
+    workspace_id: uuid.UUID
+    user_id: uuid.UUID
+    title: str
+    created_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
+class MessageResponse(BaseModel):
+    id: uuid.UUID
+    conversation_id: uuid.UUID
+    role: str
+    content: str
+    citations: list | dict | None = None
+    created_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
+class ChatRequest(BaseModel):
+    conversation_id: uuid.UUID
+    message: str
+
+
+class ChatResponse(BaseModel):
+    conversation_id: uuid.UUID
+    message: str
+    citations: list[dict] = []

@@ -20,6 +20,7 @@ export function DocumentsPage() {
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [uploading, setUploading] = useState(false);
+  const [ingestingId, setIngestingId] = useState<string | null>(null);
 
   const loadDocs = useCallback(async (ws: string) => {
     if (!ws) return;
@@ -82,6 +83,20 @@ export function DocumentsPage() {
     }
   }
 
+  async function onIngest(id: string) {
+    setError(null);
+    setIngestingId(id);
+    try {
+      await api.ingestDocument(id);
+      await loadDocs(workspaceId);
+    } catch (err) {
+      setError(formatError(err));
+      await loadDocs(workspaceId);
+    } finally {
+      setIngestingId(null);
+    }
+  }
+
   return (
     <div className="flex h-full flex-col overflow-hidden bg-canvas-soft">
       <AppHeader
@@ -98,8 +113,10 @@ export function DocumentsPage() {
           documents={docs}
           loading={loading}
           uploading={uploading}
+          ingestingId={ingestingId}
           onUpload={onUpload}
           onDelete={onDelete}
+          onIngest={onIngest}
         />
 
         <main className="document-scroll flex min-h-0 min-w-0 flex-1 flex-col items-center justify-center overflow-y-auto px-8 py-12 text-center">
@@ -116,12 +133,12 @@ export function DocumentsPage() {
             Your document library
           </h2>
           <p className="mt-2 max-w-md text-body-sm text-mute">
-            Upload files from the sidebar. Later weeks add ingest, RAG chat with
-            citations, and tool-using agents.
+            Upload a .txt or .md, then click <strong className="text-ink">Ingest for chat</strong>{" "}
+            so status becomes <strong className="text-ink">ready</strong>. After that, open Chat.
           </p>
 
           <div className="mt-6 flex flex-wrap items-center justify-center gap-2">
-            {["Text", "Markdown", "PDF soon"].map((label) => (
+            {[".txt", ".md", "Ingest → ready"].map((label) => (
               <span
                 key={label}
                 className="inline-flex items-center gap-1.5 rounded-full border border-hairline bg-canvas px-3 py-1 text-xs text-body"
@@ -135,17 +152,25 @@ export function DocumentsPage() {
           <ol className="mt-8 max-w-sm space-y-2 text-left text-body-sm text-body">
             <li className="flex gap-2">
               <span className="font-medium text-ink">1.</span>
-              Create an account and open your workspace
+              Upload from the sidebar
             </li>
             <li className="flex gap-2">
               <span className="font-medium text-ink">2.</span>
-              Upload a source file from the sidebar
+              Click <strong>Ingest for chat</strong> (needs LM Studio embeddings)
             </li>
             <li className="flex gap-2">
               <span className="font-medium text-ink">3.</span>
-              Chat with grounded answers (coming next)
+              Open <strong>Chat</strong> and ask questions
             </li>
           </ol>
+
+          <button
+            type="button"
+            className="mt-8 text-sm font-medium text-ink underline-offset-2 hover:underline"
+            onClick={() => navigate("/chat")}
+          >
+            Go to Chat →
+          </button>
         </main>
       </div>
     </div>

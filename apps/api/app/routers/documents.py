@@ -90,6 +90,7 @@ async def upload_document(
     return doc
 
 
+@router.delete("/{document_id}")
 def delete_document(
     document_id: uuid.UUID,
     current_user: User = Depends(get_current_user),
