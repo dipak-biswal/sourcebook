@@ -1,7 +1,12 @@
 .env
-.env.example
+.env.local
+**/.env
 **/.venv/
 **/node_modules/
-**/docs/
-**/.vscode/
+**/__pycache__/
+**/*.py[cod]
+**/.pytest_cache/
+**/data/uploads/
+**/dist/
 .DS_Store
+**/.vscode/

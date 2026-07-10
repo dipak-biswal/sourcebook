@@ -1,15 +1,24 @@
+import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
+import { getToken } from "@/api";
+import { ThemeProvider } from "@/components/theme/ThemeProvider";
+import { DocumentsPage } from "@/pages/DocumentsPage";
+import { LoginPage } from "@/pages/LoginPage";
 
-import './App.css'
-
-function App() {
-
-  return <div style={{ fontFamily: "system-ui", padding: "1.5rem" }}>
-    <header>
-      <h1>Sourcebook</h1>
-      <p>Docuemnt AI workspace</p>
-    </header>
-    <main>Week 0 shell - API will connect later</main>
-  </div>
+function HomeRedirect() {
+  return <Navigate to={getToken() ? "/documents" : "/login"} replace />;
 }
 
-export default App
+export default function App() {
+  return (
+    <ThemeProvider>
+      <BrowserRouter>
+        <Routes>
+          <Route path="/" element={<HomeRedirect />} />
+          <Route path="/login" element={<LoginPage />} />
+          <Route path="/documents" element={<DocumentsPage />} />
+          <Route path="*" element={<HomeRedirect />} />
+        </Routes>
+      </BrowserRouter>
+    </ThemeProvider>
+  );
+}
