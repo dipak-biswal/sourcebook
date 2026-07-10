@@ -60,7 +60,16 @@ export function ChatPage() {
       return;
     }
     const list = await api.messages(convId);
-    setMessages(list);
+    // Oldest → newest (user then assistant). Guard against API/clock quirks.
+    const sorted = [...list].sort((a, b) => {
+      const ta = new Date(a.created_at).getTime();
+      const tb = new Date(b.created_at).getTime();
+      if (ta !== tb) return ta - tb;
+      if (a.role === "user" && b.role === "assistant") return -1;
+      if (a.role === "assistant" && b.role === "user") return 1;
+      return a.id.localeCompare(b.id);
+    });
+    setMessages(sorted);
   }, []);
 
   const loadConversations = useCallback(
