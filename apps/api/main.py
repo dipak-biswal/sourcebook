@@ -2,6 +2,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import settings
+from app.db import Base, engine
 from app.logging_config import get_logger, setup_logging
 from app.middleware.request_logging import RequestLoggingMiddleware
 from app.routers import (
@@ -16,6 +17,9 @@ from app.routers import (
     usage,
     workspaces,
 )
+
+# Register models on Base.metadata before create_all
+import app.models  # noqa: F401
 
 setup_logging(level=settings.log_level, json_logs=settings.log_json)
 logger = get_logger("sourcebook.api")
@@ -52,6 +56,14 @@ if settings.dev_mode:
 
 @app.on_event("startup")
 def on_startup() -> None:
+    # Fresh cloud DBs need tables; local already has them (create_all is idempotent).
+    try:
+        Base.metadata.create_all(bind=engine)
+        logger.info("db_tables_ready", extra={"event": "db_init"})
+    except Exception:
+        logger.exception("db_init_failed", extra={"event": "db_init_failed"})
+        raise
+
     logger.info(
         "api_started",
         extra={
