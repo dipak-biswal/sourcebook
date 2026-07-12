@@ -1,10 +1,19 @@
+import json
+import queue
+import threading
 import uuid
+from collections.abc import Generator
 
 from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session, joinedload
 
-from app.agents.runner import approve_agent_run, run_agent
-from app.db import get_db
+from app.agents.runner import (
+    approve_agent_run,
+    run_agent,
+    run_to_public_dict,
+)
+from app.db import SessionLocal, get_db
 from app.deps import get_current_user
 from app.models import AgentRun, User, WorkspaceMember
 from app.rate_limit import rate_limit
@@ -36,6 +45,40 @@ def _load_run(db: Session, run_id: uuid.UUID, user_id: uuid.UUID) -> AgentRun | 
         .filter(AgentRun.id == run_id, AgentRun.user_id == user_id)
         .first()
     )
+
+
+def _sse(payload: dict) -> str:
+    return f"data: {json.dumps(payload, ensure_ascii=False, default=str)}\n\n"
+
+
+def _stream_agent_work(
+    work,
+) -> Generator[str, None, None]:
+    """
+    Run agent work in a background thread with its own DB session,
+    yield LangSmith-style SSE events as they occur.
+    """
+    q: queue.Queue = queue.Queue()
+
+    def on_event(event_type: str, payload: dict) -> None:
+        q.put({"type": event_type, **payload})
+
+    def runner() -> None:
+        db = SessionLocal()
+        try:
+            work(db, on_event)
+        except Exception as e:
+            q.put({"type": "error", "detail": str(e)})
+        finally:
+            db.close()
+            q.put(None)
+
+    threading.Thread(target=runner, daemon=True).start()
+    while True:
+        item = q.get()
+        if item is None:
+            break
+        yield _sse(item)
 
 
 @router.post("/runs", response_model=AgentRunResponse, status_code=201)
@@ -70,6 +113,61 @@ def start_agent_run(
     return loaded
 
 
+@router.post("/runs/stream")
+def start_agent_run_stream(
+    body: AgentRunCreate,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+    _: None = Depends(rate_limit("agent")),
+):
+    """
+    LangSmith-style live trace: SSE events as the agent runs.
+
+    Events: run_start, llm_start, llm_end, step, status, done, error
+    """
+    _require_member(db, current_user.id, body.workspace_id)
+    if not body.goal.strip():
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail="goal is empty"
+        )
+
+    workspace_id = body.workspace_id
+    user_id = current_user.id
+    goal = body.goal.strip()
+    max_steps = min(max(body.max_steps, 1), 8)
+
+    def work(session: Session, on_event) -> None:
+        run = run_agent(
+            session,
+            workspace_id=workspace_id,
+            user_id=user_id,
+            goal=goal,
+            max_steps=max_steps,
+            on_event=on_event,
+        )
+        # reload with steps
+        loaded = (
+            session.query(AgentRun)
+            .options(joinedload(AgentRun.steps))
+            .filter(AgentRun.id == run.id)
+            .first()
+        )
+        on_event(
+            "done",
+            {"run": run_to_public_dict(loaded or run)},
+        )
+
+    return StreamingResponse(
+        _stream_agent_work(work),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )
+
+
 @router.post("/runs/{run_id}/approve", response_model=AgentRunResponse)
 def approve_run(
     run_id: uuid.UUID,
@@ -93,6 +191,53 @@ def approve_run(
     if not loaded:
         raise HTTPException(status_code=500, detail="Run missing after approve")
     return loaded
+
+
+@router.post("/runs/{run_id}/approve/stream")
+def approve_run_stream(
+    run_id: uuid.UUID,
+    body: AgentApproveRequest,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """SSE stream while resume-after-approve continues the agent."""
+    existing = _load_run(db, run_id, current_user.id)
+    if not existing:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Run not found"
+        )
+
+    rid = run_id
+    uid = current_user.id
+    approve = body.approve
+
+    def work(session: Session, on_event) -> None:
+        run = (
+            session.query(AgentRun)
+            .options(joinedload(AgentRun.steps))
+            .filter(AgentRun.id == rid, AgentRun.user_id == uid)
+            .first()
+        )
+        if not run:
+            raise ValueError("Run not found")
+        approve_agent_run(session, run, approve=approve, on_event=on_event)
+        loaded = (
+            session.query(AgentRun)
+            .options(joinedload(AgentRun.steps))
+            .filter(AgentRun.id == rid)
+            .first()
+        )
+        on_event("done", {"run": run_to_public_dict(loaded or run)})
+
+    return StreamingResponse(
+        _stream_agent_work(work),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )
 
 
 @router.get("/runs/{run_id}", response_model=AgentRunResponse)

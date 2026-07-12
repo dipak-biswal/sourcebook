@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import json
+import time
 import uuid
+from collections.abc import Callable
 from typing import Any
 
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, SystemMessage, ToolMessage
@@ -17,6 +19,9 @@ from app.models import AgentRun, AgentStep
 from app.usage import estimate_tokens, log_usage
 
 WRITE_TOOLS = frozenset({"create_note"})
+
+# on_event(event_type, payload) — used for LangSmith-style live traces (SSE)
+EventCallback = Callable[[str, dict[str, Any]], None] | None
 
 SYSTEM_PROMPT = (
     "You are Sourcebook's workspace agent. "
@@ -106,6 +111,40 @@ def _log_agent_usage(
     )
 
 
+def step_to_dict(step: AgentStep) -> dict[str, Any]:
+    return {
+        "id": str(step.id),
+        "step_index": step.step_index,
+        "type": step.type,
+        "tool_name": step.tool_name,
+        "input": step.input,
+        "output": step.output,
+        "created_at": step.created_at.isoformat() if step.created_at else None,
+    }
+
+
+def run_to_public_dict(run: AgentRun) -> dict[str, Any]:
+    steps = sorted(run.steps or [], key=lambda s: s.step_index)
+    return {
+        "id": str(run.id),
+        "workspace_id": str(run.workspace_id),
+        "user_id": str(run.user_id) if run.user_id else None,
+        "goal": run.goal,
+        "status": run.status,
+        "final_answer": run.final_answer,
+        "error": run.error,
+        "token_usage": run.token_usage,
+        "pending_tool": run.pending_tool,
+        "created_at": run.created_at.isoformat() if run.created_at else None,
+        "steps": [step_to_dict(s) for s in steps],
+    }
+
+
+def _emit(on_event: EventCallback, event_type: str, **payload: Any) -> None:
+    if on_event:
+        on_event(event_type, payload)
+
+
 def _append_step(
     db: Session,
     run: AgentRun,
@@ -115,18 +154,25 @@ def _append_step(
     tool_name: str | None = None,
     input: Any = None,
     output: Any = None,
-) -> None:
-    db.add(
-        AgentStep(
-            run_id=run.id,
-            step_index=step_index,
-            type=type,
-            tool_name=tool_name,
-            input=input,
-            output=output,
-        )
+    on_event: EventCallback = None,
+    duration_ms: float | None = None,
+) -> AgentStep:
+    step = AgentStep(
+        run_id=run.id,
+        step_index=step_index,
+        type=type,
+        tool_name=tool_name,
+        input=input,
+        output=output,
     )
+    db.add(step)
     db.flush()
+    db.refresh(step)
+    payload = step_to_dict(step)
+    if duration_ms is not None:
+        payload["duration_ms"] = round(duration_ms, 1)
+    _emit(on_event, "step", step=payload, run_id=str(run.id), status=run.status)
+    return step
 
 
 def _next_step_index(db: Session, run_id: uuid.UUID) -> int:
@@ -235,6 +281,7 @@ def _run_tool_loop(
     completion_tokens_total: int = 0,
     total_tokens_acc: int = 0,
     start_step_index: int | None = None,
+    on_event: EventCallback = None,
 ) -> AgentRun:
     """
     Shared LLM ↔ tools loop.
@@ -254,13 +301,34 @@ def _run_tool_loop(
 
     try:
         for _ in range(max(1, max_steps)):
+            _emit(
+                on_event,
+                "llm_start",
+                run_id=str(run.id),
+                name="ChatOpenAI",
+                status=run.status,
+            )
+            t0 = time.perf_counter()
             ai: AIMessage = model.invoke(messages)  # type: ignore[assignment]
+            llm_ms = (time.perf_counter() - t0) * 1000
             messages.append(ai)
 
             p, c, t = _tokens_from_ai_message(ai)
             prompt_tokens_total += p
             completion_tokens_total += c
             total_tokens_acc += t if t else (p + c)
+            _emit(
+                on_event,
+                "llm_end",
+                run_id=str(run.id),
+                name="ChatOpenAI",
+                duration_ms=round(llm_ms, 1),
+                prompt_tokens=p,
+                completion_tokens=c,
+                total_tokens=t if t else (p + c),
+                has_tool_calls=bool(ai.tool_calls),
+                token_usage_so_far=total_tokens_acc,
+            )
 
             if ai.tool_calls:
                 for tc in ai.tool_calls:
@@ -272,6 +340,7 @@ def _run_tool_loop(
                         type="tool_call",
                         tool_name=tc.get("name"),
                         input=tc.get("args"),
+                        on_event=on_event,
                     )
             content = _content_str(ai.content)
             if content:
@@ -282,6 +351,8 @@ def _run_tool_loop(
                     step_index=step_index,
                     type="thought" if ai.tool_calls else "final",
                     output=content,
+                    on_event=on_event,
+                    duration_ms=llm_ms if not ai.tool_calls else None,
                 )
 
             if not ai.tool_calls:
@@ -300,6 +371,14 @@ def _run_tool_loop(
                 )
                 db.commit()
                 db.refresh(run)
+                _emit(
+                    on_event,
+                    "status",
+                    run_id=str(run.id),
+                    status=run.status,
+                    token_usage=run.token_usage,
+                    final_answer=run.final_answer,
+                )
                 return run
 
             write_calls = [
@@ -332,6 +411,7 @@ def _run_tool_loop(
                         tool_name=rname,
                         input=rargs,
                         output=rresult,
+                        on_event=on_event,
                     )
                     messages.append(
                         ToolMessage(
@@ -367,6 +447,7 @@ def _run_tool_loop(
                         "status": "waiting_approval",
                         "resumable": True,
                     },
+                    on_event=on_event,
                 )
                 run.token_usage = total_tokens_acc or None
                 run.final_answer = (
@@ -377,6 +458,15 @@ def _run_tool_loop(
                 # Don't log completion usage yet — resume will log final
                 db.commit()
                 db.refresh(run)
+                _emit(
+                    on_event,
+                    "status",
+                    run_id=str(run.id),
+                    status=run.status,
+                    token_usage=run.token_usage,
+                    pending_tool=run.pending_tool,
+                    final_answer=run.final_answer,
+                )
                 return run
 
             # Execute read tools only
@@ -402,6 +492,7 @@ def _run_tool_loop(
                     tool_name=name,
                     input=args,
                     output=result,
+                    on_event=on_event,
                 )
                 messages.append(
                     ToolMessage(
@@ -426,6 +517,14 @@ def _run_tool_loop(
         )
         db.commit()
         db.refresh(run)
+        _emit(
+            on_event,
+            "status",
+            run_id=str(run.id),
+            status=run.status,
+            token_usage=run.token_usage,
+            final_answer=run.final_answer,
+        )
         return run
 
     except Exception as e:
@@ -452,6 +551,7 @@ def run_agent(
     user_id: uuid.UUID,
     goal: str,
     max_steps: int = 5,
+    on_event: EventCallback = None,
 ) -> AgentRun:
     """
     Tool loop with human approval for write tools.
@@ -477,12 +577,21 @@ def run_agent(
         SystemMessage(content=SYSTEM_PROMPT),
         HumanMessage(content=goal),
     ]
+    _emit(
+        on_event,
+        "run_start",
+        run_id=str(run.id),
+        goal=goal,
+        workspace_id=str(workspace_id),
+        status="running",
+    )
     return _run_tool_loop(
         db,
         run,
         messages=messages,
         max_steps=max(1, min(max_steps, 12)),
         start_step_index=0,
+        on_event=on_event,
     )
 
 
@@ -491,6 +600,7 @@ def approve_agent_run(
     run: AgentRun,
     *,
     approve: bool,
+    on_event: EventCallback = None,
 ) -> AgentRun:
     """
     Approve or reject a pending write tool.
@@ -518,6 +628,7 @@ def approve_agent_run(
             tool_name=name,
             input=args,
             output={"status": "rejected"},
+            on_event=on_event,
         )
         run.status = "cancelled"
         run.pending_tool = None
@@ -552,6 +663,7 @@ def approve_agent_run(
             tool_name=name,
             input=args,
             output={"error": str(e)},
+            on_event=on_event,
         )
         run.status = "failed"
         run.error = str(e)
@@ -568,6 +680,7 @@ def approve_agent_run(
         tool_name=name,
         input=args,
         output={"status": "approved"},
+        on_event=on_event,
     )
     step_index += 1
     _append_step(
@@ -578,6 +691,7 @@ def approve_agent_run(
         tool_name=name,
         input=args,
         output=result,
+        on_event=on_event,
     )
 
     # Rebuild conversation and append successful write result
@@ -627,6 +741,13 @@ def approve_agent_run(
     # Allow a few more steps after approval to finish cleanly
     resume_steps = max(2, min(remaining, 6))
 
+    _emit(
+        on_event,
+        "status",
+        run_id=str(run.id),
+        status="running",
+        message="resuming after approval",
+    )
     return _run_tool_loop(
         db,
         run,
@@ -636,4 +757,5 @@ def approve_agent_run(
         completion_tokens_total=int(checkpoint.get("completion_tokens") or 0),
         total_tokens_acc=int(checkpoint.get("total_tokens") or 0),
         start_step_index=step_index,
+        on_event=on_event,
     )

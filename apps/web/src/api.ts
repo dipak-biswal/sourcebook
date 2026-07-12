@@ -222,6 +222,14 @@ export const api = {
       }),
     }),
 
+  /** LangSmith-style live agent trace (SSE). */
+  startAgentRunStream: (
+    workspaceId: string,
+    goal: string,
+    handlers: AgentStreamHandlers = {},
+    maxSteps = 5,
+  ) => streamAgentRun("/agents/runs/stream", { workspace_id: workspaceId, goal, max_steps: maxSteps }, handlers),
+
   agentRuns: (workspaceId: string) =>
     request<AgentRun[]>(`/agents/runs?workspace_id=${workspaceId}`),
 
@@ -232,6 +240,17 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ approve }),
     }),
+
+  approveAgentRunStream: (
+    runId: string,
+    approve: boolean,
+    handlers: AgentStreamHandlers = {},
+  ) =>
+    streamAgentRun(
+      `/agents/runs/${runId}/approve/stream`,
+      { approve },
+      handlers,
+    ),
 
   notes: (workspaceId: string) =>
     request<Note[]>(`/notes?workspace_id=${workspaceId}`),
@@ -299,6 +318,7 @@ export type AgentStep = {
   input?: unknown;
   output?: unknown;
   created_at: string;
+  duration_ms?: number | null;
 };
 
 export type AgentRun = {
@@ -318,6 +338,114 @@ export type AgentRun = {
   created_at: string;
   steps: AgentStep[];
 };
+
+export type AgentStreamHandlers = {
+  onRunStart?: (payload: {
+    run_id?: string;
+    goal?: string;
+    status?: string;
+  }) => void;
+  onLlmStart?: (payload: Record<string, unknown>) => void;
+  onLlmEnd?: (payload: {
+    duration_ms?: number;
+    total_tokens?: number;
+    token_usage_so_far?: number;
+    has_tool_calls?: boolean;
+  }) => void;
+  onStep?: (step: AgentStep) => void;
+  onStatus?: (payload: {
+    status?: string;
+    token_usage?: number | null;
+    final_answer?: string | null;
+    pending_tool?: AgentRun["pending_tool"];
+  }) => void;
+  onDone?: (run: AgentRun) => void;
+  onError?: (detail: string) => void;
+};
+
+async function streamAgentRun(
+  path: string,
+  body: Record<string, unknown>,
+  handlers: AgentStreamHandlers,
+): Promise<AgentRun | null> {
+  const token = getToken();
+  const res = await fetch(`${API_URL}${path}`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(text || res.statusText);
+  }
+  if (!res.body) throw new Error("No response body for agent stream");
+
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  let finalRun: AgentRun | null = null;
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+    const parts = buffer.split("\n\n");
+    buffer = parts.pop() ?? "";
+
+    for (const part of parts) {
+      const line = part
+        .split("\n")
+        .map((l) => l.trim())
+        .find((l) => l.startsWith("data:"));
+      if (!line) continue;
+      const raw = line.replace(/^data:\s*/, "");
+      if (!raw) continue;
+      let payload: Record<string, unknown>;
+      try {
+        payload = JSON.parse(raw) as Record<string, unknown>;
+      } catch {
+        continue;
+      }
+      const type = String(payload.type || "");
+      if (type === "run_start") {
+        handlers.onRunStart?.({
+          run_id: payload.run_id as string | undefined,
+          goal: payload.goal as string | undefined,
+          status: payload.status as string | undefined,
+        });
+      } else if (type === "llm_start") {
+        handlers.onLlmStart?.(payload);
+      } else if (type === "llm_end") {
+        handlers.onLlmEnd?.({
+          duration_ms: payload.duration_ms as number | undefined,
+          total_tokens: payload.total_tokens as number | undefined,
+          token_usage_so_far: payload.token_usage_so_far as number | undefined,
+          has_tool_calls: payload.has_tool_calls as boolean | undefined,
+        });
+      } else if (type === "step" && payload.step) {
+        handlers.onStep?.(payload.step as AgentStep);
+      } else if (type === "status") {
+        handlers.onStatus?.({
+          status: payload.status as string | undefined,
+          token_usage: (payload.token_usage as number | null | undefined) ?? null,
+          final_answer: (payload.final_answer as string | null | undefined) ?? null,
+          pending_tool: payload.pending_tool as AgentRun["pending_tool"],
+        });
+      } else if (type === "done" && payload.run) {
+        finalRun = payload.run as AgentRun;
+        handlers.onDone?.(finalRun);
+      } else if (type === "error") {
+        const detail = String(payload.detail || "Agent stream error");
+        handlers.onError?.(detail);
+        throw new Error(detail);
+      }
+    }
+  }
+  return finalRun;
+}
 
 export type Note = {
   id: string;

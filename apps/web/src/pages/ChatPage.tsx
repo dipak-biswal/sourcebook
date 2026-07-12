@@ -13,11 +13,16 @@ import {
   api,
   getToken,
   type AgentRun,
+  type AgentStep,
   type ChatMessage,
   type Conversation,
   type Workspace,
 } from "@/api";
-import { AgentRunPanel } from "@/components/agents/AgentRunPanel";
+import {
+  AgentRunPanel,
+  type LiveTraceSpan,
+  type LlmTraceEvent,
+} from "@/components/agents/AgentRunPanel";
 import {
   extractGenerativeUIFromSteps,
   GenerativeUIView,
@@ -54,6 +59,13 @@ type AgentThreadItem = {
   content: string;
   run?: AgentRun | null;
   pending?: boolean;
+  /** User goal — used to show run view immediately before API returns */
+  goal?: string;
+  liveSteps?: AgentStep[];
+  liveTokenUsage?: number | null;
+  liveLlmEvents?: LlmTraceEvent[];
+  /** Chronological LangSmith-style spans as SSE events arrive */
+  liveTrace?: LiveTraceSpan[];
 };
 
 type ThreadItem =
@@ -255,9 +267,59 @@ export function ChatPage() {
     setAgentThread((prev) =>
       prev.map((item) =>
         item.id === asstId
-          ? { ...item, content, run, pending: false }
+          ? {
+              ...item,
+              content,
+              run,
+              pending: false,
+              liveSteps: run.steps,
+              liveTokenUsage: run.token_usage,
+              // Keep chronological trace if we streamed it; else map steps
+              liveTrace:
+                item.liveTrace && item.liveTrace.length > 0
+                  ? item.liveTrace
+                  : run.steps.map((step) => ({ kind: "step" as const, step })),
+              liveLlmEvents: [],
+            }
           : item,
       ),
+    );
+  }
+
+  function appendTrace(asstId: string, span: LiveTraceSpan) {
+    setAgentThread((prev) =>
+      prev.map((item) => {
+        if (item.id !== asstId) return item;
+        return { ...item, liveTrace: [...(item.liveTrace ?? []), span] };
+      }),
+    );
+  }
+
+  function patchLlmInTrace(
+    asstId: string,
+    patch: Partial<LlmTraceEvent> & { status?: "running" | "done" },
+  ) {
+    setAgentThread((prev) =>
+      prev.map((item) => {
+        if (item.id !== asstId) return item;
+        const liveTrace = (item.liveTrace ?? []).map((node) => {
+          if (node.kind !== "llm" || node.event.status !== "running") return node;
+          return {
+            kind: "llm" as const,
+            event: { ...node.event, ...patch, status: "done" as const },
+          };
+        });
+        return { ...item, liveTrace };
+      }),
+    );
+  }
+
+  function patchLive(
+    asstId: string,
+    patch: Partial<AgentThreadItem>,
+  ) {
+    setAgentThread((prev) =>
+      prev.map((item) => (item.id === asstId ? { ...item, ...patch } : item)),
     );
   }
 
@@ -326,26 +388,134 @@ export function ChatPage() {
     const userId = `agent-user-${Date.now()}`;
     const asstId = `agent-asst-${Date.now()}`;
 
+    // Optimistic UI first — run panel mounts before the network call
     setAgentThread((prev) => [
       ...prev,
       { id: userId, role: "user", content: text },
       {
         id: asstId,
         role: "assistant",
-        content: "Agent is working (tools may take ~30s)…",
+        content: "Agent is working — run view is open below…",
         pending: true,
         run: null,
+        goal: text,
       },
     ]);
+    // Scroll after paint so the live run panel is visible immediately
+    requestAnimationFrame(() => {
+      bottomRef.current?.scrollIntoView({ behavior: "smooth" });
+    });
 
     try {
-      const run = await api.startAgentRun(workspaceId, text, 5);
-      applyRunToThread(asstId, run);
-      if (run.status === "waiting_approval") {
-        success("Approval needed", "Review the write action below.");
-      } else if (run.status === "completed") {
-        success("Agent finished");
-      }
+      const run = await api.startAgentRunStream(
+        workspaceId,
+        text,
+        {
+          onRunStart: () => {
+            patchLive(asstId, {
+              content: "Trace live — LLM and tool spans appear as they run…",
+            });
+          },
+          onLlmStart: () => {
+            const id = `llm-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+            const event: LlmTraceEvent = {
+              id,
+              kind: "llm",
+              status: "running",
+              name: "ChatOpenAI",
+            };
+            appendTrace(asstId, { kind: "llm", event });
+            setAgentThread((prev) =>
+              prev.map((item) => {
+                if (item.id !== asstId) return item;
+                return {
+                  ...item,
+                  liveLlmEvents: [
+                    ...(item.liveLlmEvents ?? []).filter((e) => e.status === "done"),
+                    event,
+                  ],
+                };
+              }),
+            );
+          },
+          onLlmEnd: (p) => {
+            patchLlmInTrace(asstId, {
+              duration_ms: p.duration_ms,
+              total_tokens: p.total_tokens,
+              has_tool_calls: p.has_tool_calls,
+            });
+            setAgentThread((prev) =>
+              prev.map((item) => {
+                if (item.id !== asstId) return item;
+                const events = (item.liveLlmEvents ?? []).map((e) =>
+                  e.status === "running"
+                    ? {
+                        ...e,
+                        status: "done" as const,
+                        duration_ms: p.duration_ms,
+                        total_tokens: p.total_tokens,
+                        has_tool_calls: p.has_tool_calls,
+                      }
+                    : e,
+                );
+                return {
+                  ...item,
+                  liveLlmEvents: events,
+                  liveTokenUsage:
+                    p.token_usage_so_far ?? item.liveTokenUsage ?? null,
+                };
+              }),
+            );
+          },
+          onStep: (step) => {
+            setAgentThread((prev) =>
+              prev.map((item) => {
+                if (item.id !== asstId) return item;
+                const steps = [...(item.liveSteps ?? [])];
+                const i = steps.findIndex((s) => s.id === step.id);
+                if (i >= 0) steps[i] = step;
+                else steps.push(step);
+                // Append to chronological tree only once
+                const already = (item.liveTrace ?? []).some(
+                  (n) => n.kind === "step" && n.step.id === step.id,
+                );
+                const liveTrace = already
+                  ? (item.liveTrace ?? []).map((n) =>
+                      n.kind === "step" && n.step.id === step.id
+                        ? { kind: "step" as const, step }
+                        : n,
+                    )
+                  : [...(item.liveTrace ?? []), { kind: "step" as const, step }];
+                return { ...item, liveSteps: steps, liveTrace };
+              }),
+            );
+            requestAnimationFrame(() => {
+              bottomRef.current?.scrollIntoView({ behavior: "smooth" });
+            });
+          },
+          onStatus: (p) => {
+            if (p.final_answer) {
+              patchLive(asstId, { content: p.final_answer });
+            }
+            if (p.token_usage != null) {
+              patchLive(asstId, { liveTokenUsage: p.token_usage });
+            }
+          },
+          onDone: (final) => {
+            applyRunToThread(asstId, final);
+            if (final.status === "waiting_approval") {
+              success("Approval needed", "Review the write action below.");
+            } else if (final.status === "completed") {
+              success("Agent finished");
+            }
+          },
+        },
+        5,
+      );
+      if (run) applyRunToThread(asstId, run);
+      requestAnimationFrame(() => {
+        bottomRef.current?.scrollIntoView({ behavior: "smooth" });
+      });
     } catch (err) {
       const msg = formatError(err);
       setError(msg);
@@ -362,13 +532,23 @@ export function ChatPage() {
     const text = input.trim();
     if (!text || sending || !workspaceId) return;
 
-    setSending(true);
     setError(null);
     setInput("");
 
+    if (mode === "agent") {
+      // Do not wait to flip UI — show run panel in the same tick as click
+      setSending(true);
+      try {
+        await onSendAgent(text);
+      } finally {
+        setSending(false);
+      }
+      return;
+    }
+
+    setSending(true);
     try {
-      if (mode === "chat") await onSendChat(text);
-      else await onSendAgent(text);
+      await onSendChat(text);
     } finally {
       setSending(false);
     }
@@ -378,14 +558,115 @@ export function ChatPage() {
     if (approving) return;
     setApproving(true);
     setError(null);
+    // Keep run view live while resume-after-approve is in flight
+    setAgentThread((prev) =>
+      prev.map((item) =>
+        item.id === asstId
+          ? {
+              ...item,
+              pending: true,
+              content: approve
+                ? "Approved — agent is continuing…"
+                : "Rejecting…",
+            }
+          : item,
+      ),
+    );
     try {
-      const run = await api.approveAgentRun(runId, approve);
-      applyRunToThread(asstId, run);
-      success(approve ? "Action approved" : "Action rejected");
+      if (!approve) {
+        const run = await api.approveAgentRun(runId, false);
+        applyRunToThread(asstId, run);
+        success("Action rejected");
+        return;
+      }
+      const run = await api.approveAgentRunStream(runId, true, {
+        onStep: (step) => {
+          setAgentThread((prev) =>
+            prev.map((item) => {
+              if (item.id !== asstId) return item;
+              const steps = [...(item.liveSteps ?? item.run?.steps ?? [])];
+              const i = steps.findIndex((s) => s.id === step.id);
+              if (i >= 0) steps[i] = step;
+              else steps.push(step);
+              const already = (item.liveTrace ?? []).some(
+                (n) => n.kind === "step" && n.step.id === step.id,
+              );
+              const liveTrace = already
+                ? (item.liveTrace ?? []).map((n) =>
+                    n.kind === "step" && n.step.id === step.id
+                      ? { kind: "step" as const, step }
+                      : n,
+                  )
+                : [...(item.liveTrace ?? []), { kind: "step" as const, step }];
+              return { ...item, liveSteps: steps, liveTrace };
+            }),
+          );
+        },
+        onLlmStart: () => {
+          const id = `llm-resume-${Date.now()}`;
+          const event: LlmTraceEvent = {
+            id,
+            kind: "llm",
+            status: "running",
+            name: "ChatOpenAI",
+          };
+          appendTrace(asstId, { kind: "llm", event });
+          setAgentThread((prev) =>
+            prev.map((item) => {
+              if (item.id !== asstId) return item;
+              return {
+                ...item,
+                liveLlmEvents: [
+                  ...(item.liveLlmEvents ?? []).filter((e) => e.status === "done"),
+                  event,
+                ],
+              };
+            }),
+          );
+        },
+        onLlmEnd: (p) => {
+          patchLlmInTrace(asstId, {
+            duration_ms: p.duration_ms,
+            total_tokens: p.total_tokens,
+            has_tool_calls: p.has_tool_calls,
+          });
+          setAgentThread((prev) =>
+            prev.map((item) => {
+              if (item.id !== asstId) return item;
+              return {
+                ...item,
+                liveTokenUsage:
+                  p.token_usage_so_far ?? item.liveTokenUsage ?? null,
+                liveLlmEvents: (item.liveLlmEvents ?? []).map((e) =>
+                  e.status === "running"
+                    ? {
+                        ...e,
+                        status: "done" as const,
+                        duration_ms: p.duration_ms,
+                        total_tokens: p.total_tokens,
+                        has_tool_calls: p.has_tool_calls,
+                      }
+                    : e,
+                ),
+              };
+            }),
+          );
+        },
+        onDone: (final) => {
+          applyRunToThread(asstId, final);
+          success("Action approved — agent continued");
+        },
+      });
+      if (run) applyRunToThread(asstId, run);
     } catch (err) {
       const msg = formatError(err);
       setError(msg);
       toastError("Approval failed", msg);
+      setAgentThread((prev) =>
+        prev.map((item) =>
+          item.id === asstId ? { ...item, pending: false } : item,
+        ),
+      );
     } finally {
       setApproving(false);
     }
@@ -410,8 +691,12 @@ export function ChatPage() {
         content: "Preparing note (approval required)…",
         pending: true,
         run: null,
+        goal,
       },
     ]);
+    requestAnimationFrame(() => {
+      bottomRef.current?.scrollIntoView({ behavior: "smooth" });
+    });
     try {
       const run = await api.startAgentRun(workspaceId, goal, 5);
       applyRunToThread(asstId, run);
@@ -678,10 +963,9 @@ export function ChatPage() {
 
                       {/* Showcase: generative learning UI (product surface) */}
                       {!isUser &&
-                        item.run &&
                         (() => {
                           const gen = extractGenerativeUIFromSteps(
-                            item.run.steps ?? [],
+                            item.liveSteps ?? item.run?.steps ?? [],
                           );
                           return gen ? (
                             <div className="mt-2 w-full max-w-[min(100%,36rem)]">
@@ -696,12 +980,17 @@ export function ChatPage() {
                           ) : null;
                         })()}
 
-                      {/* Behind the scenes: tools, I/O, tokens, decisions */}
+                      {/* LangSmith-style trace: mounts on Send, streams live */}
                       {!isUser && (item.run || item.pending) && (
-                        <div className="mt-2 w-full max-w-[min(100%,36rem)]">
+                        <div className="mt-2 w-full max-w-[min(100%,40rem)]">
                           <AgentRunPanel
                             run={item.run}
-                            pending={item.pending}
+                            pending={!!item.pending}
+                            goal={item.goal || item.run?.goal}
+                            liveSteps={item.liveSteps}
+                            liveTokenUsage={item.liveTokenUsage}
+                            liveLlmEvents={item.liveLlmEvents}
+                            liveTrace={item.liveTrace}
                             approving={approving}
                             forceOpenWhilePending
                             onApprove={
@@ -819,7 +1108,11 @@ export function ChatPage() {
                   ) : (
                     <Send className="h-4 w-4" strokeWidth={1.5} />
                   )}
-                  Send
+                  {sending
+                    ? mode === "agent"
+                      ? "Tracing…"
+                      : "Sending…"
+                    : "Send"}
                 </Button>
               </div>
             </div>

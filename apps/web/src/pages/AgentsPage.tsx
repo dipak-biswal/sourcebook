@@ -13,10 +13,15 @@ import {
   api,
   getToken,
   type AgentRun,
+  type AgentStep,
   type Note,
   type Workspace,
 } from "@/api";
-import { AgentRunPanel } from "@/components/agents/AgentRunPanel";
+import {
+  AgentRunPanel,
+  type LiveTraceSpan,
+  type LlmTraceEvent,
+} from "@/components/agents/AgentRunPanel";
 import {
   extractGenerativeUIFromSteps,
   GenerativeUIView,
@@ -67,6 +72,12 @@ export function AgentsPage() {
   const [approving, setApproving] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [savingNote, setSavingNote] = useState(false);
+  /** Live LangSmith-style trace state — mounts on Run click */
+  const [liveGoal, setLiveGoal] = useState<string | null>(null);
+  const [liveSteps, setLiveSteps] = useState<AgentStep[]>([]);
+  const [liveTokenUsage, setLiveTokenUsage] = useState<number | null>(null);
+  const [liveLlmEvents, setLiveLlmEvents] = useState<LlmTraceEvent[]>([]);
+  const [liveTrace, setLiveTrace] = useState<LiveTraceSpan[]>([]);
 
   const loadNotes = useCallback(async (ws: string) => {
     if (!ws) return;
@@ -133,6 +144,11 @@ export function AgentsPage() {
   async function onSelect(id: string) {
     setSelectedId(id);
     setError(null);
+    setLiveSteps([]);
+    setLiveTrace([]);
+    setLiveLlmEvents([]);
+    setLiveTokenUsage(null);
+    setLiveGoal(null);
     try {
       setSelected(await api.agentRun(id));
     } catch (err) {
@@ -140,19 +156,118 @@ export function AgentsPage() {
     }
   }
 
+  function resetLiveTrace(goalText: string) {
+    setLiveGoal(goalText);
+    setLiveSteps([]);
+    setLiveTokenUsage(null);
+    setLiveLlmEvents([]);
+    setLiveTrace([]);
+  }
+
   async function onRun(e: FormEvent) {
     e.preventDefault();
     if (!workspaceId || !goal.trim() || running) return;
+    const goalText = goal.trim();
+    // LangSmith-style panel opens immediately — spans stream in via SSE
+    resetLiveTrace(goalText);
     setRunning(true);
     setError(null);
+    setSelected(null);
+    setSelectedId("");
     try {
-      const run = await api.startAgentRun(workspaceId, goal.trim(), 5);
-      await refreshWorkspace(workspaceId, run.id);
-      setSelected(run);
-      if (run.status === "waiting_approval") {
-        success("Approval needed", "Review the write action below.");
-      } else if (run.status === "completed") {
-        success("Agent finished");
+      const run = await api.startAgentRunStream(
+        workspaceId,
+        goalText,
+        {
+          onLlmStart: () => {
+            const id = `llm-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+            const event: LlmTraceEvent = {
+              id,
+              kind: "llm",
+              status: "running",
+              name: "ChatOpenAI",
+            };
+            setLiveLlmEvents((prev) => [
+              ...prev.filter((e) => e.status === "done"),
+              event,
+            ]);
+            setLiveTrace((prev) => [...prev, { kind: "llm", event }]);
+          },
+          onLlmEnd: (p) => {
+            setLiveLlmEvents((prev) =>
+              prev.map((e) =>
+                e.status === "running"
+                  ? {
+                      ...e,
+                      status: "done" as const,
+                      duration_ms: p.duration_ms,
+                      total_tokens: p.total_tokens,
+                      has_tool_calls: p.has_tool_calls,
+                    }
+                  : e,
+              ),
+            );
+            setLiveTrace((prev) =>
+              prev.map((node) =>
+                node.kind === "llm" && node.event.status === "running"
+                  ? {
+                      kind: "llm" as const,
+                      event: {
+                        ...node.event,
+                        status: "done" as const,
+                        duration_ms: p.duration_ms,
+                        total_tokens: p.total_tokens,
+                        has_tool_calls: p.has_tool_calls,
+                      },
+                    }
+                  : node,
+              ),
+            );
+            if (p.token_usage_so_far != null) {
+              setLiveTokenUsage(p.token_usage_so_far);
+            }
+          },
+          onStep: (step) => {
+            setLiveSteps((prev) => {
+              const next = [...prev];
+              const i = next.findIndex((s) => s.id === step.id);
+              if (i >= 0) next[i] = step;
+              else next.push(step);
+              return next;
+            });
+            setLiveTrace((prev) => {
+              const already = prev.some(
+                (n) => n.kind === "step" && n.step.id === step.id,
+              );
+              if (already) {
+                return prev.map((n) =>
+                  n.kind === "step" && n.step.id === step.id
+                    ? { kind: "step" as const, step }
+                    : n,
+                );
+              }
+              return [...prev, { kind: "step" as const, step }];
+            });
+          },
+          onStatus: (p) => {
+            if (p.token_usage != null) setLiveTokenUsage(p.token_usage);
+          },
+          onDone: (final) => {
+            setSelected(final);
+            setSelectedId(final.id);
+          },
+        },
+        5,
+      );
+      if (run) {
+        setSelected(run);
+        setSelectedId(run.id);
+        await refreshWorkspace(workspaceId, run.id);
+        if (run.status === "waiting_approval") {
+          success("Approval needed", "Review the write action below.");
+        } else if (run.status === "completed") {
+          success("Agent finished");
+        }
       }
     } catch (err) {
       const msg = formatError(err);
@@ -160,6 +275,8 @@ export function AgentsPage() {
       toastError("Agent failed", msg);
     } finally {
       setRunning(false);
+      // Keep last liveTrace for the completed panel; clear goal-only flag
+      setLiveGoal(null);
     }
   }
 
@@ -167,17 +284,113 @@ export function AgentsPage() {
     if (!selected || approving) return;
     setApproving(true);
     setError(null);
+    setRunning(true);
+    setLiveGoal(selected.goal);
     try {
-      const run = await api.approveAgentRun(selected.id, approve);
-      await refreshWorkspace(workspaceId, run.id);
-      setSelected(run);
-      success(approve ? "Action approved" : "Action rejected");
+      if (!approve) {
+        const run = await api.approveAgentRun(selected.id, false);
+        await refreshWorkspace(workspaceId, run.id);
+        setSelected(run);
+        success("Action rejected");
+        return;
+      }
+      // Seed trace with existing steps so resume continues the tree
+      setLiveSteps(selected.steps ?? []);
+      setLiveTrace(
+        (selected.steps ?? []).map((step) => ({
+          kind: "step" as const,
+          step,
+        })),
+      );
+      setLiveTokenUsage(selected.token_usage);
+      const run = await api.approveAgentRunStream(selected.id, true, {
+        onLlmStart: () => {
+          const id = `llm-resume-${Date.now()}`;
+          const event: LlmTraceEvent = {
+            id,
+            kind: "llm",
+            status: "running",
+            name: "ChatOpenAI",
+          };
+          setLiveLlmEvents((prev) => [
+            ...prev.filter((e) => e.status === "done"),
+            event,
+          ]);
+          setLiveTrace((prev) => [...prev, { kind: "llm", event }]);
+        },
+        onLlmEnd: (p) => {
+          setLiveLlmEvents((prev) =>
+            prev.map((e) =>
+              e.status === "running"
+                ? {
+                    ...e,
+                    status: "done" as const,
+                    duration_ms: p.duration_ms,
+                    total_tokens: p.total_tokens,
+                    has_tool_calls: p.has_tool_calls,
+                  }
+                : e,
+            ),
+          );
+          setLiveTrace((prev) =>
+            prev.map((node) =>
+              node.kind === "llm" && node.event.status === "running"
+                ? {
+                    kind: "llm" as const,
+                    event: {
+                      ...node.event,
+                      status: "done" as const,
+                      duration_ms: p.duration_ms,
+                      total_tokens: p.total_tokens,
+                      has_tool_calls: p.has_tool_calls,
+                    },
+                  }
+                : node,
+            ),
+          );
+          if (p.token_usage_so_far != null) {
+            setLiveTokenUsage(p.token_usage_so_far);
+          }
+        },
+        onStep: (step) => {
+          setLiveSteps((prev) => {
+            const next = [...prev];
+            const i = next.findIndex((s) => s.id === step.id);
+            if (i >= 0) next[i] = step;
+            else next.push(step);
+            return next;
+          });
+          setLiveTrace((prev) => {
+            const already = prev.some(
+              (n) => n.kind === "step" && n.step.id === step.id,
+            );
+            if (already) {
+              return prev.map((n) =>
+                n.kind === "step" && n.step.id === step.id
+                  ? { kind: "step" as const, step }
+                  : n,
+              );
+            }
+            return [...prev, { kind: "step" as const, step }];
+          });
+        },
+        onDone: (final) => {
+          setSelected(final);
+        },
+      });
+      if (run) {
+        setSelected(run);
+        await refreshWorkspace(workspaceId, run.id);
+        success("Action approved — agent continued");
+      }
     } catch (err) {
       const msg = formatError(err);
       setError(msg);
       toastError("Approval failed", msg);
     } finally {
       setApproving(false);
+      setRunning(false);
+      setLiveGoal(null);
     }
   }
 
@@ -446,39 +659,23 @@ export function AgentsPage() {
                 ) : (
                   <Play className="h-4 w-4" strokeWidth={1.5} />
                 )}
-                {running ? "Running (may take ~30s)…" : "Run agent"}
+                {running
+                  ? "Streaming trace…"
+                  : "Run agent"}
               </Button>
             </form>
 
-            {!selected ? (
+            {!selected && !running ? (
               <div className="py-12 text-center text-sm text-mute">
                 Select a run or start a new one.
               </div>
             ) : (
               <div className="space-y-4">
-                <div className="rounded-vercel-md border border-hairline bg-canvas p-4">
-                  <div className="text-xs text-mute">
-                    {formatWhen(selected.created_at)}
-                  </div>
-                  <div className="mt-1 text-sm font-medium text-ink">
-                    {selected.goal}
-                  </div>
-                  {selected.final_answer && (
-                    <div className="mt-3">
-                      <div className="text-[11px] font-semibold uppercase text-mute">
-                        {selected.status === "waiting_approval"
-                          ? "Status message"
-                          : "Final answer"}
-                      </div>
-                      <div className="mt-1 whitespace-pre-wrap text-body-sm text-body">
-                        {selected.final_answer}
-                      </div>
-                    </div>
-                  )}
-                </div>
-
+                {/* Product surface first (learning UI when available) */}
                 {(() => {
-                  const gen = extractGenerativeUIFromSteps(steps);
+                  const gen = extractGenerativeUIFromSteps(
+                    liveSteps.length ? liveSteps : steps,
+                  );
                   return gen ? (
                     <div>
                       <h2 className="mb-2 text-sm font-semibold text-ink">
@@ -496,22 +693,52 @@ export function AgentsPage() {
                   ) : null;
                 })()}
 
+                {/* LangSmith-style trace — opens on click, streams live */}
                 <div>
                   <h2 className="mb-2 text-sm font-semibold text-ink">
-                    Run view
+                    Trace
                   </h2>
                   <p className="mb-2 text-xs text-mute">
-                    Behind the scenes — tools, decisions, outputs, LLM tokens
+                    LangSmith-style run tree — LLM spans, tools, inputs/outputs,
+                    tokens. Opens the moment you click Run.
                   </p>
                   <AgentRunPanel
                     run={selected}
                     pending={running}
+                    goal={liveGoal || selected?.goal}
+                    liveSteps={liveSteps}
+                    liveTokenUsage={liveTokenUsage}
+                    liveLlmEvents={liveLlmEvents}
+                    liveTrace={liveTrace}
                     approving={approving}
                     forceOpenWhilePending
                     onApprove={() => void onApprove(true)}
                     onReject={() => void onApprove(false)}
                   />
                 </div>
+
+                {selected && !running && (
+                  <div className="rounded-vercel-md border border-hairline bg-canvas p-4">
+                    <div className="text-xs text-mute">
+                      {formatWhen(selected.created_at)}
+                    </div>
+                    <div className="mt-1 text-sm font-medium text-ink">
+                      {selected.goal}
+                    </div>
+                    {selected.final_answer && (
+                      <div className="mt-3">
+                        <div className="text-[11px] font-semibold uppercase text-mute">
+                          {selected.status === "waiting_approval"
+                            ? "Status message"
+                            : "Final answer"}
+                        </div>
+                        <div className="mt-1 whitespace-pre-wrap text-body-sm text-body">
+                          {selected.final_answer}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
             )}
           </div>
