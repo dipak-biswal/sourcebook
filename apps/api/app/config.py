@@ -50,10 +50,11 @@ class Settings(BaseSettings):
     log_json: bool = True  # false = human-readable lines for local terminals
 
     # Comma-separated browser origins allowed to call the API (CORS).
-    # Production example: https://sourcebook-peach.vercel.app
+    # Override with CORS_ORIGINS on Render if you change the Vercel domain.
     cors_origins: str = (
         "http://127.0.0.1:5173,http://localhost:5173,"
-        "http://127.0.0.1:5174,http://localhost:5174"
+        "http://127.0.0.1:5174,http://localhost:5174,"
+        "https://sourcebook-peach.vercel.app"
     )
 
     @property
