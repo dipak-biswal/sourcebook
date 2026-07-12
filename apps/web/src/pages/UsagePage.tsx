@@ -7,6 +7,7 @@ import { Alert } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { CardSkeleton } from "@/components/ui/skeleton";
+import { useDocumentTitle } from "@/hooks/useDocumentTitle";
 import { formatError } from "@/lib/utils";
 
 function formatWhen(iso: string): string {
@@ -25,6 +26,7 @@ function formatWhen(iso: string): string {
 
 export function UsagePage() {
   const navigate = useNavigate();
+  useDocumentTitle("Usage");
   const [data, setData] = useState<UsageSummary | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);

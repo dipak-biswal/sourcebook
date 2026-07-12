@@ -37,6 +37,7 @@ import { EmptyState } from "@/components/ui/empty-state";
 import { Input } from "@/components/ui/input";
 import { Sheet } from "@/components/ui/sheet";
 import { useToast } from "@/components/ui/toast";
+import { useDocumentTitle } from "@/hooks/useDocumentTitle";
 import { cn, formatError } from "@/lib/utils";
 
 const MODE_KEY = "sourcebook_chat_mode";
@@ -83,6 +84,7 @@ export function ChatPage() {
   const navigate = useNavigate();
   const bottomRef = useRef<HTMLDivElement>(null);
   const { success, error: toastError } = useToast();
+  useDocumentTitle("Chat");
 
   const [mode, setMode] = useState<ChatMode>(readMode);
   const [workspaces, setWorkspaces] = useState<Workspace[]>([]);
@@ -532,7 +534,7 @@ export function ChatPage() {
                         )}
                       >
                         {denial ? (
-                          <div className="max-w-[90%] rounded-vercel-md border border-amber-200 bg-[#fffbeb] px-3.5 py-3 text-body-sm text-[#92400e]">
+                          <div className="max-w-[90%] rounded-vercel-md border border-warning-border bg-warning-soft px-3.5 py-3 text-body-sm text-warning-text">
                             <div className="mb-1.5 flex items-center gap-1.5 font-medium">
                               <AlertCircle
                                 className="h-4 w-4 shrink-0"
@@ -554,10 +556,10 @@ export function ChatPage() {
                         ) : (
                           <div
                             className={cn(
-                              "max-w-[90%] rounded-vercel-md border px-3.5 py-2.5 text-body-sm leading-relaxed",
+                              "max-w-[min(90%,36rem)] rounded-vercel-md border px-3.5 py-2.5 text-body-sm leading-relaxed",
                               isUser
-                                ? "border-ink bg-ink text-[var(--canvas)]"
-                                : "border-hairline bg-canvas text-body shadow-[var(--elevation-2)]",
+                                ? "rounded-br-sm border-ink bg-ink text-[var(--canvas)]"
+                                : "rounded-bl-sm border-hairline bg-canvas text-body shadow-[var(--elevation-2)]",
                             )}
                           >
                             <div className="whitespace-pre-wrap">
@@ -585,10 +587,10 @@ export function ChatPage() {
                     >
                       <div
                         className={cn(
-                          "max-w-[90%] rounded-vercel-md border px-3.5 py-2.5 text-body-sm leading-relaxed",
+                          "max-w-[min(90%,36rem)] rounded-vercel-md border px-3.5 py-2.5 text-body-sm leading-relaxed",
                           isUser
-                            ? "border-ink bg-ink text-[var(--canvas)]"
-                            : "border-hairline bg-canvas text-body shadow-[var(--elevation-2)]",
+                            ? "rounded-br-sm border-ink bg-ink text-[var(--canvas)]"
+                            : "rounded-bl-sm border-hairline bg-canvas text-body shadow-[var(--elevation-2)]",
                         )}
                       >
                         {!isUser && (
@@ -662,7 +664,7 @@ export function ChatPage() {
 
           <form
             onSubmit={onSend}
-            className="shrink-0 border-t border-hairline bg-canvas px-4 py-3 sm:px-6 sm:py-4"
+            className="shrink-0 border-t border-hairline bg-canvas px-4 py-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] sm:px-6 sm:py-4"
           >
             <div className="mx-auto max-w-2xl space-y-2">
               <div className="flex items-center gap-2">

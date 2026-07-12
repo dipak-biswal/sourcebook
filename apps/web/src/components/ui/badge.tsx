@@ -9,9 +9,11 @@ const badgeVariants = cva(
         default: "border-transparent bg-ink text-[var(--canvas)]",
         secondary: "border-transparent bg-canvas-soft-2 text-body",
         outline: "border-hairline text-body bg-canvas",
-        success: "border-transparent bg-[#d1fae5] text-[#065f46]",
-        warning: "border-transparent bg-[#fef3c7] text-[#92400e]",
-        danger: "border-transparent bg-[#fee2e2] text-[#991b1b]",
+        success:
+          "border-success-border/60 bg-success-soft text-success-text",
+        warning:
+          "border-warning-border/60 bg-warning-soft text-warning-text",
+        danger: "border-danger-border/60 bg-danger-soft text-danger-text",
       },
     },
     defaultVariants: { variant: "default" },

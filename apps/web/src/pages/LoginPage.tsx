@@ -12,10 +12,12 @@ import { Alert } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { useDocumentTitle } from "@/hooks/useDocumentTitle";
 import { formatError } from "@/lib/utils";
 
 export function LoginPage() {
   const navigate = useNavigate();
+  useDocumentTitle("Sign in");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -172,7 +174,7 @@ export function LoginPage() {
 
         {/* Dev testing panel */}
         {devInfo && (
-          <section className="mt-8 w-full max-w-3xl rounded-vercel-md border border-amber-200 bg-warning-soft p-4">
+          <section className="mt-8 w-full max-w-3xl rounded-vercel-md border border-warning-border bg-warning-soft p-4">
             <div className="flex flex-wrap items-start justify-between gap-2">
               <div>
                 <div className="flex items-center gap-2">

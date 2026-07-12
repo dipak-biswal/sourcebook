@@ -8,11 +8,15 @@
   --canvas: #ffffff;
   --canvas-soft: #fafafa;
   --canvas-soft-2: #f5f5f5;
-  --warning-soft: #ffefcf;
+  --warning-soft: #fffbeb;
+  --warning-border: #fde68a;
+  --warning-text: #92400e;
   --danger-soft: #fef2f2;
   --danger-border: #fecaca;
   --danger-text: #b91c1c;
-  --success-soft: #f0fdf4;
+  --success-soft: #ecfdf5;
+  --success-border: #a7f3d0;
+  --success-text: #065f46;
   --focus-ring: #17171733;
   --elevation-2: 0px 1px 1px #00000005, 0px 2px 2px #0000000a,
     inset 0 0 0 1px #00000014;
@@ -27,11 +31,15 @@
   --canvas: #1a1a1a;
   --canvas-soft: #141414;
   --canvas-soft-2: #222222;
-  --warning-soft: #2a2818;
+  --warning-soft: #2a2410;
+  --warning-border: #6b5420;
+  --warning-text: #fcd34d;
   --danger-soft: #2a1515;
   --danger-border: #5c2a2a;
   --danger-text: #fca5a5;
   --success-soft: #14241a;
+  --success-border: #1f4d36;
+  --success-text: #6ee7b7;
   --focus-ring: #e5e5e540;
   --elevation-2: 0px 1px 1px #00000040, 0px 2px 2px #00000060,
     inset 0 0 0 1px #ffffff14;
@@ -47,10 +55,14 @@
   --color-canvas-soft: var(--canvas-soft);
   --color-canvas-soft-2: var(--canvas-soft-2);
   --color-warning-soft: var(--warning-soft);
+  --color-warning-border: var(--warning-border);
+  --color-warning-text: var(--warning-text);
   --color-danger-soft: var(--danger-soft);
   --color-danger-border: var(--danger-border);
   --color-danger-text: var(--danger-text);
   --color-success-soft: var(--success-soft);
+  --color-success-border: var(--success-border);
+  --color-success-text: var(--success-text);
 
   --radius-vercel-xs: 4px;
   --radius-vercel-sm: 6px;

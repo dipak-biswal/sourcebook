@@ -13,11 +13,13 @@ import { Alert } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Sheet } from "@/components/ui/sheet";
 import { useToast } from "@/components/ui/toast";
+import { useDocumentTitle } from "@/hooks/useDocumentTitle";
 import { formatError } from "@/lib/utils";
 
 export function DocumentsPage() {
   const navigate = useNavigate();
   const { success, error: toastError } = useToast();
+  useDocumentTitle("Documents");
   const [workspaces, setWorkspaces] = useState<Workspace[]>([]);
   const [workspaceId, setWorkspaceId] = useState("");
   const [docs, setDocs] = useState<Document[]>([]);

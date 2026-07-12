@@ -1,4 +1,5 @@
-import { Check, Loader2, X } from "lucide-react";
+import { useState } from "react";
+import { Check, ChevronDown, ChevronRight, Loader2, X } from "lucide-react";
 import type { AgentStep } from "@/api";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -78,31 +79,56 @@ export function AgentStepList({
   compact?: boolean;
 }) {
   const sorted = [...steps].sort((a, b) => a.step_index - b.step_index);
+  const [expanded, setExpanded] = useState(false);
+
   if (sorted.length === 0) {
     return <p className="text-xs text-mute">No steps recorded.</p>;
   }
+
   if (compact) {
     return (
-      <ul className="space-y-1">
-        {sorted.map((s) => (
-          <li
-            key={s.id}
-            className="flex flex-wrap items-center gap-1.5 text-xs text-body"
-          >
-            <span className="font-medium text-ink">#{s.step_index}</span>
-            <Badge variant="outline" className="text-[10px]">
-              {s.type}
-            </Badge>
-            {s.tool_name && (
-              <Badge variant="secondary" className="text-[10px]">
-                {s.tool_name}
+      <div className="space-y-1.5">
+        <button
+          type="button"
+          onClick={() => setExpanded((v) => !v)}
+          className="inline-flex items-center gap-1 text-[11px] font-medium text-ink underline-offset-2 hover:underline"
+        >
+          {expanded ? (
+            <ChevronDown className="h-3 w-3" strokeWidth={1.5} />
+          ) : (
+            <ChevronRight className="h-3 w-3" strokeWidth={1.5} />
+          )}
+          {expanded ? "Hide step details" : `Show ${sorted.length} step details`}
+        </button>
+        <ul className="space-y-1">
+          {sorted.map((s) => (
+            <li
+              key={s.id}
+              className="flex flex-wrap items-center gap-1.5 text-xs text-body"
+            >
+              <span className="font-medium text-ink">#{s.step_index}</span>
+              <Badge variant="outline" className="text-[10px]">
+                {s.type}
               </Badge>
-            )}
-          </li>
-        ))}
-      </ul>
+              {s.tool_name && (
+                <Badge variant="secondary" className="text-[10px]">
+                  {s.tool_name}
+                </Badge>
+              )}
+            </li>
+          ))}
+        </ul>
+        {expanded && (
+          <div className="space-y-2 pt-1">
+            {sorted.map((s) => (
+              <AgentStepCard key={`full-${s.id}`} step={s} />
+            ))}
+          </div>
+        )}
+      </div>
     );
   }
+
   return (
     <div className="space-y-2">
       {sorted.map((s) => (
@@ -135,7 +161,7 @@ export function AgentApprovalCard({
     <div
       className={
         className ??
-        "rounded-[6px] border border-amber-200 bg-[#fffbeb] p-3"
+        "rounded-[6px] border border-warning-border bg-warning-soft p-3"
       }
     >
       <div className="text-sm font-semibold text-ink">Approval required</div>

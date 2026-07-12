@@ -31,6 +31,7 @@ import { Input } from "@/components/ui/input";
 import { ListSkeleton } from "@/components/ui/skeleton";
 import { Sheet } from "@/components/ui/sheet";
 import { useToast } from "@/components/ui/toast";
+import { useDocumentTitle } from "@/hooks/useDocumentTitle";
 import { cn, formatError } from "@/lib/utils";
 
 function formatWhen(iso: string): string {
@@ -49,6 +50,7 @@ function formatWhen(iso: string): string {
 export function AgentsPage() {
   const navigate = useNavigate();
   const { success, error: toastError } = useToast();
+  useDocumentTitle("Agents");
   const [workspaces, setWorkspaces] = useState<Workspace[]>([]);
   const [workspaceId, setWorkspaceId] = useState("");
   const [runs, setRuns] = useState<AgentRun[]>([]);
@@ -449,7 +451,7 @@ export function AgentsPage() {
                   {selected.status === "waiting_approval" &&
                     selected.pending_tool && (
                       <AgentApprovalCard
-                        className="mt-4 rounded-[6px] border border-amber-200 bg-[#fffbeb] p-3"
+                        className="mt-4 rounded-[6px] border border-warning-border bg-warning-soft p-3"
                         pendingTool={selected.pending_tool}
                         approving={approving}
                         onApprove={() => void onApprove(true)}
