@@ -22,9 +22,13 @@ type DocumentsSidebarProps = {
   loading?: boolean;
   uploading?: boolean;
   ingestingId?: string | null;
+  /** Shown under spinner while ingest runs, e.g. "Embedding…" */
+  ingestProgress?: string | null;
   onUpload: (file: File) => void;
   onDelete: (id: string) => void;
   onIngest: (id: string) => void;
+  /** Hide workspace header (e.g. embedded mobile list) */
+  compact?: boolean;
 };
 
 function statusVariant(
@@ -62,9 +66,11 @@ export function DocumentsSidebar({
   loading,
   uploading,
   ingestingId,
+  ingestProgress,
   onUpload,
   onDelete,
   onIngest,
+  compact = false,
 }: DocumentsSidebarProps) {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [expandedErrors, setExpandedErrors] = useState<Record<string, boolean>>(
@@ -76,15 +82,25 @@ export function DocumentsSidebar({
   }
 
   return (
-    <aside className="flex h-full w-full shrink-0 flex-col border-r border-hairline bg-canvas md:w-80">
+    <aside
+      className={cn(
+        "flex h-full w-full shrink-0 flex-col bg-canvas",
+        !compact && "border-r border-hairline md:w-80",
+      )}
+    >
       <div className="shrink-0 border-b border-hairline p-4">
-        <h2 className="text-body-sm font-semibold text-ink">Library</h2>
-        <p className="mt-0.5 text-xs text-mute">
-          Upload → Ingest → status <span className="text-ink">ready</span> → Chat
-        </p>
+        {!compact && (
+          <>
+            <h2 className="text-body-sm font-semibold text-ink">Library</h2>
+            <p className="mt-0.5 text-xs text-mute">
+              Upload → Ingest → status{" "}
+              <span className="text-ink">ready</span> → Chat
+            </p>
+          </>
+        )}
 
         {workspaces.length > 0 && (
-          <label className="mt-3 block">
+          <label className={cn("block", !compact && "mt-3")}>
             <span className="mb-1 block text-xs text-mute">Workspace</span>
             <select
               value={workspaceId}
@@ -121,6 +137,21 @@ export function DocumentsSidebar({
           <Upload className="h-4 w-4" strokeWidth={1.5} />
           {uploading ? "Uploading…" : "Upload .txt / .md"}
         </Button>
+
+        <div className="mt-2 flex flex-wrap gap-1.5 text-[10px] text-mute">
+          <span className="rounded-full border border-hairline px-2 py-0.5">
+            uploaded
+          </span>
+          <span className="rounded-full border border-warning-border bg-warning-soft px-2 py-0.5 text-warning-text">
+            processing
+          </span>
+          <span className="rounded-full border border-success-border bg-success-soft px-2 py-0.5 text-success-text">
+            ready
+          </span>
+          <span className="rounded-full border border-danger-border bg-danger-soft px-2 py-0.5 text-danger-text">
+            failed
+          </span>
+        </div>
       </div>
 
       <div className="document-scroll min-h-0 flex-1 overflow-y-auto p-2">
@@ -177,7 +208,14 @@ export function DocumentsSidebar({
                         {(status === "queued" ||
                           status === "processing" ||
                           ingesting) && (
-                          <Loader2 className="h-3 w-3 animate-spin text-mute" />
+                          <>
+                            <Loader2 className="h-3 w-3 animate-spin text-mute" />
+                            {ingesting && ingestProgress && (
+                              <span className="text-[10px] text-mute">
+                                {ingestProgress}
+                              </span>
+                            )}
+                          </>
                         )}
                       </div>
                       {failed && !errText && (
@@ -245,7 +283,7 @@ export function DocumentsSidebar({
                         <Play className="h-3.5 w-3.5" strokeWidth={1.5} />
                       )}
                       {ingesting
-                        ? "Working…"
+                        ? ingestProgress || "Working…"
                         : failed
                           ? "Retry ingest"
                           : ready

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { ChevronDown, ChevronRight, FileText } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
@@ -10,6 +10,13 @@ export type Citation = {
   filename?: string | null;
   score?: number;
   snippet?: string;
+};
+
+type FileGroup = {
+  key: string;
+  filename: string;
+  bestScore?: number;
+  chunks: Citation[];
 };
 
 function asCitations(value: unknown): Citation[] {
@@ -33,6 +40,35 @@ function scoreVariant(
   return "secondary";
 }
 
+function groupByFile(items: Citation[]): FileGroup[] {
+  const map = new Map<string, FileGroup>();
+  for (const c of items) {
+    const key =
+      c.document_id || c.filename || c.chunk_id || `chunk-${c.index ?? "?"}`;
+    const filename = c.filename || "Unknown file";
+    const existing = map.get(key);
+    if (!existing) {
+      map.set(key, {
+        key,
+        filename,
+        bestScore: c.score,
+        chunks: [c],
+      });
+    } else {
+      existing.chunks.push(c);
+      if (
+        typeof c.score === "number" &&
+        (existing.bestScore == null || c.score > existing.bestScore)
+      ) {
+        existing.bestScore = c.score;
+      }
+    }
+  }
+  return [...map.values()].sort(
+    (a, b) => (b.bestScore ?? 0) - (a.bestScore ?? 0),
+  );
+}
+
 export function isDenialMessage(content: string): boolean {
   const t = content.trim().toLowerCase();
   return (
@@ -52,7 +88,6 @@ export function shouldShowSources(
   if (isDenialMessage(content || "")) return false;
   const items = asCitations(citations);
   if (items.length === 0) return false;
-  // Hide if every score is very weak (legacy messages / loose retrieval)
   const scores = items
     .map((c) => c.score)
     .filter((s): s is number => typeof s === "number");
@@ -63,13 +98,11 @@ export function shouldShowSources(
 type CitationListProps = {
   citations: unknown;
   className?: string;
-  /** When true, expand snippet cards by default (default: collapsed). */
   defaultExpanded?: boolean;
 };
 
 /**
- * Compact chips by default; expand for full snippets + scores.
- * Reduces noise while keeping grounded-source transparency.
+ * Grouped by file (chips). Expand for per-chunk snippets + scores.
  */
 export function CitationList({
   citations,
@@ -77,14 +110,16 @@ export function CitationList({
   defaultExpanded = false,
 }: CitationListProps) {
   const items = asCitations(citations);
+  const groups = useMemo(() => groupByFile(items), [items]);
   const [expanded, setExpanded] = useState(defaultExpanded);
   if (items.length === 0) return null;
 
   return (
-    <div className={cn("mt-2 max-w-[90%] space-y-2", className)}>
+    <div className={cn("mt-2 max-w-[min(90%,36rem)] space-y-2", className)}>
       <div className="flex flex-wrap items-center gap-2">
         <span className="text-[11px] font-medium uppercase tracking-wide text-mute">
-          Sources ({items.length})
+          Sources · {groups.length} file{groups.length === 1 ? "" : "s"} ·{" "}
+          {items.length} chunk{items.length === 1 ? "" : "s"}
         </span>
         <button
           type="button"
@@ -96,28 +131,27 @@ export function CitationList({
           ) : (
             <ChevronRight className="h-3 w-3" strokeWidth={1.5} />
           )}
-          {expanded ? "Hide details" : "Show details"}
+          {expanded ? "Hide chunks" : "Show chunks"}
         </button>
       </div>
 
       <div className="flex flex-wrap gap-1.5">
-        {items.map((c, i) => {
-          const n = c.index ?? i + 1;
-          return (
-            <Badge
-              key={c.chunk_id ?? i}
-              variant="outline"
-              className="cursor-default gap-1 font-normal"
-              title={c.snippet}
-            >
-              <FileText className="h-3 w-3" strokeWidth={1.5} />
-              [{n}] {c.filename ? truncate(c.filename, 28) : "chunk"}
-              {typeof c.score === "number" && (
-                <span className="text-mute">· {c.score.toFixed(2)}</span>
-              )}
-            </Badge>
-          );
-        })}
+        {groups.map((g) => (
+          <Badge
+            key={g.key}
+            variant="outline"
+            className="cursor-default gap-1 font-normal"
+            title={`${g.chunks.length} chunk(s)`}
+          >
+            <FileText className="h-3 w-3" strokeWidth={1.5} />
+            {truncate(g.filename, 28)}
+            <span className="text-mute">
+              · {g.chunks.length}x
+              {typeof g.bestScore === "number" &&
+                ` · ${g.bestScore.toFixed(2)}`}
+            </span>
+          </Badge>
+        ))}
       </div>
 
       {expanded && (

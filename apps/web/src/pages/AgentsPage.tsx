@@ -32,6 +32,7 @@ import { ListSkeleton } from "@/components/ui/skeleton";
 import { Sheet } from "@/components/ui/sheet";
 import { useToast } from "@/components/ui/toast";
 import { useDocumentTitle } from "@/hooks/useDocumentTitle";
+import { confirmAction } from "@/lib/confirm";
 import { cn, formatError } from "@/lib/utils";
 
 function formatWhen(iso: string): string {
@@ -178,6 +179,7 @@ export function AgentsPage() {
   }
 
   async function onDeleteNote(id: string) {
+    if (!confirmAction("Delete this note?", "This cannot be undone.")) return;
     setError(null);
     try {
       await api.deleteNote(id);

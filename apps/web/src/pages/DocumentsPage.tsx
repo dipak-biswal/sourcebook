@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { Navigate, useNavigate } from "react-router-dom";
-import { FileText, PanelLeft, Upload } from "lucide-react";
+import { FileText, Upload } from "lucide-react";
 import {
   api,
   getToken,
@@ -11,10 +11,19 @@ import { AppHeader } from "@/components/layout/AppHeader";
 import { DocumentsSidebar } from "@/components/layout/DocumentsSidebar";
 import { Alert } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
-import { Sheet } from "@/components/ui/sheet";
 import { useToast } from "@/components/ui/toast";
 import { useDocumentTitle } from "@/hooks/useDocumentTitle";
+import { confirmAction } from "@/lib/confirm";
 import { formatError } from "@/lib/utils";
+
+const INGEST_STEPS = [
+  "Starting ingest…",
+  "Parsing document…",
+  "Chunking text…",
+  "Embedding chunks…",
+  "Saving vectors…",
+  "Almost done…",
+];
 
 export function DocumentsPage() {
   const navigate = useNavigate();
@@ -27,7 +36,7 @@ export function DocumentsPage() {
   const [loading, setLoading] = useState(true);
   const [uploading, setUploading] = useState(false);
   const [ingestingId, setIngestingId] = useState<string | null>(null);
-  const [libraryOpen, setLibraryOpen] = useState(false);
+  const [ingestProgress, setIngestProgress] = useState<string | null>(null);
 
   const loadDocs = useCallback(async (ws: string) => {
     if (!ws) return;
@@ -74,7 +83,6 @@ export function DocumentsPage() {
       await api.upload(workspaceId, file);
       await loadDocs(workspaceId);
       success("Uploaded", file.name);
-      setLibraryOpen(false);
     } catch (err) {
       const msg = formatError(err);
       setError(msg);
@@ -85,6 +93,17 @@ export function DocumentsPage() {
   }
 
   async function onDelete(id: string) {
+    const doc = docs.find((d) => d.id === id);
+    if (
+      !confirmAction(
+        "Delete this document?",
+        doc?.filename
+          ? `${doc.filename} and its chunks will be removed.`
+          : "This cannot be undone.",
+      )
+    ) {
+      return;
+    }
     setError(null);
     try {
       await api.deleteDocument(id);
@@ -100,12 +119,13 @@ export function DocumentsPage() {
   async function onIngest(id: string) {
     setError(null);
     setIngestingId(id);
+    setIngestProgress(INGEST_STEPS[0]);
     try {
       await api.ingestDocument(id);
       await loadDocs(workspaceId);
-      // Poll while queued/processing
       let finalStatus = "processing";
       for (let i = 0; i < 40; i++) {
+        setIngestProgress(INGEST_STEPS[Math.min(i, INGEST_STEPS.length - 1)]);
         await new Promise((r) => setTimeout(r, 1500));
         const list = await api.documents(workspaceId);
         setDocs(list);
@@ -113,7 +133,8 @@ export function DocumentsPage() {
         const s = doc?.status?.toLowerCase() ?? "";
         if (!doc || s === "ready" || s === "failed" || s === "uploaded") {
           finalStatus = s || "unknown";
-          if (s === "ready") success("Ingest complete", "Document is ready for chat.");
+          if (s === "ready")
+            success("Ingest complete", "Document is ready for chat.");
           if (s === "failed")
             toastError(
               "Ingest failed",
@@ -123,7 +144,10 @@ export function DocumentsPage() {
         }
       }
       if (finalStatus === "processing" || finalStatus === "queued") {
-        success("Ingest still running", "Refresh the list if status stays processing.");
+        success(
+          "Ingest still running",
+          "Refresh the list if status stays processing.",
+        );
       }
     } catch (err) {
       const msg = formatError(err);
@@ -132,23 +156,23 @@ export function DocumentsPage() {
       await loadDocs(workspaceId);
     } finally {
       setIngestingId(null);
+      setIngestProgress(null);
     }
   }
 
-  const library = (
-    <DocumentsSidebar
-      workspaces={workspaces}
-      workspaceId={workspaceId}
-      onWorkspaceChange={setWorkspaceId}
-      documents={docs}
-      loading={loading}
-      uploading={uploading}
-      ingestingId={ingestingId}
-      onUpload={onUpload}
-      onDelete={onDelete}
-      onIngest={onIngest}
-    />
-  );
+  const libraryProps = {
+    workspaces,
+    workspaceId,
+    onWorkspaceChange: setWorkspaceId,
+    documents: docs,
+    loading,
+    uploading,
+    ingestingId,
+    ingestProgress,
+    onUpload,
+    onDelete,
+    onIngest,
+  };
 
   return (
     <div className="app-shell">
@@ -159,31 +183,23 @@ export function DocumentsPage() {
       />
 
       <div className="flex min-h-0 flex-1">
-        <div className="hidden h-full shrink-0 md:flex md:w-80">{library}</div>
+        {/* Desktop sidebar */}
+        <div className="hidden h-full shrink-0 md:flex md:w-80">
+          <DocumentsSidebar {...libraryProps} />
+        </div>
 
-        <Sheet
-          open={libraryOpen}
-          onClose={() => setLibraryOpen(false)}
-          title="Library"
-          description="Upload and ingest documents"
-          side="left"
-        >
-          {library}
-        </Sheet>
+        {/* Mobile: list-first library */}
+        <div className="flex min-h-0 min-w-0 flex-1 flex-col md:hidden">
+          {error && (
+            <div className="px-4 pt-3">
+              <Alert variant="danger">{error}</Alert>
+            </div>
+          )}
+          <DocumentsSidebar {...libraryProps} compact />
+        </div>
 
-        <main className="document-scroll flex min-h-0 min-w-0 flex-1 flex-col items-center justify-center overflow-y-auto px-4 py-10 text-center sm:px-8 sm:py-12">
-          <div className="mb-6 w-full max-w-md md:hidden">
-            <Button
-              type="button"
-              variant="secondary"
-              className="w-full"
-              onClick={() => setLibraryOpen(true)}
-            >
-              <PanelLeft className="h-4 w-4" strokeWidth={1.5} />
-              Open library ({docs.length})
-            </Button>
-          </div>
-
+        {/* Desktop guide panel */}
+        <main className="document-scroll hidden min-h-0 min-w-0 flex-1 flex-col items-center justify-center overflow-y-auto px-4 py-10 text-center sm:px-8 sm:py-12 md:flex">
           {error && (
             <Alert variant="danger" className="mb-6 max-w-md text-left">
               {error}
@@ -197,11 +213,10 @@ export function DocumentsPage() {
             Your document library
           </h2>
           <p className="mt-2 max-w-md text-body-sm text-mute">
-            Upload a .txt or .md, then click{" "}
-            <strong className="text-ink">Ingest for chat</strong>. Status goes{" "}
-            <strong className="text-ink">processing → ready</strong> (or{" "}
-            <strong className="text-ink">failed</strong> with an error in the
-            sidebar). After ready, open Chat.
+            Upload a .txt or .md from the sidebar, then{" "}
+            <strong className="text-ink">Ingest for chat</strong>. Watch status:{" "}
+            <strong className="text-ink">processing → ready</strong>. Progress
+            text shows while embedding.
           </p>
 
           <div className="mt-6 flex flex-wrap items-center justify-center gap-2">
@@ -223,13 +238,11 @@ export function DocumentsPage() {
             </li>
             <li className="flex gap-2">
               <span className="font-medium text-ink">2.</span>
-              Click <strong>Ingest for chat</strong> (needs a valid OpenAI /
-              embedding API key)
+              Click <strong>Ingest for chat</strong>
             </li>
             <li className="flex gap-2">
               <span className="font-medium text-ink">3.</span>
-              If status is <strong>failed</strong>, expand the error, fix, then{" "}
-              <strong>Retry ingest</strong>
+              If <strong>failed</strong>, expand the error and retry
             </li>
             <li className="flex gap-2">
               <span className="font-medium text-ink">4.</span>
@@ -237,13 +250,14 @@ export function DocumentsPage() {
             </li>
           </ol>
 
-          <button
+          <Button
             type="button"
-            className="mt-8 text-sm font-medium text-ink underline-offset-2 hover:underline"
+            variant="secondary"
+            className="mt-8"
             onClick={() => navigate("/chat")}
           >
             Go to Chat →
-          </button>
+          </Button>
         </main>
       </div>
     </div>

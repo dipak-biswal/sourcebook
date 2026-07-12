@@ -29,6 +29,8 @@ import {
   isDenialMessage,
   shouldShowSources,
 } from "@/components/chat/CitationList";
+import { CopyButton } from "@/components/chat/CopyButton";
+import { ModeTip } from "@/components/chat/ModeTip";
 import { AppHeader } from "@/components/layout/AppHeader";
 import { Alert } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
@@ -38,6 +40,7 @@ import { Input } from "@/components/ui/input";
 import { Sheet } from "@/components/ui/sheet";
 import { useToast } from "@/components/ui/toast";
 import { useDocumentTitle } from "@/hooks/useDocumentTitle";
+import { confirmAction } from "@/lib/confirm";
 import { cn, formatError } from "@/lib/utils";
 
 const MODE_KEY = "sourcebook_chat_mode";
@@ -204,6 +207,14 @@ export function ChatPage() {
   }
 
   async function onDeleteSession(id: string) {
+    if (
+      !confirmAction(
+        "Delete this chat session?",
+        "Messages in this session will be removed.",
+      )
+    ) {
+      return;
+    }
     setError(null);
     try {
       await api.deleteConversation(id);
@@ -212,8 +223,11 @@ export function ChatPage() {
           ? conversations.find((c) => c.id !== id)?.id
           : conversationId;
       await loadConversations(workspaceId, nextPrefer);
+      success("Session deleted");
     } catch (err) {
-      setError(formatError(err));
+      const msg = formatError(err);
+      setError(msg);
+      toastError("Delete failed", msg);
     }
   }
 
@@ -342,8 +356,8 @@ export function ChatPage() {
     }
   }
 
-  async function onSend(e: FormEvent) {
-    e.preventDefault();
+  async function onSend(e?: FormEvent) {
+    e?.preventDefault();
     const text = input.trim();
     if (!text || sending || !workspaceId) return;
 
@@ -476,8 +490,10 @@ export function ChatPage() {
             </div>
           </div>
 
+          <ModeTip />
+
           {error && (
-            <div className="px-6 pt-4">
+            <div className="px-4 pt-3 sm:px-6">
               <Alert variant="danger">{error}</Alert>
             </div>
           )}
@@ -567,6 +583,11 @@ export function ChatPage() {
                             </div>
                           </div>
                         )}
+                        {!isUser && m.content && !denial && (
+                          <div className="mt-1">
+                            <CopyButton text={m.content} />
+                          </div>
+                        )}
                         {!isUser &&
                           shouldShowSources(m.content, m.citations) && (
                             <CitationList citations={m.citations} />
@@ -614,6 +635,12 @@ export function ChatPage() {
                         )}
                         <div className="whitespace-pre-wrap">{item.content}</div>
                       </div>
+
+                      {!isUser && item.content && !item.pending && (
+                        <div className="mt-1">
+                          <CopyButton text={item.content} />
+                        </div>
+                      )}
 
                       {!isUser && item.run && item.run.steps?.length > 0 && (
                         <div className="mt-2 max-w-[90%] rounded-[6px] border border-hairline bg-canvas px-3 py-2">
@@ -696,28 +723,44 @@ export function ChatPage() {
                     Agent
                   </button>
                 </div>
-                <span className="text-[11px] text-mute">
+                <span className="hidden text-[11px] text-mute sm:inline">
                   {mode === "chat"
-                    ? "Grounded RAG + citations"
-                    : "Tools + human approval for writes"}
+                    ? "Grounded RAG + citations · ⌘/Ctrl+Enter"
+                    : "Tools + HITL · ⌘/Ctrl+Enter"}
                 </span>
               </div>
               <div className="flex gap-2">
                 <Input
                   value={input}
                   onChange={(e) => setInput(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
+                      e.preventDefault();
+                      void onSend();
+                    }
+                  }}
                   placeholder={
-                    mode === "agent"
-                      ? "List docs, search, or create a note…"
-                      : "Ask a question about your documents…"
+                    !workspaceId
+                      ? "Select a workspace first…"
+                      : mode === "agent"
+                        ? "List docs, search, or create a note…"
+                        : "Ask a question about your documents…"
                   }
                   disabled={sending || !workspaceId}
                   className="flex-1"
+                  autoFocus
                 />
                 <Button
                   type="submit"
                   disabled={sending || !input.trim() || !workspaceId}
                   className="rounded-[6px] px-4"
+                  title={
+                    !workspaceId
+                      ? "Select a workspace first"
+                      : !input.trim()
+                        ? "Type a message"
+                        : "Send"
+                  }
                 >
                   {sending ? (
                     <Loader2 className="h-4 w-4 animate-spin" />
