@@ -144,8 +144,9 @@ export function DocumentsPage() {
           <p className="mt-2 max-w-md text-body-sm text-mute">
             Upload a .txt or .md, then click{" "}
             <strong className="text-ink">Ingest for chat</strong>. Status goes{" "}
-            <strong className="text-ink">queued → processing → ready</strong>{" "}
-            (background worker). After ready, open Chat.
+            <strong className="text-ink">processing → ready</strong> (or{" "}
+            <strong className="text-ink">failed</strong> with an error in the
+            sidebar). After ready, open Chat.
           </p>
 
           <div className="mt-6 flex flex-wrap items-center justify-center gap-2">
@@ -167,11 +168,17 @@ export function DocumentsPage() {
             </li>
             <li className="flex gap-2">
               <span className="font-medium text-ink">2.</span>
-              Click <strong>Ingest for chat</strong> (needs LM Studio embeddings)
+              Click <strong>Ingest for chat</strong> (needs a valid OpenAI /
+              embedding API key)
             </li>
             <li className="flex gap-2">
               <span className="font-medium text-ink">3.</span>
-              Open <strong>Chat</strong> and ask questions
+              If status is <strong>failed</strong>, expand the error, fix, then{" "}
+              <strong>Retry ingest</strong>
+            </li>
+            <li className="flex gap-2">
+              <span className="font-medium text-ink">4.</span>
+              Open <strong>Chat</strong> when status is <strong>ready</strong>
             </li>
           </ol>
 

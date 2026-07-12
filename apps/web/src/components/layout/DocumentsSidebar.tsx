@@ -1,5 +1,14 @@
-import { useRef } from "react";
-import { FileText, Loader2, Play, Trash2, Upload } from "lucide-react";
+import { useRef, useState } from "react";
+import {
+  AlertCircle,
+  ChevronDown,
+  ChevronRight,
+  FileText,
+  Loader2,
+  Play,
+  Trash2,
+  Upload,
+} from "lucide-react";
 import type { Document, Workspace } from "@/api";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -58,6 +67,13 @@ export function DocumentsSidebar({
   onIngest,
 }: DocumentsSidebarProps) {
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const [expandedErrors, setExpandedErrors] = useState<Record<string, boolean>>(
+    {},
+  );
+
+  function toggleError(id: string) {
+    setExpandedErrors((prev) => ({ ...prev, [id]: !prev[id] }));
+  }
 
   return (
     <aside className="flex w-80 shrink-0 flex-col border-r border-hairline bg-canvas">
@@ -120,12 +136,17 @@ export function DocumentsSidebar({
           <ul className="space-y-1">
             {documents.map((doc) => {
               const ingesting = ingestingId === doc.id;
-              const ready = doc.status.toLowerCase() === "ready";
+              const status = doc.status.toLowerCase();
+              const ready = status === "ready";
+              const failed = status === "failed";
+              const errOpen = !!expandedErrors[doc.id];
+              const errText = (doc.error || "").trim();
               return (
                 <li
                   key={doc.id}
                   className={cn(
-                    "rounded-[6px] border border-hairline bg-canvas px-2 py-2",
+                    "rounded-[6px] border bg-canvas px-2 py-2",
+                    failed ? "border-red-200 bg-[#fffbeb]" : "border-hairline",
                   )}
                 >
                   <div className="flex items-start gap-2">
@@ -141,16 +162,50 @@ export function DocumentsSidebar({
                         <Badge variant={statusVariant(doc.status)}>
                           {doc.status}
                         </Badge>
-                        {(doc.status.toLowerCase() === "queued" ||
-                          doc.status.toLowerCase() === "processing" ||
+                        {(status === "queued" ||
+                          status === "processing" ||
                           ingesting) && (
                           <Loader2 className="h-3 w-3 animate-spin text-mute" />
                         )}
                       </div>
-                      {doc.error && (
-                        <p className="mt-1 line-clamp-2 text-[11px] text-red-700">
-                          {doc.error}
+                      {failed && !errText && (
+                        <p className="mt-1.5 flex items-start gap-1 text-[11px] text-red-700">
+                          <AlertCircle
+                            className="mt-0.5 h-3 w-3 shrink-0"
+                            strokeWidth={1.5}
+                          />
+                          Ingest failed. Try Re-ingest or re-upload the file.
                         </p>
+                      )}
+                      {errText && (
+                        <div className="mt-1.5">
+                          <button
+                            type="button"
+                            onClick={() => toggleError(doc.id)}
+                            className="flex w-full items-start gap-1 text-left text-[11px] font-medium text-red-800"
+                          >
+                            <AlertCircle
+                              className="mt-0.5 h-3 w-3 shrink-0"
+                              strokeWidth={1.5}
+                            />
+                            <span className="min-w-0 flex-1">
+                              {errOpen ? (
+                                <span className="whitespace-pre-wrap break-words font-normal">
+                                  {errText}
+                                </span>
+                              ) : (
+                                <span className="line-clamp-2 font-normal">
+                                  {errText}
+                                </span>
+                              )}
+                            </span>
+                            {errOpen ? (
+                              <ChevronDown className="mt-0.5 h-3 w-3 shrink-0" />
+                            ) : (
+                              <ChevronRight className="mt-0.5 h-3 w-3 shrink-0" />
+                            )}
+                          </button>
+                        </div>
                       )}
                     </div>
                     <button
@@ -178,10 +233,12 @@ export function DocumentsSidebar({
                         <Play className="h-3.5 w-3.5" strokeWidth={1.5} />
                       )}
                       {ingesting
-                        ? "Queued / working…"
-                        : ready
-                          ? "Re-ingest"
-                          : "Ingest for chat"}
+                        ? "Working…"
+                        : failed
+                          ? "Retry ingest"
+                          : ready
+                            ? "Re-ingest"
+                            : "Ingest for chat"}
                     </Button>
                   )}
                 </li>

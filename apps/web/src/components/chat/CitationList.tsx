@@ -1,4 +1,5 @@
-import { FileText } from "lucide-react";
+import { useState } from "react";
+import { ChevronDown, ChevronRight, FileText } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 
@@ -62,17 +63,43 @@ export function shouldShowSources(
 type CitationListProps = {
   citations: unknown;
   className?: string;
+  /** When true, expand snippet cards by default (default: collapsed). */
+  defaultExpanded?: boolean;
 };
 
-export function CitationList({ citations, className }: CitationListProps) {
+/**
+ * Compact chips by default; expand for full snippets + scores.
+ * Reduces noise while keeping grounded-source transparency.
+ */
+export function CitationList({
+  citations,
+  className,
+  defaultExpanded = false,
+}: CitationListProps) {
   const items = asCitations(citations);
+  const [expanded, setExpanded] = useState(defaultExpanded);
   if (items.length === 0) return null;
 
   return (
     <div className={cn("mt-2 max-w-[90%] space-y-2", className)}>
-      <div className="text-[11px] font-medium uppercase tracking-wide text-mute">
-        Sources ({items.length})
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="text-[11px] font-medium uppercase tracking-wide text-mute">
+          Sources ({items.length})
+        </span>
+        <button
+          type="button"
+          onClick={() => setExpanded((v) => !v)}
+          className="inline-flex items-center gap-0.5 text-[11px] font-medium text-ink underline-offset-2 hover:underline"
+        >
+          {expanded ? (
+            <ChevronDown className="h-3 w-3" strokeWidth={1.5} />
+          ) : (
+            <ChevronRight className="h-3 w-3" strokeWidth={1.5} />
+          )}
+          {expanded ? "Hide details" : "Show details"}
+        </button>
       </div>
+
       <div className="flex flex-wrap gap-1.5">
         {items.map((c, i) => {
           const n = c.index ?? i + 1;
@@ -80,7 +107,7 @@ export function CitationList({ citations, className }: CitationListProps) {
             <Badge
               key={c.chunk_id ?? i}
               variant="outline"
-              className="gap-1 font-normal"
+              className="cursor-default gap-1 font-normal"
               title={c.snippet}
             >
               <FileText className="h-3 w-3" strokeWidth={1.5} />
@@ -92,34 +119,38 @@ export function CitationList({ citations, className }: CitationListProps) {
           );
         })}
       </div>
-      <ul className="space-y-1.5">
-        {items.map((c, i) => {
-          const n = c.index ?? i + 1;
-          return (
-            <li
-              key={`detail-${c.chunk_id ?? i}`}
-              className="rounded-[6px] border border-hairline bg-canvas px-2.5 py-2 text-xs text-body"
-            >
-              <div className="mb-1 flex flex-wrap items-center gap-1.5">
-                <span className="font-semibold text-ink">[{n}]</span>
-                {c.filename && (
-                  <span className="font-medium text-ink">
-                    {c.filename}
-                  </span>
-                )}
-                {typeof c.score === "number" && (
-                  <Badge variant={scoreVariant(c.score)} className="text-[10px]">
-                    {scoreLabel(c.score)} {c.score.toFixed(3)}
-                  </Badge>
-                )}
-              </div>
-              <p className="text-mute leading-relaxed">
-                {c.snippet ?? "…"}
-              </p>
-            </li>
-          );
-        })}
-      </ul>
+
+      {expanded && (
+        <ul className="space-y-1.5">
+          {items.map((c, i) => {
+            const n = c.index ?? i + 1;
+            return (
+              <li
+                key={`detail-${c.chunk_id ?? i}`}
+                className="rounded-[6px] border border-hairline bg-canvas px-2.5 py-2 text-xs text-body"
+              >
+                <div className="mb-1 flex flex-wrap items-center gap-1.5">
+                  <span className="font-semibold text-ink">[{n}]</span>
+                  {c.filename && (
+                    <span className="font-medium text-ink">{c.filename}</span>
+                  )}
+                  {typeof c.score === "number" && (
+                    <Badge
+                      variant={scoreVariant(c.score)}
+                      className="text-[10px]"
+                    >
+                      {scoreLabel(c.score)} {c.score.toFixed(3)}
+                    </Badge>
+                  )}
+                </div>
+                <p className="text-mute leading-relaxed">
+                  {c.snippet ?? "…"}
+                </p>
+              </li>
+            );
+          })}
+        </ul>
+      )}
     </div>
   );
 }
