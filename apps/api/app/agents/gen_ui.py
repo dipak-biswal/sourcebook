@@ -97,6 +97,161 @@ def _client() -> OpenAI:
     return OpenAI(api_key=settings.openai_api_key, base_url=settings.openai_base_url)
 
 
+def _as_str_list(value: Any) -> list[str]:
+    if value is None:
+        return []
+    if isinstance(value, str):
+        s = value.strip()
+        return [s] if s else []
+    if isinstance(value, list):
+        out: list[str] = []
+        for x in value:
+            if isinstance(x, str) and x.strip():
+                out.append(x.strip())
+            elif isinstance(x, dict):
+                # {"text": "..."} or {"point": "..."}
+                for k in ("text", "point", "item", "value", "content"):
+                    if k in x and str(x[k]).strip():
+                        out.append(str(x[k]).strip())
+                        break
+            else:
+                t = str(x).strip()
+                if t:
+                    out.append(t)
+        return out
+    return []
+
+
+def _normalize_block_dict(raw: Any) -> dict[str, Any] | None:
+    """
+    Coerce common LLM shape variants so cards are not empty titles only.
+    Models often use content/points/bullets/glossary/questions instead of our schema.
+    """
+    if not isinstance(raw, dict):
+        return None
+    b = dict(raw)
+
+    # type aliases
+    t = str(b.get("type") or b.get("kind") or b.get("block_type") or "summary").lower()
+    type_map = {
+        "overview": "summary",
+        "intro": "summary",
+        "introduction": "summary",
+        "bullets": "key_points",
+        "bullet_points": "key_points",
+        "points": "key_points",
+        "highlights": "key_points",
+        "takeaways": "key_points",
+        "glossary": "key_terms",
+        "definitions": "key_terms",
+        "vocabulary": "key_terms",
+        "terms": "key_terms",
+        "questions": "faq",
+        "q_and_a": "faq",
+        "qna": "faq",
+        "howto": "steps",
+        "how_to": "steps",
+        "procedure": "steps",
+        "process": "steps",
+        "warning": "callout",
+        "note": "callout",
+        "tip": "callout",
+        "important": "callout",
+    }
+    b["type"] = type_map.get(t, t if t in {
+        "summary", "key_points", "key_terms", "faq", "callout", "steps"
+    } else "summary")
+
+    # title
+    if not b.get("title"):
+        for k in ("heading", "name", "label"):
+            if b.get(k):
+                b["title"] = str(b[k])
+                break
+
+    # body text aliases
+    body = b.get("body") or b.get("content") or b.get("text") or b.get("description") or b.get("summary")
+    if body is not None and not isinstance(body, str):
+        body = str(body)
+    if body:
+        b["body"] = body.strip()
+
+    # list aliases
+    items = (
+        b.get("items")
+        or b.get("points")
+        or b.get("bullets")
+        or b.get("key_points")
+        or b.get("steps")
+        or b.get("list")
+    )
+    items_list = _as_str_list(items)
+    if items_list:
+        b["items"] = items_list
+
+    # terms / glossary
+    terms_raw = b.get("terms") or b.get("glossary") or b.get("definitions") or b.get("vocabulary")
+    terms_out: list[dict[str, str]] = []
+    if isinstance(terms_raw, list):
+        for x in terms_raw:
+            if not isinstance(x, dict):
+                continue
+            term = x.get("term") or x.get("name") or x.get("word") or x.get("key")
+            definition = (
+                x.get("definition")
+                or x.get("meaning")
+                or x.get("desc")
+                or x.get("description")
+                or x.get("value")
+            )
+            if term and definition:
+                terms_out.append(
+                    {"term": str(term).strip(), "definition": str(definition).strip()}
+                )
+    if terms_out:
+        b["terms"] = terms_out
+
+    # faq aliases
+    faqs_raw = b.get("faqs") or b.get("faq") or b.get("questions") or b.get("qas")
+    faqs_out: list[dict[str, str]] = []
+    if isinstance(faqs_raw, list):
+        for x in faqs_raw:
+            if not isinstance(x, dict):
+                continue
+            q = x.get("question") or x.get("q") or x.get("prompt")
+            a = x.get("answer") or x.get("a") or x.get("response")
+            if q and a:
+                faqs_out.append({"question": str(q).strip(), "answer": str(a).strip()})
+    if faqs_out:
+        b["faqs"] = faqs_out
+
+    # If model put a list into body only, split to items for list-like types
+    if b["type"] in ("key_points", "steps") and not b.get("items") and b.get("body"):
+        parts = re.split(r"[\n;•]+", str(b["body"]))
+        cleaned = [p.strip(" -*\t") for p in parts if p.strip(" -*\t")]
+        if len(cleaned) >= 2:
+            b["items"] = cleaned
+            # keep body as short intro optional — clear to avoid duplicate
+            b.pop("body", None)
+
+    # Drop blocks with no renderable content
+    has_content = bool(
+        b.get("body")
+        or b.get("items")
+        or b.get("terms")
+        or b.get("faqs")
+    )
+    if not has_content:
+        return None
+
+    # source indices aliases
+    si = b.get("source_indices") or b.get("sources") or b.get("citations") or b.get("refs")
+    if si is not None:
+        b["source_indices"] = si
+
+    return b
+
+
 def _resolve_document(
     db: Session,
     *,
@@ -309,20 +464,22 @@ RULES:
 - Write simply (clear, short sentences). Good for skimming.
 - Prefer concrete terms from the sources.
 - For EVERY block, set "source_indices" to 1-based excerpt numbers that support it (e.g. [1, 3]). Only use indices from 1 to {max_idx}.
-- Return ONLY valid JSON (no markdown fences) matching this shape:
+- Return ONLY valid JSON (no markdown fences) matching this shape EXACTLY
+  (use these field names: body, items, terms, faqs — not content/points/glossary):
 {{
   "title": "short title",
   "plain_summary": "2-4 sentence overview",
   "blocks": [
-    {{"type": "summary", "title": "Overview", "body": "...", "source_indices": [1]}},
-    {{"type": "key_points", "title": "Key points", "items": ["...", "..."], "source_indices": [1, 2]}},
-    {{"type": "key_terms", "title": "Terms", "terms": [{{"term": "...", "definition": "..."}}], "source_indices": [2]}},
+    {{"type": "summary", "title": "Overview", "body": "full paragraph text here", "source_indices": [1]}},
+    {{"type": "key_points", "title": "Key points", "items": ["point one", "point two", "point three"], "source_indices": [1, 2]}},
+    {{"type": "key_terms", "title": "Terms", "terms": [{{"term": "Word", "definition": "simple meaning"}}], "source_indices": [2]}},
     {{"type": "steps", "title": "How it works", "items": ["step 1", "step 2"], "source_indices": [1]}},
-    {{"type": "faq", "title": "FAQ", "faqs": [{{"question": "...", "answer": "..."}}], "source_indices": [3]}},
+    {{"type": "faq", "title": "FAQ", "faqs": [{{"question": "Q?", "answer": "A."}}], "source_indices": [3]}},
     {{"type": "callout", "title": "Watch out", "body": "important caveat", "source_indices": [2]}}
   ]
 }}
-- Include 3–6 blocks. Always include summary + key_points when possible.
+- CRITICAL: never return empty blocks (title only). Every block MUST include body and/or items and/or terms and/or faqs with real text from the excerpts.
+- Include 3–6 blocks. Always include summary (with body) + key_points (with items) when possible.
 - key_terms: 3–8 terms. faq: 2–5 items. items arrays: 3–7 bullets.
 
 EXCERPTS:
@@ -367,17 +524,61 @@ EXCERPTS:
             ],
         }
 
-    try:
-        blocks = [GenUIBlock.model_validate(b) for b in (data.get("blocks") or [])][:8]
-        # Clamp indices to available sources; default to [1] if model omitted
-        for b in blocks:
-            b.source_indices = [i for i in b.source_indices if 1 <= i <= max_idx]
-            if not b.source_indices and max_idx >= 1:
-                b.source_indices = [1]
+    # Accept top-level content aliases
+    plain = (
+        data.get("plain_summary")
+        or data.get("summary")
+        or data.get("overview")
+        or data.get("description")
+        or ""
+    )
 
+    raw_blocks = data.get("blocks") or data.get("sections") or data.get("cards") or []
+    if not isinstance(raw_blocks, list):
+        raw_blocks = []
+
+    blocks: list[GenUIBlock] = []
+    for raw_b in raw_blocks[:10]:
+        norm = _normalize_block_dict(raw_b)
+        if not norm:
+            continue
+        try:
+            block = GenUIBlock.model_validate(norm)
+        except Exception:
+            continue
+        block.source_indices = [i for i in block.source_indices if 1 <= i <= max_idx]
+        if not block.source_indices and max_idx >= 1:
+            block.source_indices = [1]
+        blocks.append(block)
+        if len(blocks) >= 8:
+            break
+
+    # Guarantee at least one contentful block from sources if model returned empty cards
+    if not blocks and sources:
+        first = sources[0]
+        blocks = [
+            GenUIBlock(
+                type="summary",
+                title="Overview",
+                body=(first.snippet or topic)[:1500],
+                source_indices=[1],
+            ),
+            GenUIBlock(
+                type="key_points",
+                title="From your documents",
+                items=[
+                    (s.snippet[:160] + ("…" if len(s.snippet) > 160 else ""))
+                    for s in sources[:5]
+                    if s.snippet
+                ],
+                source_indices=list(range(1, min(len(sources), 5) + 1)),
+            ),
+        ]
+
+    try:
         payload = GenerativeUIPayload(
-            title=str(data.get("title") or topic)[:120],
-            plain_summary=str(data.get("plain_summary") or "")[:2000],
+            title=str(data.get("title") or data.get("heading") or topic)[:120],
+            plain_summary=str(plain or "")[:2000],
             blocks=blocks,
             source_files=source_files,
             sources=sources,
@@ -394,6 +595,8 @@ EXCERPTS:
                 break
         if not payload.plain_summary and payload.blocks[0].items:
             payload.plain_summary = "; ".join(payload.blocks[0].items[:3])
+        if not payload.plain_summary and sources:
+            payload.plain_summary = (sources[0].snippet or "")[:400]
 
     return payload.model_dump()
 

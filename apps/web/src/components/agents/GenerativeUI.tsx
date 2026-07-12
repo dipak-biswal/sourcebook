@@ -50,6 +50,97 @@ export function isGenerativeUI(value: unknown): value is GenerativeUIPayload {
   return v.type === "generative_ui" && typeof v.title === "string";
 }
 
+function asStringList(value: unknown): string[] {
+  if (!value) return [];
+  if (typeof value === "string") return value.trim() ? [value.trim()] : [];
+  if (!Array.isArray(value)) return [];
+  const out: string[] = [];
+  for (const x of value) {
+    if (typeof x === "string" && x.trim()) out.push(x.trim());
+    else if (x && typeof x === "object") {
+      const o = x as Record<string, unknown>;
+      for (const k of ["text", "point", "item", "content", "value"]) {
+        if (typeof o[k] === "string" && (o[k] as string).trim()) {
+          out.push((o[k] as string).trim());
+          break;
+        }
+      }
+    }
+  }
+  return out;
+}
+
+/** Normalize LLM shape quirks so cards always show body/lists when present. */
+export function normalizeGenerativeUI(raw: GenerativeUIPayload): GenerativeUIPayload {
+  const blocks = (raw.blocks ?? []).map((b) => {
+    const anyB = b as GenUIBlock & Record<string, unknown>;
+    const body =
+      b.body ||
+      (typeof anyB.content === "string" ? anyB.content : null) ||
+      (typeof anyB.text === "string" ? anyB.text : null) ||
+      (typeof anyB.description === "string" ? anyB.description : null);
+
+    const items =
+      (b.items && b.items.length ? b.items : null) ||
+      asStringList(anyB.points) ||
+      asStringList(anyB.bullets) ||
+      asStringList(anyB.key_points) ||
+      asStringList(anyB.steps) ||
+      undefined;
+
+    let terms = b.terms;
+    if ((!terms || !terms.length) && Array.isArray(anyB.glossary)) {
+      terms = (anyB.glossary as Record<string, unknown>[])
+        .map((t) => ({
+          term: String(t.term ?? t.name ?? t.word ?? ""),
+          definition: String(
+            t.definition ?? t.meaning ?? t.description ?? "",
+          ),
+        }))
+        .filter((t) => t.term && t.definition);
+    }
+
+    let faqs = b.faqs;
+    if ((!faqs || !faqs.length) && Array.isArray(anyB.questions)) {
+      faqs = (anyB.questions as Record<string, unknown>[])
+        .map((f) => ({
+          question: String(f.question ?? f.q ?? ""),
+          answer: String(f.answer ?? f.a ?? ""),
+        }))
+        .filter((f) => f.question && f.answer);
+    }
+
+    return {
+      ...b,
+      body: body || b.body,
+      items: items && items.length ? items : b.items,
+      terms: terms && terms.length ? terms : b.terms,
+      faqs: faqs && faqs.length ? faqs : b.faqs,
+    };
+  });
+
+  // Drop truly empty blocks (title-only cards)
+  const filled = blocks.filter(
+    (b) =>
+      !!(
+        (b.body && b.body.trim()) ||
+        (b.items && b.items.length) ||
+        (b.terms && b.terms.length) ||
+        (b.faqs && b.faqs.length)
+      ),
+  );
+
+  return {
+    ...raw,
+    plain_summary:
+      raw.plain_summary ||
+      (typeof (raw as { summary?: string }).summary === "string"
+        ? (raw as { summary?: string }).summary
+        : undefined),
+    blocks: filled.length ? filled : blocks,
+  };
+}
+
 /** Find the latest generative_ui payload in agent step outputs. */
 export function extractGenerativeUIFromSteps(
   steps: { type: string; tool_name?: string | null; output?: unknown }[],
@@ -57,11 +148,11 @@ export function extractGenerativeUIFromSteps(
   for (let i = steps.length - 1; i >= 0; i--) {
     const s = steps[i];
     const out = s.output;
-    if (isGenerativeUI(out)) return out;
+    if (isGenerativeUI(out)) return normalizeGenerativeUI(out);
     if (typeof out === "string") {
       try {
         const parsed = JSON.parse(out) as unknown;
-        if (isGenerativeUI(parsed)) return parsed;
+        if (isGenerativeUI(parsed)) return normalizeGenerativeUI(parsed);
       } catch {
         /* ignore */
       }
@@ -316,11 +407,28 @@ export function GenerativeUIView({
                 </div>
               )}
 
+              {!b.body &&
+                !(b.items && b.items.length) &&
+                !(b.terms && b.terms.length) &&
+                !(b.faqs && b.faqs.length) && (
+                  <p className="text-xs text-mute">
+                    No details in this section. Try regenerating the learning
+                    view or re-ingest the document.
+                  </p>
+                )}
+
               <BlockCitations sources={cited} />
             </section>
           );
         })}
       </div>
+
+      {blocks.length === 0 && (
+        <p className="text-xs text-mute">
+          Learning view has no sections yet. Re-run the agent with “explain
+          simply” after documents are ready.
+        </p>
+      )}
     </div>
   );
 }
