@@ -17,16 +17,12 @@ import {
   type Conversation,
   type Workspace,
 } from "@/api";
+import { AgentRunPanel } from "@/components/agents/AgentRunPanel";
 import {
   extractGenerativeUIFromSteps,
   GenerativeUIView,
 } from "@/components/agents/GenerativeUI";
-import {
-  AGENT_EXAMPLE_GOALS,
-  AgentApprovalCard,
-  AgentStatusBadge,
-  AgentStepList,
-} from "@/components/agents/shared";
+import { AGENT_EXAMPLE_GOALS } from "@/components/agents/shared";
 import { ChatSessionsPanel } from "@/components/chat/ChatSessionsPanel";
 import {
   CitationList,
@@ -666,14 +662,6 @@ export function ChatPage() {
                             <Badge variant="secondary" className="text-[10px]">
                               Agent
                             </Badge>
-                            {item.run && (
-                              <AgentStatusBadge status={item.run.status} />
-                            )}
-                            {item.run?.token_usage != null && (
-                              <span className="text-[11px] text-mute">
-                                ~{item.run.token_usage.toLocaleString()} tokens
-                              </span>
-                            )}
                             {item.pending && (
                               <Loader2 className="h-3.5 w-3.5 animate-spin text-mute" />
                             )}
@@ -688,6 +676,7 @@ export function ChatPage() {
                         </div>
                       )}
 
+                      {/* Showcase: generative learning UI (product surface) */}
                       {!isUser &&
                         item.run &&
                         (() => {
@@ -707,39 +696,37 @@ export function ChatPage() {
                           ) : null;
                         })()}
 
-                      {!isUser && item.run && item.run.steps?.length > 0 && (
-                        <div className="mt-2 max-w-[90%] rounded-[6px] border border-hairline bg-canvas px-3 py-2">
-                          <div className="mb-1.5 text-[11px] font-medium uppercase tracking-wide text-mute">
-                            Steps ({item.run.steps.length})
-                          </div>
-                          <AgentStepList steps={item.run.steps} compact />
+                      {/* Behind the scenes: tools, I/O, tokens, decisions */}
+                      {!isUser && (item.run || item.pending) && (
+                        <div className="mt-2 w-full max-w-[min(100%,36rem)]">
+                          <AgentRunPanel
+                            run={item.run}
+                            pending={item.pending}
+                            approving={approving}
+                            forceOpenWhilePending
+                            onApprove={
+                              item.run
+                                ? () =>
+                                    void onApproveAgent(
+                                      item.id,
+                                      item.run!.id,
+                                      true,
+                                    )
+                                : undefined
+                            }
+                            onReject={
+                              item.run
+                                ? () =>
+                                    void onApproveAgent(
+                                      item.id,
+                                      item.run!.id,
+                                      false,
+                                    )
+                                : undefined
+                            }
+                          />
                         </div>
                       )}
-
-                      {!isUser &&
-                        item.run?.status === "waiting_approval" &&
-                        item.run.pending_tool && (
-                          <div className="mt-2 max-w-[90%]">
-                            <AgentApprovalCard
-                              pendingTool={item.run.pending_tool}
-                              approving={approving}
-                              onApprove={() =>
-                                void onApproveAgent(
-                                  item.id,
-                                  item.run!.id,
-                                  true,
-                                )
-                              }
-                              onReject={() =>
-                                void onApproveAgent(
-                                  item.id,
-                                  item.run!.id,
-                                  false,
-                                )
-                              }
-                            />
-                          </div>
-                        )}
                     </div>
                   );
                 })}

@@ -16,15 +16,13 @@ import {
   type Note,
   type Workspace,
 } from "@/api";
+import { AgentRunPanel } from "@/components/agents/AgentRunPanel";
 import {
   extractGenerativeUIFromSteps,
   GenerativeUIView,
 } from "@/components/agents/GenerativeUI";
 import {
   AGENT_EXAMPLE_GOALS,
-  AgentApprovalCard,
-  AgentStatusBadge,
-  AgentStepList,
   agentStatusVariant,
 } from "@/components/agents/shared";
 import { AppHeader } from "@/components/layout/AppHeader";
@@ -459,40 +457,15 @@ export function AgentsPage() {
             ) : (
               <div className="space-y-4">
                 <div className="rounded-vercel-md border border-hairline bg-canvas p-4">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <AgentStatusBadge status={selected.status} />
-                    <span className="text-xs text-mute">
-                      {formatWhen(selected.created_at)}
-                    </span>
-                    {selected.token_usage != null && (
-                      <span className="text-xs text-mute">
-                        ~{selected.token_usage} tokens (approx)
-                      </span>
-                    )}
+                  <div className="text-xs text-mute">
+                    {formatWhen(selected.created_at)}
                   </div>
-                  <div className="mt-2 text-sm font-medium text-ink">
+                  <div className="mt-1 text-sm font-medium text-ink">
                     {selected.goal}
                   </div>
-                  {selected.error && (
-                    <Alert variant="danger" className="mt-3">
-                      {selected.error}
-                    </Alert>
-                  )}
-
-                  {selected.status === "waiting_approval" &&
-                    selected.pending_tool && (
-                      <AgentApprovalCard
-                        className="mt-4 rounded-[6px] border border-warning-border bg-warning-soft p-3"
-                        pendingTool={selected.pending_tool}
-                        approving={approving}
-                        onApprove={() => void onApprove(true)}
-                        onReject={() => void onApprove(false)}
-                      />
-                    )}
-
                   {selected.final_answer && (
                     <div className="mt-3">
-                      <div className="text-[11px] font-medium uppercase text-mute">
+                      <div className="text-[11px] font-semibold uppercase text-mute">
                         {selected.status === "waiting_approval"
                           ? "Status message"
                           : "Final answer"}
@@ -511,6 +484,9 @@ export function AgentsPage() {
                       <h2 className="mb-2 text-sm font-semibold text-ink">
                         Learning view
                       </h2>
+                      <p className="mb-2 text-xs text-mute">
+                        Product surface for easy understanding
+                      </p>
                       <GenerativeUIView
                         payload={gen}
                         onSaveAsNote={(t, b) => void onSaveLearningNote(t, b)}
@@ -522,9 +498,19 @@ export function AgentsPage() {
 
                 <div>
                   <h2 className="mb-2 text-sm font-semibold text-ink">
-                    Step timeline ({steps.length})
+                    Run view
                   </h2>
-                  <AgentStepList steps={steps} />
+                  <p className="mb-2 text-xs text-mute">
+                    Behind the scenes — tools, decisions, outputs, LLM tokens
+                  </p>
+                  <AgentRunPanel
+                    run={selected}
+                    pending={running}
+                    approving={approving}
+                    forceOpenWhilePending
+                    onApprove={() => void onApprove(true)}
+                    onReject={() => void onApprove(false)}
+                  />
                 </div>
               </div>
             )}
