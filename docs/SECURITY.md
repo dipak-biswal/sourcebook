@@ -136,6 +136,17 @@ Unknown tool names are not executed as open-ended code.
 | Usage log | `usage_events` + Usage UI |
 | Agent steps | `max_steps` cap on runs |
 | Ingest queue | Heavy work off API process; retries via RQ |
+| Structured logs | JSON logs with `request_id` / optional `user_id` (see below) |
+
+### Structured logging
+
+- Format: one JSON object per line (`LOG_JSON=true`) or plain text (`LOG_JSON=false`).
+- Each HTTP request gets `X-Request-ID` (generated or taken from client header).
+- Access logs include `method`, `path`, `status_code`, `duration_ms`.
+- Auth sets `user_id` on the context for later log lines in that request.
+- Ingest queue/worker logs `document_id`, `job_id`, lifecycle events.
+
+Do **not** log passwords, JWTs, or full document bodies.
 
 Tune: `RATE_LIMIT_*` env vars. Set `RATE_LIMIT_ENABLED=false` only for local load testing.
 

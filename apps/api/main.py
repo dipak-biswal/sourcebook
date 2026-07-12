@@ -2,6 +2,8 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import settings
+from app.logging_config import get_logger, setup_logging
+from app.middleware.request_logging import RequestLoggingMiddleware
 from app.routers import (
     agents,
     auth,
@@ -15,12 +17,17 @@ from app.routers import (
     workspaces,
 )
 
+setup_logging(level=settings.log_level, json_logs=settings.log_json)
+logger = get_logger("sourcebook.api")
+
 app = FastAPI(
     title="Sourcebook",
-    description="Multi-tenant docuemnt AI workspace",
+    description="Multi-tenant document AI workspace",
     version="0.1.0",
 )
 
+# Order: last added = outermost. RequestLogging wraps CORS + routes.
+app.add_middleware(RequestLoggingMiddleware)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
@@ -32,6 +39,7 @@ app.add_middleware(
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
+    expose_headers=["X-Request-ID"],
 )
 
 app.include_router(health.router)
@@ -45,6 +53,21 @@ app.include_router(agents.router)
 app.include_router(notes.router)
 if settings.dev_mode:
     app.include_router(dev.router)
+
+
+@app.on_event("startup")
+def on_startup() -> None:
+    logger.info(
+        "api_started",
+        extra={
+            "event": "startup",
+            "app": settings.app_name,
+            "dev_mode": settings.dev_mode,
+            "ingest_use_queue": settings.ingest_use_queue,
+            "log_json": settings.log_json,
+        },
+    )
+
 
 if __name__ == "__main__":
     import uvicorn

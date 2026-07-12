@@ -45,5 +45,9 @@ class Settings(BaseSettings):
     rate_limit_ingest_per_window: int = 10
     rate_limit_agent_per_window: int = 10
 
+    # Logging
+    log_level: str = "INFO"
+    log_json: bool = True  # false = human-readable lines for local terminals
+
 
 settings = Settings()

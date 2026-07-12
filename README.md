@@ -302,6 +302,7 @@ Summary:
 - Multi-tenant queries filter by workspace membership; retrieval always filters by `workspace_id`.  
 - Agent tools are **allowlisted**; **write** tools (`create_note`) require human approval.  
 - Per-user **rate limits** on chat, ingest, and agent starts.  
+- **Structured logs** (JSON) with `X-Request-ID` correlation.  
 - Do not commit `.env` or API keys.
 
 Full write-up (prompt injection, allowlist, production checklist):

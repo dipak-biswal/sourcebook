@@ -8,10 +8,13 @@ from app.db import get_db
 from app.deps import get_current_user
 from app.ingestion.parsers import ParseError
 from app.ingestion.service import ingest_document_chunks
+from app.logging_config import get_logger, log_extra
 from app.models import Document, User, WorkspaceMember
 from app.rate_limit import rate_limit
 from app.schemas import DocumentResponse
 from app.workers.queue import enqueue_document_ingest, redis_ping
+
+logger = get_logger("sourcebook.ingest")
 
 router = APIRouter(prefix="/documents", tags=["ingest"])
 
@@ -74,9 +77,15 @@ def ingest_document(
             db.commit()
             db.refresh(doc)
             job = enqueue_document_ingest(doc.id)
-            # Store job id for debugging (optional field reuse: error holds meta when queued)
-            # Keep error null for clean UI; job id only in logs
-            print(f"[ingest] queued document_id={doc.id} job_id={job.id}")
+            logger.info(
+                "ingest_queued",
+                extra=log_extra(
+                    event="ingest_queued",
+                    document_id=str(doc.id),
+                    job_id=job.id,
+                    workspace_id=str(doc.workspace_id),
+                ),
+            )
             return doc
         except HTTPException:
             raise
