@@ -55,19 +55,28 @@ def build_tools(db: Session, *, workspace_id: uuid.UUID, user_id: uuid.UUID):
         return results
 
     @tool
-    def explain_for_learners(topic: str, focus: str = "") -> dict[str, Any]:
+    def explain_for_learners(
+        topic: str,
+        focus: str = "",
+        document_id: str = "",
+        document_filename: str = "",
+    ) -> dict[str, Any]:
         """
         Generate an easy-to-understand learning UI from uploaded documents.
 
         Use when the user wants a simple overview, key points, glossary, FAQ,
         or structured explanation of content in their workspace docs.
-        Returns a generative_ui payload (cards/blocks) for the frontend.
+        Prefer document_id (or document_filename from list_documents) when the
+        user names a specific file. Returns a generative_ui payload with
+        per-block source_indices for the frontend.
         """
         return build_learning_ui(
             db,
             workspace_id=workspace_id,
             topic=topic,
             focus=focus or "",
+            document_id=document_id or None,
+            document_filename=document_filename or None,
         )
 
     @tool

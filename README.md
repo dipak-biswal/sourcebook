@@ -18,7 +18,7 @@ Multi-tenant **document AI workspace**: upload files, run an ingest pipeline (pa
 | **RAG chat** | Retrieve top chunks → LLM answer; **SSE streaming**; sources (filename, score, snippet) |
 | **Chat ↔ Agent mode** | Same Chat page toggle: RAG by default, or tool-using agent + HITL |
 | **Denial** | Off-topic / empty retrieval → no fake sources |
-| **Agents** | Tools: list/search docs, **`explain_for_learners` (generative UI)**, `create_note`; step timeline (+ Agents page) |
+| **Agents** | Tools: list/search docs, **`explain_for_learners` (generative UI + citations + per-doc)**, `create_note` (HITL); save learning view as note |
 | **HITL** | `create_note` pauses at `waiting_approval` until Approve / Reject |
 | **Usage** | Token usage events + **Usage** page |
 | **Rate limits** | Per-user limits on chat, ingest, agent starts |

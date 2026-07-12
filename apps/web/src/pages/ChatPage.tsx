@@ -107,6 +107,7 @@ export function ChatPage() {
   const [sending, setSending] = useState(false);
   const [approving, setApproving] = useState(false);
   const [sessionsOpen, setSessionsOpen] = useState(false);
+  const [savingNote, setSavingNote] = useState(false);
 
   const setModePersist = (m: ChatMode) => {
     setMode(m);
@@ -394,6 +395,47 @@ export function ChatPage() {
     }
   }
 
+  /** HITL path: start agent run that proposes create_note with learning content. */
+  async function onSaveLearningNote(title: string, body: string) {
+    if (!workspaceId || savingNote) return;
+    setSavingNote(true);
+    setError(null);
+    const userId = `agent-user-note-${Date.now()}`;
+    const asstId = `agent-asst-note-${Date.now()}`;
+    const goal =
+      `Create a note titled ${JSON.stringify(title)} with body:\n${body}`;
+    setModePersist("agent");
+    setAgentThread((prev) => [
+      ...prev,
+      { id: userId, role: "user", content: `Save learning view as note: ${title}` },
+      {
+        id: asstId,
+        role: "assistant",
+        content: "Preparing note (approval required)…",
+        pending: true,
+        run: null,
+      },
+    ]);
+    try {
+      const run = await api.startAgentRun(workspaceId, goal, 5);
+      applyRunToThread(asstId, run);
+      if (run.status === "waiting_approval") {
+        success("Approve the note", "Review create_note below, then Approve.");
+      } else if (run.status === "completed") {
+        success("Note flow finished");
+      }
+    } catch (err) {
+      const msg = formatError(err);
+      setError(msg);
+      toastError("Could not start save-as-note", msg);
+      setAgentThread((prev) =>
+        prev.filter((m) => m.id !== userId && m.id !== asstId),
+      );
+    } finally {
+      setSavingNote(false);
+    }
+  }
+
   const sessionsPanel = (
     <ChatSessionsPanel
       workspaces={workspaces}
@@ -654,7 +696,13 @@ export function ChatPage() {
                           );
                           return gen ? (
                             <div className="mt-2 w-full max-w-[min(100%,36rem)]">
-                              <GenerativeUIView payload={gen} />
+                              <GenerativeUIView
+                                payload={gen}
+                                onSaveAsNote={(t, b) =>
+                                  void onSaveLearningNote(t, b)
+                                }
+                                savingNote={savingNote}
+                              />
                             </div>
                           ) : null;
                         })()}

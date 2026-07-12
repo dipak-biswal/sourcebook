@@ -164,6 +164,8 @@ def run_agent(
             "- For 'explain', 'summarize simply', 'teach me', 'overview', "
             "'key points', or 'make this easy to understand', call "
             "explain_for_learners with a clear topic (and optional focus).\n"
+            "- If the user names a file, list_documents first if needed, then "
+            "pass document_id or document_filename into explain_for_learners.\n"
             "- After explain_for_learners succeeds, give a short text answer "
             "and mention that a structured learning view is shown in the UI.\n"
             "- create_note requires human approval before it executes.\n"

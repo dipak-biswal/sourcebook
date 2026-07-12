@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 
 export const AGENT_EXAMPLE_GOALS = [
   "Explain my documents simply with key points and a short FAQ for beginners.",
-  "List my documents and say which ones are ready for chat.",
+  "List documents, then explain the first ready file simply with citations.",
   "Search documents for the main themes and summarize.",
   "Create a note titled Demo Approval with body hello from HITL agent.",
 ];

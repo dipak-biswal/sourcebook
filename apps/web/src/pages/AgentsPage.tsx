@@ -68,6 +68,7 @@ export function AgentsPage() {
   const [running, setRunning] = useState(false);
   const [approving, setApproving] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [savingNote, setSavingNote] = useState(false);
 
   const loadNotes = useCallback(async (ws: string) => {
     if (!ws) return;
@@ -179,6 +180,30 @@ export function AgentsPage() {
       toastError("Approval failed", msg);
     } finally {
       setApproving(false);
+    }
+  }
+
+  async function onSaveLearningNote(title: string, body: string) {
+    if (!workspaceId || savingNote) return;
+    setSavingNote(true);
+    setError(null);
+    const goal =
+      `Create a note titled ${JSON.stringify(title)} with body:\n${body}`;
+    try {
+      const run = await api.startAgentRun(workspaceId, goal, 5);
+      await refreshWorkspace(workspaceId, run.id);
+      setSelected(run);
+      if (run.status === "waiting_approval") {
+        success("Approve the note", "Review create_note, then Approve.");
+      } else {
+        success("Note flow finished");
+      }
+    } catch (err) {
+      const msg = formatError(err);
+      setError(msg);
+      toastError("Could not start save-as-note", msg);
+    } finally {
+      setSavingNote(false);
     }
   }
 
@@ -486,7 +511,11 @@ export function AgentsPage() {
                       <h2 className="mb-2 text-sm font-semibold text-ink">
                         Learning view
                       </h2>
-                      <GenerativeUIView payload={gen} />
+                      <GenerativeUIView
+                        payload={gen}
+                        onSaveAsNote={(t, b) => void onSaveLearningNote(t, b)}
+                        savingNote={savingNote}
+                      />
                     </div>
                   ) : null;
                 })()}
