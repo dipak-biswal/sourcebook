@@ -1,52 +1,26 @@
 import { useCallback, useEffect, useState, type FormEvent } from "react";
 import { Navigate, useNavigate } from "react-router-dom";
-import {
-  Bot,
-  Check,
-  Loader2,
-  Play,
-  RefreshCw,
-  StickyNote,
-  Trash2,
-  X,
-} from "lucide-react";
+import { Bot, Loader2, Play, RefreshCw, StickyNote, Trash2 } from "lucide-react";
 import {
   api,
   getToken,
   type AgentRun,
-  type AgentStep,
   type Note,
   type Workspace,
 } from "@/api";
+import {
+  AGENT_EXAMPLE_GOALS,
+  AgentApprovalCard,
+  AgentStatusBadge,
+  AgentStepList,
+  agentStatusVariant,
+} from "@/components/agents/shared";
 import { AppHeader } from "@/components/layout/AppHeader";
 import { Alert } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { cn, formatError } from "@/lib/utils";
-
-const EXAMPLE_GOALS = [
-  "List my documents and say which ones are ready for chat.",
-  "Search documents for mesh gradient colors and summarize.",
-  "Create a note titled Demo Approval with body hello from HITL agent.",
-];
-
-function statusVariant(
-  status: string,
-): "success" | "warning" | "danger" | "secondary" | "outline" {
-  switch (status) {
-    case "completed":
-      return "success";
-    case "running":
-    case "waiting_approval":
-      return "warning";
-    case "failed":
-    case "cancelled":
-      return "danger";
-    default:
-      return "secondary";
-  }
-}
 
 function formatWhen(iso: string): string {
   try {
@@ -61,46 +35,6 @@ function formatWhen(iso: string): string {
   }
 }
 
-function pretty(value: unknown): string {
-  if (value == null) return "—";
-  if (typeof value === "string") return value;
-  try {
-    return JSON.stringify(value, null, 2);
-  } catch {
-    return String(value);
-  }
-}
-
-function StepCard({ step }: { step: AgentStep }) {
-  return (
-    <div className="rounded-[6px] border border-hairline bg-canvas px-3 py-2.5">
-      <div className="mb-1 flex flex-wrap items-center gap-2">
-        <span className="text-xs font-semibold text-ink">#{step.step_index}</span>
-        <Badge variant="outline">{step.type}</Badge>
-        {step.tool_name && <Badge variant="secondary">{step.tool_name}</Badge>}
-      </div>
-      {step.input != null && (
-        <div className="mt-1">
-          <div className="text-[11px] font-medium uppercase text-mute">Input</div>
-          <pre className="mt-0.5 max-h-32 overflow-auto whitespace-pre-wrap text-xs text-body">
-            {pretty(step.input)}
-          </pre>
-        </div>
-      )}
-      {step.output != null && (
-        <div className="mt-1">
-          <div className="text-[11px] font-medium uppercase text-mute">
-            Output
-          </div>
-          <pre className="mt-0.5 max-h-40 overflow-auto whitespace-pre-wrap text-xs text-body">
-            {pretty(step.output)}
-          </pre>
-        </div>
-      )}
-    </div>
-  );
-}
-
 export function AgentsPage() {
   const navigate = useNavigate();
   const [workspaces, setWorkspaces] = useState<Workspace[]>([]);
@@ -109,7 +43,7 @@ export function AgentsPage() {
   const [notes, setNotes] = useState<Note[]>([]);
   const [selectedId, setSelectedId] = useState("");
   const [selected, setSelected] = useState<AgentRun | null>(null);
-  const [goal, setGoal] = useState(EXAMPLE_GOALS[0]);
+  const [goal, setGoal] = useState(AGENT_EXAMPLE_GOALS[0]);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [running, setRunning] = useState(false);
@@ -228,9 +162,7 @@ export function AgentsPage() {
     }
   }
 
-  const steps = [...(selected?.steps ?? [])].sort(
-    (a, b) => a.step_index - b.step_index,
-  );
+  const steps = selected?.steps ?? [];
 
   return (
     <div className="flex h-full flex-col overflow-hidden bg-canvas-soft">
@@ -244,7 +176,7 @@ export function AgentsPage() {
               <h2 className="text-body-sm font-semibold text-ink">Agents</h2>
             </div>
             <p className="mt-0.5 text-xs text-mute">
-              Tools + HITL for write actions
+              Tools + HITL for write actions · also available in Chat → Agent mode
             </p>
 
             {workspaces.length > 0 && (
@@ -309,7 +241,7 @@ export function AgentsPage() {
                         {r.goal}
                       </div>
                       <div className="mt-1 flex items-center gap-2">
-                        <Badge variant={statusVariant(r.status)}>
+                        <Badge variant={agentStatusVariant(r.status)}>
                           {r.status}
                         </Badge>
                         <span className="text-[11px] text-mute">
@@ -384,11 +316,12 @@ export function AgentsPage() {
               <p className="mt-1 text-xs text-mute">
                 Read tools run immediately.{" "}
                 <strong className="text-ink">create_note</strong> waits for
-                Approve / Reject.
+                Approve / Reject. You can also run agents from{" "}
+                <strong className="text-ink">Chat → Agent</strong> mode.
               </p>
 
               <div className="mt-3 flex flex-wrap gap-1.5">
-                {EXAMPLE_GOALS.map((g) => (
+                {AGENT_EXAMPLE_GOALS.map((g) => (
                   <button
                     key={g}
                     type="button"
@@ -437,9 +370,7 @@ export function AgentsPage() {
               <div className="space-y-4">
                 <div className="rounded-vercel-md border border-hairline bg-canvas p-4">
                   <div className="flex flex-wrap items-center gap-2">
-                    <Badge variant={statusVariant(selected.status)}>
-                      {selected.status}
-                    </Badge>
+                    <AgentStatusBadge status={selected.status} />
                     <span className="text-xs text-mute">
                       {formatWhen(selected.created_at)}
                     </span>
@@ -460,47 +391,13 @@ export function AgentsPage() {
 
                   {selected.status === "waiting_approval" &&
                     selected.pending_tool && (
-                      <div className="mt-4 rounded-[6px] border border-amber-200 bg-[#fffbeb] p-3">
-                        <div className="text-sm font-semibold text-ink">
-                          Approval required
-                        </div>
-                        <p className="mt-1 text-xs text-body">
-                          Write tool{" "}
-                          <code className="rounded bg-canvas px-1">
-                            {selected.pending_tool.name}
-                          </code>
-                          . Review args, then approve or reject.
-                        </p>
-                        <pre className="mt-2 max-h-40 overflow-auto rounded border border-hairline bg-canvas p-2 text-xs text-body">
-                          {pretty(selected.pending_tool.args ?? {})}
-                        </pre>
-                        <div className="mt-3 flex flex-wrap gap-2">
-                          <Button
-                            type="button"
-                            size="sm"
-                            className="rounded-[6px]"
-                            disabled={approving}
-                            onClick={() => void onApprove(true)}
-                          >
-                            {approving ? (
-                              <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                            ) : (
-                              <Check className="h-3.5 w-3.5" strokeWidth={1.5} />
-                            )}
-                            Approve
-                          </Button>
-                          <Button
-                            type="button"
-                            variant="secondary"
-                            size="sm"
-                            disabled={approving}
-                            onClick={() => void onApprove(false)}
-                          >
-                            <X className="h-3.5 w-3.5" strokeWidth={1.5} />
-                            Reject
-                          </Button>
-                        </div>
-                      </div>
+                      <AgentApprovalCard
+                        className="mt-4 rounded-[6px] border border-amber-200 bg-[#fffbeb] p-3"
+                        pendingTool={selected.pending_tool}
+                        approving={approving}
+                        onApprove={() => void onApprove(true)}
+                        onReject={() => void onApprove(false)}
+                      />
                     )}
 
                   {selected.final_answer && (
@@ -521,15 +418,7 @@ export function AgentsPage() {
                   <h2 className="mb-2 text-sm font-semibold text-ink">
                     Step timeline ({steps.length})
                   </h2>
-                  {steps.length === 0 ? (
-                    <p className="text-sm text-mute">No steps recorded.</p>
-                  ) : (
-                    <div className="space-y-2">
-                      {steps.map((s) => (
-                        <StepCard key={s.id} step={s} />
-                      ))}
-                    </div>
-                  )}
+                  <AgentStepList steps={steps} />
                 </div>
               </div>
             )}

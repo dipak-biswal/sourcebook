@@ -16,8 +16,9 @@ Multi-tenant **document AI workspace**: upload files, run an ingest pipeline (pa
 | **Ingest** | txt/md parse → chunk → embed; status `queued` → `processing` → `ready` / `failed` |
 | **Background jobs** | Redis + **RQ** worker for heavy ingest (API stays responsive) |
 | **RAG chat** | Retrieve top chunks → LLM answer; **SSE streaming**; sources (filename, score, snippet) |
+| **Chat ↔ Agent mode** | Same Chat page toggle: RAG by default, or tool-using agent + HITL |
 | **Denial** | Off-topic / empty retrieval → no fake sources |
-| **Agents** | Tools: `list_documents`, `search_documents`, `create_note`; step timeline |
+| **Agents** | Tools: `list_documents`, `search_documents`, `create_note`; step timeline (+ dedicated Agents page) |
 | **HITL** | `create_note` pauses at `waiting_approval` until Approve / Reject |
 | **Usage** | Token usage events + **Usage** page |
 | **Rate limits** | Per-user limits on chat, ingest, agent starts |
@@ -201,8 +202,8 @@ Open the Vite URL (e.g. http://127.0.0.1:5173).
 |-------|---------|
 | `/login` | Auth; **DEV** panel can list users / set `password123` when `DEV_MODE=true` |
 | `/documents` | Upload, ingest (queue), status badges |
-| `/chat` | Streaming RAG chat + sources |
-| `/agents` | Agent runs, step timeline, approve/reject writes, notes list |
+| `/chat` | Streaming RAG chat + sources; **Agent** mode for tools + HITL |
+| `/agents` | Agent run history, step timeline, approve/reject writes, notes list |
 | `/usage` | Logged token usage for your user |
 
 ---
