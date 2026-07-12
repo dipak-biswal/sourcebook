@@ -368,7 +368,7 @@ export function ChatPage() {
   const empty = thread.length === 0 && !sending;
 
   return (
-    <div className="flex h-full flex-col overflow-hidden bg-canvas-soft">
+    <div className="app-shell">
       <AppHeader
         onLogout={() => {
           navigate("/login", { replace: true });
@@ -376,7 +376,7 @@ export function ChatPage() {
       />
 
       <div className="flex min-h-0 flex-1">
-        <aside className="flex w-80 shrink-0 flex-col border-r border-hairline bg-canvas">
+        <aside className="hidden w-80 shrink-0 flex-col border-r border-hairline bg-canvas md:flex">
           <div className="shrink-0 border-b border-hairline p-4">
             <div className="flex items-center justify-between gap-2">
               <div>
@@ -506,7 +506,7 @@ export function ChatPage() {
         </aside>
 
         <main className="flex min-h-0 min-w-0 flex-1 flex-col">
-          <div className="flex shrink-0 items-center justify-between border-b border-hairline bg-canvas px-6 py-3">
+          <div className="flex shrink-0 items-center justify-between gap-3 border-b border-hairline bg-canvas px-4 py-3 sm:px-6">
             <div className="min-w-0">
               <div className="truncate text-sm font-semibold text-ink">
                 {mode === "agent"
@@ -520,6 +520,23 @@ export function ChatPage() {
                     ? `Session · ${formatSessionDate(active.created_at)}`
                     : "Send a message to start a session"}
               </div>
+              {/* Mobile: sessions live in sidebar on md+ */}
+              {workspaces.length > 0 && (
+                <label className="mt-2 block md:hidden">
+                  <span className="sr-only">Workspace</span>
+                  <select
+                    value={workspaceId}
+                    onChange={(e) => setWorkspaceId(e.target.value)}
+                    className="h-8 w-full max-w-xs rounded-[6px] border border-hairline bg-canvas px-2 text-xs text-ink"
+                  >
+                    {workspaces.map((w) => (
+                      <option key={w.id} value={w.id}>
+                        {w.name}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              )}
             </div>
             {mode === "chat" && active && (
               <Button
@@ -550,7 +567,7 @@ export function ChatPage() {
             </div>
           )}
 
-          <div className="document-scroll min-h-0 flex-1 overflow-y-auto px-6 py-6">
+          <div className="document-scroll min-h-0 flex-1 overflow-y-auto px-4 py-5 sm:px-6 sm:py-6">
             {empty ? (
               <div className="flex h-full flex-col items-center justify-center text-center">
                 <div className="flex h-12 w-12 items-center justify-center rounded-vercel-md bg-canvas-soft-2 text-mute">
@@ -757,7 +774,7 @@ export function ChatPage() {
 
           <form
             onSubmit={onSend}
-            className="shrink-0 border-t border-hairline bg-canvas px-6 py-4"
+            className="shrink-0 border-t border-hairline bg-canvas px-4 py-3 sm:px-6 sm:py-4"
           >
             <div className="mx-auto max-w-2xl space-y-2">
               <div className="flex items-center gap-2">

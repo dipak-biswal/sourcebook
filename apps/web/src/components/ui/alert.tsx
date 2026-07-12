@@ -6,7 +6,8 @@ const alertVariants = cva("relative w-full rounded-[6px] border p-3 text-sm", {
   variants: {
     variant: {
       default: "bg-canvas text-body border-hairline",
-      danger: "border-[#fecaca] bg-[#fef2f2] text-[#991b1b]",
+      danger:
+        "border-danger-border bg-danger-soft text-danger-text",
     },
   },
   defaultVariants: { variant: "default" },

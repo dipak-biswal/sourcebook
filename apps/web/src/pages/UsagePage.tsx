@@ -54,23 +54,25 @@ export function UsagePage() {
   const kindEntries = Object.entries(data?.by_kind ?? {});
 
   return (
-    <div className="flex h-full flex-col overflow-hidden bg-canvas-soft">
+    <div className="app-shell">
       <AppHeader
         onLogout={() => {
           navigate("/login", { replace: true });
         }}
       />
 
-      <main className="document-scroll min-h-0 flex-1 overflow-y-auto px-6 py-8">
+      <main className="document-scroll min-h-0 flex-1 overflow-y-auto px-4 py-6 sm:px-6 sm:py-8">
         <div className="mx-auto max-w-3xl">
           <div className="mb-6 flex flex-wrap items-start justify-between gap-3">
             <div>
               <div className="flex items-center gap-2">
                 <Activity className="h-5 w-5 text-ink" strokeWidth={1.5} />
-                <h1 className="text-display-sm font-semibold text-ink">Usage</h1>
+                <h1 className="text-display-sm font-semibold tracking-tight text-ink">
+                  Usage
+                </h1>
               </div>
               <p className="mt-1 text-body-sm text-mute">
-                Token usage logged by Sourcebook for your account (chat / stream).
+                Token usage logged for your account (chat, stream, agent runs).
                 OpenAI dashboard is the source of truth for billing.
               </p>
             </div>
@@ -145,8 +147,9 @@ export function UsagePage() {
                   Recent activity
                 </div>
                 {!data?.recent?.length ? (
-                  <p className="px-4 py-8 text-center text-sm text-mute">
-                    No usage yet. Send a chat message, then refresh.
+                  <p className="px-4 py-10 text-center text-sm text-mute">
+                    No usage yet. Send a chat message or run an agent, then
+                    refresh.
                   </p>
                 ) : (
                   <div className="overflow-x-auto">

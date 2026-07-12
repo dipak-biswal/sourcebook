@@ -4,15 +4,16 @@ import { forwardRef } from "react";
 import { cn } from "@/lib/utils";
 
 const buttonVariants = cva(
-  "inline-flex items-center justify-center gap-1.5 whitespace-nowrap text-sm font-medium transition-colors focus-visible:outline-none disabled:pointer-events-none disabled:opacity-50",
+  "inline-flex items-center justify-center gap-1.5 whitespace-nowrap text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ink/25 focus-visible:ring-offset-2 focus-visible:ring-offset-canvas disabled:pointer-events-none disabled:opacity-50",
   {
     variants: {
       variant: {
-        default: "bg-ink text-white hover:opacity-90 rounded-full",
+        default:
+          "bg-ink text-[var(--canvas)] hover:opacity-90 rounded-full shadow-[0_1px_2px_#00000014]",
         secondary:
           "bg-canvas text-ink border border-hairline hover:bg-canvas-soft-2 rounded-[6px]",
         outline:
-          "border border-hairline bg-canvas hover:bg-canvas-soft rounded-[6px]",
+          "border border-hairline bg-canvas hover:bg-canvas-soft rounded-[6px] text-ink",
         ghost: "hover:bg-canvas-soft-2 text-body hover:text-ink rounded-[6px]",
       },
       size: {

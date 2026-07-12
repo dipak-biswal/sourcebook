@@ -165,11 +165,11 @@ export function AgentsPage() {
   const steps = selected?.steps ?? [];
 
   return (
-    <div className="flex h-full flex-col overflow-hidden bg-canvas-soft">
+    <div className="app-shell">
       <AppHeader onLogout={() => navigate("/login", { replace: true })} />
 
       <div className="flex min-h-0 flex-1">
-        <aside className="flex w-80 shrink-0 flex-col border-r border-hairline bg-canvas">
+        <aside className="hidden w-80 shrink-0 flex-col border-r border-hairline bg-canvas md:flex">
           <div className="shrink-0 border-b border-hairline p-4">
             <div className="flex items-center gap-2">
               <Bot className="h-4 w-4 text-ink" strokeWidth={1.5} />

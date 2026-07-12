@@ -98,77 +98,81 @@ export function LoginPage() {
     <div className="flex min-h-full flex-col bg-canvas-soft">
       <AppHeader showAuthActions={false} />
 
-      <main className="mx-auto flex w-full max-w-3xl flex-1 flex-col items-center px-6 py-12">
-        <SourcebookIcon size="lg" />
-        <h1 className="mt-6 text-display-sm font-semibold text-ink">
-          Sign in to Sourcebook
-        </h1>
-        <p className="mt-2 text-center text-body-sm text-body">
-          Multi-tenant document workspace. Upload sources, then chat with
-          grounded answers.
-        </p>
+      <main className="mx-auto flex w-full max-w-3xl flex-1 flex-col items-center px-4 py-10 sm:px-6 sm:py-14">
+        <div className="mb-6 flex flex-col items-center text-center">
+          <SourcebookIcon size="lg" />
+          <h1 className="mt-5 text-display-sm font-semibold tracking-tight text-ink">
+            Sign in to Sourcebook
+          </h1>
+          <p className="mt-2 max-w-sm text-body-sm text-body">
+            Multi-tenant document workspace. Upload sources, then chat with
+            grounded answers.
+          </p>
+        </div>
 
-        {error && (
-          <Alert variant="danger" className="mt-4 w-full max-w-md">
-            {error}
-          </Alert>
-        )}
+        <div className="auth-card">
+          {error && (
+            <Alert variant="danger" className="mb-4">
+              {error}
+            </Alert>
+          )}
 
-        <form
-          className="mt-8 flex w-full max-w-md flex-col gap-3"
-          onSubmit={(e) => submit(e, "login")}
-        >
-          <label className="block">
-            <span className="mb-1 block text-xs font-medium text-body">
-              Email
-            </span>
-            <Input
-              type="email"
-              autoComplete="email"
-              required
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-            />
-          </label>
-          <label className="block">
-            <span className="mb-1 block text-xs font-medium text-body">
-              Password
-            </span>
-            <Input
-              type="password"
-              autoComplete="current-password"
-              required
-              minLength={8}
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-            />
-          </label>
-
-          <Button
-            type="submit"
-            className="mt-2 w-full rounded-[6px]"
-            disabled={busy}
+          <form
+            className="flex flex-col gap-3"
+            onSubmit={(e) => submit(e, "login")}
           >
-            {busy ? "Please wait…" : "Continue"}
-          </Button>
-          <Button
-            type="button"
-            variant="secondary"
-            className="w-full"
-            disabled={busy}
-            onClick={(e) => submit(e, "register")}
-          >
-            Create account
-          </Button>
-        </form>
+            <label className="block">
+              <span className="mb-1 block text-xs font-medium text-body">
+                Email
+              </span>
+              <Input
+                type="email"
+                autoComplete="email"
+                required
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+              />
+            </label>
+            <label className="block">
+              <span className="mb-1 block text-xs font-medium text-body">
+                Password
+              </span>
+              <Input
+                type="password"
+                autoComplete="current-password"
+                required
+                minLength={8}
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+              />
+            </label>
 
-        <p className="mt-6 text-center text-xs text-mute">
-          By continuing you agree to use Sourcebook for your own documents.
-        </p>
+            <Button
+              type="submit"
+              className="mt-2 w-full"
+              disabled={busy}
+            >
+              {busy ? "Please wait…" : "Continue"}
+            </Button>
+            <Button
+              type="button"
+              variant="secondary"
+              className="w-full"
+              disabled={busy}
+              onClick={(e) => submit(e, "register")}
+            >
+              Create account
+            </Button>
+          </form>
+
+          <p className="mt-5 text-center text-xs leading-relaxed text-mute">
+            By continuing you agree to use Sourcebook for your own documents.
+          </p>
+        </div>
 
         {/* Dev testing panel */}
         {devInfo && (
-          <section className="mt-10 w-full max-w-3xl rounded-vercel-md border border-amber-200 bg-[#fffbeb] p-4">
+          <section className="mt-8 w-full max-w-3xl rounded-vercel-md border border-amber-200 bg-warning-soft p-4">
             <div className="flex flex-wrap items-start justify-between gap-2">
               <div>
                 <div className="flex items-center gap-2">

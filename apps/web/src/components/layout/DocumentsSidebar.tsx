@@ -76,7 +76,7 @@ export function DocumentsSidebar({
   }
 
   return (
-    <aside className="flex w-80 shrink-0 flex-col border-r border-hairline bg-canvas">
+    <aside className="flex w-[min(100%,20rem)] shrink-0 flex-col border-r border-hairline bg-canvas sm:w-80">
       <div className="shrink-0 border-b border-hairline p-4">
         <h2 className="text-body-sm font-semibold text-ink">Library</h2>
         <p className="mt-0.5 text-xs text-mute">
@@ -146,7 +146,9 @@ export function DocumentsSidebar({
                   key={doc.id}
                   className={cn(
                     "rounded-[6px] border bg-canvas px-2 py-2",
-                    failed ? "border-red-200 bg-[#fffbeb]" : "border-hairline",
+                    failed
+                      ? "border-danger-border bg-danger-soft"
+                      : "border-hairline",
                   )}
                 >
                   <div className="flex items-start gap-2">
@@ -169,7 +171,7 @@ export function DocumentsSidebar({
                         )}
                       </div>
                       {failed && !errText && (
-                        <p className="mt-1.5 flex items-start gap-1 text-[11px] text-red-700">
+                        <p className="mt-1.5 flex items-start gap-1 text-[11px] text-danger-text">
                           <AlertCircle
                             className="mt-0.5 h-3 w-3 shrink-0"
                             strokeWidth={1.5}
@@ -182,7 +184,7 @@ export function DocumentsSidebar({
                           <button
                             type="button"
                             onClick={() => toggleError(doc.id)}
-                            className="flex w-full items-start gap-1 text-left text-[11px] font-medium text-red-800"
+                            className="flex w-full items-start gap-1 text-left text-[11px] font-medium text-danger-text"
                           >
                             <AlertCircle
                               className="mt-0.5 h-3 w-3 shrink-0"

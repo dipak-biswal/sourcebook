@@ -107,7 +107,7 @@ export function DocumentsPage() {
   }
 
   return (
-    <div className="flex h-full flex-col overflow-hidden bg-canvas-soft">
+    <div className="app-shell">
       <AppHeader
         onLogout={() => {
           navigate("/login", { replace: true });
@@ -128,7 +128,7 @@ export function DocumentsPage() {
           onIngest={onIngest}
         />
 
-        <main className="document-scroll flex min-h-0 min-w-0 flex-1 flex-col items-center justify-center overflow-y-auto px-8 py-12 text-center">
+        <main className="document-scroll flex min-h-0 min-w-0 flex-1 flex-col items-center justify-center overflow-y-auto px-4 py-10 text-center sm:px-8 sm:py-12">
           {error && (
             <Alert variant="danger" className="mb-6 max-w-md text-left">
               {error}
