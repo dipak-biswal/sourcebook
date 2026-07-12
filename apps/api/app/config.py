@@ -31,5 +31,19 @@ class Settings(BaseSettings):
     # Local testing helpers (list users / set test passwords). NEVER enable in production.
     dev_mode: bool = True
 
+    # Redis / RQ background ingest
+    # Local Redis: redis://127.0.0.1:6379/0
+    # Windows Docker host example: redis://192.168.31.50:6379/0
+    redis_url: str = "redis://127.0.0.1:6379/0"
+    ingest_use_queue: bool = True
+    ingest_job_timeout_seconds: int = 600
+
+    # Per-user rate limits (fixed window). 0 = unlimited for that scope.
+    rate_limit_enabled: bool = True
+    rate_limit_window_seconds: int = 60
+    rate_limit_chat_per_window: int = 20
+    rate_limit_ingest_per_window: int = 10
+    rate_limit_agent_per_window: int = 10
+
 
 settings = Settings()

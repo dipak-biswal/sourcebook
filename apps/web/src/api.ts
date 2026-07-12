@@ -38,6 +38,7 @@ export type Document = {
   filename: string;
   content_type: string | null;
   status: string;
+  error?: string | null;
   created_at: string;
 };
 

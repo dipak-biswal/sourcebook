@@ -7,6 +7,7 @@ from app.agents.runner import approve_agent_run, run_agent
 from app.db import get_db
 from app.deps import get_current_user
 from app.models import AgentRun, User, WorkspaceMember
+from app.rate_limit import rate_limit
 from app.schemas import AgentApproveRequest, AgentRunCreate, AgentRunResponse
 
 router = APIRouter(prefix="/agents", tags=["agents"])
@@ -42,6 +43,7 @@ def start_agent_run(
     body: AgentRunCreate,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
+    _: None = Depends(rate_limit("agent")),
 ):
     _require_member(db, current_user.id, body.workspace_id)
     if not body.goal.strip():

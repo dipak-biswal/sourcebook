@@ -89,6 +89,15 @@ export function DocumentsPage() {
     try {
       await api.ingestDocument(id);
       await loadDocs(workspaceId);
+      // Poll while queued/processing (background worker)
+      for (let i = 0; i < 40; i++) {
+        await new Promise((r) => setTimeout(r, 1500));
+        const list = await api.documents(workspaceId);
+        setDocs(list);
+        const doc = list.find((d) => d.id === id);
+        const s = doc?.status?.toLowerCase();
+        if (!doc || s === "ready" || s === "failed" || s === "uploaded") break;
+      }
     } catch (err) {
       setError(formatError(err));
       await loadDocs(workspaceId);
@@ -133,8 +142,10 @@ export function DocumentsPage() {
             Your document library
           </h2>
           <p className="mt-2 max-w-md text-body-sm text-mute">
-            Upload a .txt or .md, then click <strong className="text-ink">Ingest for chat</strong>{" "}
-            so status becomes <strong className="text-ink">ready</strong>. After that, open Chat.
+            Upload a .txt or .md, then click{" "}
+            <strong className="text-ink">Ingest for chat</strong>. Status goes{" "}
+            <strong className="text-ink">queued → processing → ready</strong>{" "}
+            (background worker). After ready, open Chat.
           </p>
 
           <div className="mt-6 flex flex-wrap items-center justify-center gap-2">

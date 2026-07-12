@@ -20,6 +20,8 @@ dependencies = [
     "pydantic[email]>=2.13.4",
     "python-jose[cryptography]>=3.5.0",
     "python-multipart>=0.0.32",
+    "redis>=8.0.1",
+    "rq>=2.10.0",
     "sqlalchemy>=2.0.51",
     "uvicorn>=0.51.0",
 ]

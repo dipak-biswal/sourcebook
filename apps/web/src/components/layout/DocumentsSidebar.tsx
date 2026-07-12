@@ -24,7 +24,13 @@ function statusVariant(
   const s = status.toLowerCase();
   if (s === "ready") return "success";
   if (s === "failed") return "danger";
-  if (s === "processing" || s === "chunked") return "warning";
+  if (
+    s === "processing" ||
+    s === "queued" ||
+    s === "chunked"
+  ) {
+    return "warning";
+  }
   return "secondary";
 }
 
@@ -35,7 +41,8 @@ function canIngest(doc: Document): boolean {
     name.endsWith(".md") ||
     name.endsWith(".markdown");
   const s = doc.status.toLowerCase();
-  return textLike && s !== "processing";
+  // Allow re-queue when failed/ready/uploaded; block while queued/processing
+  return textLike && s !== "processing" && s !== "queued";
 }
 
 export function DocumentsSidebar({
@@ -130,11 +137,21 @@ export function DocumentsSidebar({
                       <div className="truncate text-sm font-medium text-ink">
                         {doc.filename}
                       </div>
-                      <div className="mt-1">
+                      <div className="mt-1 flex flex-wrap items-center gap-1">
                         <Badge variant={statusVariant(doc.status)}>
                           {doc.status}
                         </Badge>
+                        {(doc.status.toLowerCase() === "queued" ||
+                          doc.status.toLowerCase() === "processing" ||
+                          ingesting) && (
+                          <Loader2 className="h-3 w-3 animate-spin text-mute" />
+                        )}
                       </div>
+                      {doc.error && (
+                        <p className="mt-1 line-clamp-2 text-[11px] text-red-700">
+                          {doc.error}
+                        </p>
+                      )}
                     </div>
                     <button
                       type="button"
@@ -161,7 +178,7 @@ export function DocumentsSidebar({
                         <Play className="h-3.5 w-3.5" strokeWidth={1.5} />
                       )}
                       {ingesting
-                        ? "Ingesting…"
+                        ? "Queued / working…"
                         : ready
                           ? "Re-ingest"
                           : "Ingest for chat"}
