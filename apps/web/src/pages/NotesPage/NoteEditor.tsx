@@ -1,7 +1,9 @@
 import { useState, type FormEvent } from "react";
 import { Loader2, Save, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { FieldError } from "@/components/ui/field-error";
 import { Input } from "@/components/ui/input";
+import { validateNoteTitle } from "@/lib/validation";
 import { useNotesPage } from "./NotesPageContext";
 
 export function NoteEditor() {
@@ -13,6 +15,7 @@ export function NoteEditor() {
   } = useNotesPage();
   const [title, setTitle] = useState(selected?.title ?? "");
   const [body, setBody] = useState(selected?.body ?? "");
+  const [titleError, setTitleError] = useState<string | null>(null);
 
   if (!selected) {
     return (
@@ -24,11 +27,14 @@ export function NoteEditor() {
 
   function handleSave(e: FormEvent) {
     e.preventDefault();
+    const err = validateNoteTitle(title);
+    setTitleError(err);
+    if (err) return;
     onSave(title, body);
   }
 
   return (
-    <form onSubmit={handleSave} className="space-y-4">
+    <form onSubmit={handleSave} className="space-y-4" noValidate>
       <div className="flex items-center justify-between gap-2">
         <div className="flex items-center gap-1">
           <Button
@@ -55,12 +61,16 @@ export function NoteEditor() {
         </div>
       </div>
 
-      <Input
-        value={title}
-        onChange={(e) => setTitle(e.target.value)}
-        placeholder="Note title"
-        className="text-lg font-semibold"
-      />
+      <div>
+        <Input
+          value={title}
+          onChange={(e) => { setTitle(e.target.value); setTitleError(null); }}
+          placeholder="Note title"
+          className="text-lg font-semibold"
+          aria-invalid={!!titleError || undefined}
+        />
+        <FieldError error={titleError} />
+      </div>
 
       <textarea
         value={body}

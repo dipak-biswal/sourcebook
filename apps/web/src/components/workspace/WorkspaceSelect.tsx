@@ -2,8 +2,10 @@ import { useState } from "react";
 import { Loader2, Plus, Settings } from "lucide-react";
 import { api, type Workspace } from "@/api";
 import { Button } from "@/components/ui/button";
+import { FieldError } from "@/components/ui/field-error";
 import { Input } from "@/components/ui/input";
 import { useToast } from "@/components/ui/toast";
+import { validateWorkspaceName } from "@/lib/validation";
 import { formatError } from "@/lib/utils";
 import { Link } from "react-router-dom";
 
@@ -23,8 +25,12 @@ export function WorkspaceSelect({
   const { success, error: toastError } = useToast();
   const [creating, setCreating] = useState(false);
   const [newName, setNewName] = useState("");
+  const [error, setError] = useState<string | null>(null);
 
   async function onCreate() {
+    const err = validateWorkspaceName(newName);
+    setError(err);
+    if (err) return;
     const name = newName.trim();
     if (!name || creating) return;
     setCreating(true);
@@ -32,6 +38,7 @@ export function WorkspaceSelect({
       const ws = await api.createWorkspace(name);
       success(`Workspace "${ws.name}" created`);
       setNewName("");
+      setError(null);
       onRefresh();
       onChange(ws.id);
     } catch (err) {
@@ -63,31 +70,35 @@ export function WorkspaceSelect({
           </option>
         ))}
       </select>
-      <div className="mt-1.5 flex gap-1">
-        <Input
-          value={newName}
-          onChange={(e) => setNewName(e.target.value)}
-          placeholder="New workspace name…"
-          className="h-7 text-xs"
-          onKeyDown={(e) => {
-            if (e.key === "Enter") { e.preventDefault(); void onCreate(); }
-          }}
-        />
-        <Button
-          type="button"
-          variant="secondary"
-          size="icon"
-          className="h-7 w-7 shrink-0"
-          disabled={!newName.trim() || creating}
-          onClick={() => void onCreate()}
-          title="Create workspace"
-        >
-          {creating ? (
-            <Loader2 className="h-3 w-3 animate-spin" />
-          ) : (
-            <Plus className="h-3 w-3" strokeWidth={1.5} />
-          )}
-        </Button>
+      <div className="mt-1.5">
+        <div className="flex gap-1">
+          <Input
+            value={newName}
+            onChange={(e) => { setNewName(e.target.value); setError(null); }}
+            placeholder="New workspace name…"
+            className="h-7 text-xs"
+            aria-invalid={!!error || undefined}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") { e.preventDefault(); void onCreate(); }
+            }}
+          />
+          <Button
+            type="button"
+            variant="secondary"
+            size="icon"
+            className="h-7 w-7 shrink-0"
+            disabled={!newName.trim() || creating}
+            onClick={() => void onCreate()}
+            title="Create workspace"
+          >
+            {creating ? (
+              <Loader2 className="h-3 w-3 animate-spin" />
+            ) : (
+              <Plus className="h-3 w-3" strokeWidth={1.5} />
+            )}
+          </Button>
+        </div>
+        <FieldError error={error} />
       </div>
     </div>
   );

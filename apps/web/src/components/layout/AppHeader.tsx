@@ -5,6 +5,7 @@ import {
   Bot,
   ChevronDown,
   Files,
+  LayoutDashboard,
   LogOut,
   Menu,
   MessageCircle,
@@ -23,6 +24,7 @@ type AppHeaderProps = {
 };
 
 const NAV = [
+  { to: "/", label: "Home", icon: LayoutDashboard, match: "/" },
   { to: "/documents", label: "Documents", icon: Files, match: "/documents" },
   { to: "/chat", label: "Chat", icon: MessageCircle, match: "/chat" },
   { to: "/agents", label: "Agents", icon: Bot, match: "/agents" },
@@ -197,7 +199,7 @@ export function AppHeader({
     <header className="sticky top-0 z-40 w-full shrink-0 border-b border-hairline bg-canvas/95 backdrop-blur-sm">
       <div className="flex w-full items-center justify-between gap-3 px-4 py-3 sm:px-6 sm:py-3.5">
         <Link
-          to={authed ? "/documents" : "/login"}
+          to={authed ? "/" : "/login"}
           className="flex min-w-0 items-center gap-2.5"
         >
           <SourcebookIcon size="sm" />

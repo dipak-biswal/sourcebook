@@ -1,11 +1,13 @@
-import { type FormEvent } from "react";
+import { useState, type FormEvent } from "react";
 import type { DevUserList } from "@/api";
 import { SourcebookIcon } from "@/components/branding/SourcebookIcon";
 import { AppHeader } from "@/components/layout/AppHeader";
 import { Alert } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { FieldError } from "@/components/ui/field-error";
 import { Input } from "@/components/ui/input";
+import { validateEmail, validatePassword } from "@/lib/validation";
 
 export type LoginPageViewProps = {
   error: string | null;
@@ -40,6 +42,36 @@ export function LoginPageView({
   onSetAllPasswords,
   onLoadDevUsers,
 }: LoginPageViewProps) {
+  const [fieldErrors, setFieldErrors] = useState<{ email?: string; password?: string }>({});
+  const [touched, setTouched] = useState<{ email: boolean; password: boolean }>({ email: false, password: false });
+
+  function setField(field: "email" | "password", value: string, setter: (v: string) => void) {
+    setter(value);
+    if (touched[field]) {
+      const error = field === "email" ? validateEmail(value) : validatePassword(value);
+      setFieldErrors((prev) => ({ ...prev, [field]: error ?? undefined }));
+    }
+  }
+
+  function handleBlur(field: "email" | "password") {
+    setTouched((prev) => ({ ...prev, [field]: true }));
+    const value = field === "email" ? email : password;
+    const error = field === "email" ? validateEmail(value) : validatePassword(value);
+    setFieldErrors((prev) => ({ ...prev, [field]: error ?? undefined }));
+  }
+
+  function handleSubmit(e: FormEvent, mode: "login" | "register") {
+    setTouched({ email: true, password: true });
+    const emailError = validateEmail(email);
+    const passwordError = validatePassword(password);
+    setFieldErrors({ email: emailError ?? undefined, password: passwordError ?? undefined });
+    if (emailError || passwordError) {
+      e.preventDefault();
+      return;
+    }
+    onSubmit(e, mode);
+  }
+
   return (
     <div className="flex min-h-full flex-col bg-canvas-soft">
       <AppHeader showAuthActions={false} />
@@ -65,23 +97,27 @@ export function LoginPageView({
 
           <form
             className="flex flex-col gap-3"
-            onSubmit={(e) => onSubmit(e, "login")}
+            onSubmit={(e) => handleSubmit(e, "login")}
+            noValidate
           >
             <label className="block">
               <span className="mb-1 block text-xs font-medium text-body">
-                Email
+                Email <span className="text-danger-text">*</span>
               </span>
               <Input
                 type="email"
                 autoComplete="email"
                 required
                 value={email}
-                onChange={(e) => onEmailChange(e.target.value)}
+                onChange={(e) => setField("email", e.target.value, onEmailChange)}
+                onBlur={() => handleBlur("email")}
+                aria-invalid={!!fieldErrors.email || undefined}
               />
+              <FieldError error={fieldErrors.email} />
             </label>
             <label className="block">
               <span className="mb-1 block text-xs font-medium text-body">
-                Password
+                Password <span className="text-danger-text">*</span>
               </span>
               <Input
                 type="password"
@@ -89,8 +125,11 @@ export function LoginPageView({
                 required
                 minLength={8}
                 value={password}
-                onChange={(e) => onPasswordChange(e.target.value)}
+                onChange={(e) => setField("password", e.target.value, onPasswordChange)}
+                onBlur={() => handleBlur("password")}
+                aria-invalid={!!fieldErrors.password || undefined}
               />
+              <FieldError error={fieldErrors.password} />
             </label>
 
             <Button
@@ -105,7 +144,7 @@ export function LoginPageView({
               variant="secondary"
               className="w-full"
               disabled={busy}
-              onClick={(e) => onSubmit(e as unknown as FormEvent, "register")}
+              onClick={() => handleSubmit({ preventDefault() {} } as FormEvent, "register")}
             >
               Create account
             </Button>

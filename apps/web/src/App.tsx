@@ -9,6 +9,7 @@ import { ConfirmProvider } from "@/components/ui/confirm-dialog";
 const queryClient = new QueryClient({
   defaultOptions: { queries: { retry: 1, staleTime: 30_000 } },
 });
+import { DashboardPage } from "@/pages/DashboardPage";
 import { DocumentsPage } from "@/pages/DocumentsPage";
 import { LoginPage } from "@/pages/LoginPage";
 import { ChatPage } from "@/pages/ChatPage";
@@ -18,7 +19,7 @@ import { SettingsPage } from "@/pages/SettingsPage";
 import { NotesPage } from "@/pages/NotesPage";
 
 function HomeRedirect() {
-  return <Navigate to={getToken() ? "/documents" : "/login"} replace />;
+  return <Navigate to={getToken() ? "/" : "/login"} replace />;
 }
 
 export default function App() {
@@ -31,7 +32,7 @@ export default function App() {
           <ErrorBoundary>
             <ConfirmProvider>
               <Routes>
-                <Route path="/" element={<HomeRedirect />} />
+                <Route path="/" element={<DashboardPage />} />
                 <Route path="/login" element={<LoginPage />} />
                 <Route path="/chat" element={<ChatPage />} />
                 <Route path="/documents" element={<DocumentsPage />} />
