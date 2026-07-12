@@ -441,6 +441,8 @@ export function ChatPage() {
           onLlmEnd: (p) => {
             patchLlmInTrace(asstId, {
               duration_ms: p.duration_ms,
+              prompt_tokens: p.prompt_tokens,
+              completion_tokens: p.completion_tokens,
               total_tokens: p.total_tokens,
               has_tool_calls: p.has_tool_calls,
             });
@@ -453,6 +455,8 @@ export function ChatPage() {
                         ...e,
                         status: "done" as const,
                         duration_ms: p.duration_ms,
+                        prompt_tokens: p.prompt_tokens,
+                        completion_tokens: p.completion_tokens,
                         total_tokens: p.total_tokens,
                         has_tool_calls: p.has_tool_calls,
                       }
@@ -627,6 +631,8 @@ export function ChatPage() {
         onLlmEnd: (p) => {
           patchLlmInTrace(asstId, {
             duration_ms: p.duration_ms,
+            prompt_tokens: p.prompt_tokens,
+            completion_tokens: p.completion_tokens,
             total_tokens: p.total_tokens,
             has_tool_calls: p.has_tool_calls,
           });
@@ -643,6 +649,8 @@ export function ChatPage() {
                         ...e,
                         status: "done" as const,
                         duration_ms: p.duration_ms,
+                        prompt_tokens: p.prompt_tokens,
+                        completion_tokens: p.completion_tokens,
                         total_tokens: p.total_tokens,
                         has_tool_calls: p.has_tool_calls,
                       }

@@ -323,6 +323,7 @@ def _run_tool_loop(
                 run_id=str(run.id),
                 name="ChatOpenAI",
                 duration_ms=round(llm_ms, 1),
+                # Full model call: system + tool schemas + history + user, not just the goal string
                 prompt_tokens=p,
                 completion_tokens=c,
                 total_tokens=t if t else (p + c),

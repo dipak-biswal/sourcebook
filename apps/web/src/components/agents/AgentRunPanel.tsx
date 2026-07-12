@@ -44,6 +44,9 @@ export type LlmTraceEvent = {
   kind: "llm";
   status: "running" | "done";
   duration_ms?: number;
+  /** Full request size: system + tools + messages (not user text alone) */
+  prompt_tokens?: number;
+  completion_tokens?: number;
   total_tokens?: number;
   has_tool_calls?: boolean;
   name?: string;
@@ -282,6 +285,18 @@ function LlmLiveNode({
             </span>
           )}
         </div>
+        {!running &&
+          (event.prompt_tokens != null || event.completion_tokens != null) && (
+            <p className="mt-1 font-mono text-[10px] text-mute">
+              in {(event.prompt_tokens ?? 0).toLocaleString()}
+              {" · "}
+              out {(event.completion_tokens ?? 0).toLocaleString()}
+              <span className="text-mute/80">
+                {" "}
+                (in = system + tool schemas + messages)
+              </span>
+            </p>
+          )}
         <p className="mt-1 text-[11px] text-mute">
           {running
             ? "Model deciding next tool or final answer…"

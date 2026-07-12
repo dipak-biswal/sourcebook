@@ -348,6 +348,8 @@ export type AgentStreamHandlers = {
   onLlmStart?: (payload: Record<string, unknown>) => void;
   onLlmEnd?: (payload: {
     duration_ms?: number;
+    prompt_tokens?: number;
+    completion_tokens?: number;
     total_tokens?: number;
     token_usage_so_far?: number;
     has_tool_calls?: boolean;
@@ -421,6 +423,8 @@ async function streamAgentRun(
       } else if (type === "llm_end") {
         handlers.onLlmEnd?.({
           duration_ms: payload.duration_ms as number | undefined,
+          prompt_tokens: payload.prompt_tokens as number | undefined,
+          completion_tokens: payload.completion_tokens as number | undefined,
           total_tokens: payload.total_tokens as number | undefined,
           token_usage_so_far: payload.token_usage_so_far as number | undefined,
           has_tool_calls: payload.has_tool_calls as boolean | undefined,
