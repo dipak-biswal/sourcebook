@@ -9,13 +9,14 @@
       (function () {
         try {
           var t = localStorage.getItem("theme");
-          if (t === "dark" || t === "light") {
-            document.documentElement.setAttribute("data-theme", t);
-          } else if (window.matchMedia("(prefers-color-scheme: dark)").matches) {
-            document.documentElement.setAttribute("data-theme", "dark");
-          } else {
-            document.documentElement.setAttribute("data-theme", "light");
-          }
+          var theme =
+            t === "dark" || t === "light"
+              ? t
+              : window.matchMedia("(prefers-color-scheme: dark)").matches
+                ? "dark"
+                : "light";
+          document.documentElement.setAttribute("data-theme", theme);
+          document.documentElement.style.colorScheme = theme;
         } catch (e) {}
       })();
     </script>

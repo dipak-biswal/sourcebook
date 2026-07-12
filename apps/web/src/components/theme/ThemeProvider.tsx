@@ -35,8 +35,36 @@ function systemTheme(): Theme {
     : "light";
 }
 
+const THEME_TRANSITION_MS = 280;
+
 function applyTheme(theme: Theme) {
-  document.documentElement.setAttribute("data-theme", theme);
+  const root = document.documentElement;
+
+  const paint = () => {
+    root.setAttribute("data-theme", theme);
+    root.style.colorScheme = theme;
+  };
+
+  // Smooth cross-fade where supported (Chrome/Edge/Safari recent)
+  const doc = document as Document & {
+    startViewTransition?: (cb: () => void) => { finished: Promise<void> };
+  };
+
+  if (typeof doc.startViewTransition === "function") {
+    try {
+      doc.startViewTransition(paint);
+      return;
+    } catch {
+      /* fall through */
+    }
+  }
+
+  // Fallback: brief CSS transitions on color properties only while switching
+  root.classList.add("theme-changing");
+  paint();
+  window.setTimeout(() => {
+    root.classList.remove("theme-changing");
+  }, THEME_TRANSITION_MS);
 }
 
 export function ThemeProvider({ children }: { children: ReactNode }) {

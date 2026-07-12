@@ -83,6 +83,15 @@
     height: 100%;
   }
 
+  html {
+    /* Helps native controls match theme; set in JS too */
+    color-scheme: light;
+  }
+
+  html[data-theme="dark"] {
+    color-scheme: dark;
+  }
+
   body {
     margin: 0;
     background-color: var(--canvas-soft);
@@ -121,6 +130,33 @@
 
   select {
     cursor: pointer;
+  }
+}
+
+/*
+  Smooth theme switch (fallback when View Transitions API is unavailable).
+  Only active while html has .theme-changing — avoids laggy hovers day-to-day.
+*/
+html.theme-changing,
+html.theme-changing *,
+html.theme-changing *::before,
+html.theme-changing *::after {
+  transition:
+    background-color 0.28s ease,
+    color 0.28s ease,
+    border-color 0.28s ease,
+    box-shadow 0.28s ease,
+    fill 0.28s ease,
+    stroke 0.28s ease,
+    outline-color 0.28s ease !important;
+}
+
+/* View Transitions API: soft cross-fade of the whole page */
+@supports (view-transition-name: root) {
+  ::view-transition-old(root),
+  ::view-transition-new(root) {
+    animation-duration: 0.3s;
+    animation-timing-function: ease;
   }
 }
 
