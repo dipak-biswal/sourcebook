@@ -1,5 +1,6 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 
 from app.config import settings
 from app.db import Base, engine
@@ -40,6 +41,23 @@ app.add_middleware(
     allow_headers=["*"],
     expose_headers=["X-Request-ID"],
 )
+
+
+@app.exception_handler(Exception)
+async def unhandled_exception_handler(request: Request, exc: Exception):
+    """Return JSON so deploy issues are visible (and CORS middleware can attach headers)."""
+    logger.exception(
+        "unhandled_exception",
+        extra={"event": "unhandled_exception", "path": str(request.url.path)},
+    )
+    return JSONResponse(
+        status_code=500,
+        content={
+            "detail": "Internal server error",
+            "error_type": type(exc).__name__,
+            "error": str(exc),
+        },
+    )
 
 app.include_router(health.router)
 app.include_router(auth.router)

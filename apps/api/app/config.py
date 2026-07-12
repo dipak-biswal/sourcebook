@@ -1,6 +1,23 @@
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
+def normalize_database_url(url: str) -> str:
+    """Render/Neon often give postgresql://; SQLAlchemy needs +psycopg and SSL off-local."""
+    u = url.strip()
+    if u.startswith("postgres://"):
+        u = "postgresql://" + u[len("postgres://") :]
+    if u.startswith("postgresql://") and not u.startswith("postgresql+"):
+        u = "postgresql+psycopg://" + u[len("postgresql://") :]
+    # typo / old local default without '+'
+    if u.startswith("postgresql_psycopg://"):
+        u = "postgresql+psycopg://" + u[len("postgresql_psycopg://") :]
+
+    local = "127.0.0.1" in u or "localhost" in u
+    if not local and "sslmode=" not in u:
+        u = u + ("&" if "?" in u else "?") + "sslmode=require"
+    return u
+
+
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
         env_file=".env", env_file_encoding="utf-8", extra="ignore"
@@ -10,7 +27,7 @@ class Settings(BaseSettings):
     api_host: str = "127.0.0.1"
     api_port: int = 8000
     database_url: str = (
-        "postgresql_psycopg://sourcebook:sourcebook@127.0.0.1:5432/sourcebook"
+        "postgresql+psycopg://sourcebook:sourcebook@127.0.0.1:5432/sourcebook"
     )
     jwt_secret: str = "dev-only-change-me-sourcebook"
     jwt_algorithm: str = "HS256"
@@ -60,6 +77,10 @@ class Settings(BaseSettings):
     @property
     def cors_origin_list(self) -> list[str]:
         return [o.strip() for o in self.cors_origins.split(",") if o.strip()]
+
+    @property
+    def sqlalchemy_database_url(self) -> str:
+        return normalize_database_url(self.database_url)
 
 
 settings = Settings()
