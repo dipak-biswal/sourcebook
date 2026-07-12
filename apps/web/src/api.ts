@@ -6,7 +6,30 @@ export function getToken(): string | null {
 
 export function setToken(token: string | null) {
   if (token) localStorage.setItem("sourcebook_token", token);
-  else localStorage.removeItem("sourcebook_token");
+  else {
+    localStorage.removeItem("sourcebook_token");
+    localStorage.removeItem("sourcebook_user");
+  }
+}
+
+export type UserProfile = {
+  id: string;
+  email: string;
+};
+
+export function getCachedUser(): UserProfile | null {
+  try {
+    const raw = localStorage.getItem("sourcebook_user");
+    if (!raw) return null;
+    return JSON.parse(raw) as UserProfile;
+  } catch {
+    return null;
+  }
+}
+
+export function setCachedUser(user: UserProfile | null) {
+  if (user) localStorage.setItem("sourcebook_user", JSON.stringify(user));
+  else localStorage.removeItem("sourcebook_user");
 }
 
 async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
@@ -158,6 +181,13 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ email, password }),
     }),
+
+  /** Current authenticated user (email for profile menu). */
+  me: async () => {
+    const user = await request<UserProfile>("/me");
+    setCachedUser(user);
+    return user;
+  },
 
   workspaces: () => request<Workspace[]>("/workspaces"),
 

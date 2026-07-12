@@ -108,10 +108,13 @@ export function ChatPage() {
   const [conversationId, setConversationId] = useState("");
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [agentThread, setAgentThread] = useState<AgentThreadItem[]>([]);
+  const [agentRuns, setAgentRuns] = useState<AgentRun[]>([]);
+  const [agentRunId, setAgentRunId] = useState("");
   const [input, setInput] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [loadingWs, setLoadingWs] = useState(true);
   const [loadingSessions, setLoadingSessions] = useState(false);
+  const [loadingAgentRuns, setLoadingAgentRuns] = useState(false);
   const [sending, setSending] = useState(false);
   const [approving, setApproving] = useState(false);
   const [sessionsOpen, setSessionsOpen] = useState(false);
@@ -192,9 +195,27 @@ export function ChatPage() {
     };
   }, []);
 
+  const loadAgentRuns = useCallback(
+    async (ws: string, preferId?: string) => {
+      if (!ws) return;
+      setLoadingAgentRuns(true);
+      try {
+        const list = await api.agentRuns(ws);
+        setAgentRuns(list);
+        if (preferId && list.some((r) => r.id === preferId)) {
+          setAgentRunId(preferId);
+        }
+      } finally {
+        setLoadingAgentRuns(false);
+      }
+    },
+    [],
+  );
+
   useEffect(() => {
     if (!workspaceId) return;
     loadConversations(workspaceId).catch((err) => setError(formatError(err)));
+    loadAgentRuns(workspaceId).catch((err) => setError(formatError(err)));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [workspaceId]);
 
@@ -213,7 +234,69 @@ export function ChatPage() {
       const conv = await api.createConversation(workspaceId, "New chat");
       await loadConversations(workspaceId, conv.id);
       setMessages([]);
-      setAgentThread([]);
+    } catch (err) {
+      setError(formatError(err));
+    }
+  }
+
+  function onNewAgent() {
+    setAgentThread([]);
+    setAgentRunId("");
+    setError(null);
+  }
+
+  function threadFromRun(run: AgentRun): AgentThreadItem[] {
+    const content =
+      run.final_answer ||
+      (run.status === "waiting_approval"
+        ? "Waiting for your approval on a write action…"
+        : run.error
+          ? `Agent failed: ${run.error}`
+          : run.status === "completed"
+            ? "(empty answer)"
+            : `Status: ${run.status}`);
+    return [
+      {
+        id: `agent-user-${run.id}`,
+        role: "user",
+        content: run.goal,
+      },
+      {
+        id: `agent-asst-${run.id}`,
+        role: "assistant",
+        content,
+        run,
+        pending: false,
+        goal: run.goal,
+        liveSteps: run.steps,
+        liveTokenUsage: run.token_usage,
+        liveTrace: (run.steps ?? []).map((step) => ({
+          kind: "step" as const,
+          step,
+        })),
+      },
+    ];
+  }
+
+  async function onSelectAgentRun(id: string) {
+    setError(null);
+    setAgentRunId(id);
+    try {
+      const detail =
+        agentRuns.find((r) => r.id === id) ?? (await api.agentRun(id));
+      // Prefer full detail with steps
+      const run =
+        detail.steps?.length || !agentRuns.find((r) => r.id === id)
+          ? detail
+          : await api.agentRun(id);
+      setAgentThread(threadFromRun(run));
+      setAgentRuns((prev) => {
+        const i = prev.findIndex((r) => r.id === run.id);
+        if (i < 0) return [run, ...prev];
+        const next = [...prev];
+        next[i] = run;
+        return next;
+      });
     } catch (err) {
       setError(formatError(err));
     }
@@ -507,6 +590,8 @@ export function ChatPage() {
           },
           onDone: (final) => {
             applyRunToThread(asstId, final);
+            setAgentRunId(final.id);
+            void loadAgentRuns(workspaceId, final.id);
             if (final.status === "waiting_approval") {
               success("Approval needed", "Review the write action below.");
             } else if (final.status === "completed") {
@@ -516,7 +601,11 @@ export function ChatPage() {
         },
         5,
       );
-      if (run) applyRunToThread(asstId, run);
+      if (run) {
+        applyRunToThread(asstId, run);
+        setAgentRunId(run.id);
+        void loadAgentRuns(workspaceId, run.id);
+      }
       requestAnimationFrame(() => {
         bottomRef.current?.scrollIntoView({ behavior: "smooth" });
       });
@@ -662,10 +751,16 @@ export function ChatPage() {
         },
         onDone: (final) => {
           applyRunToThread(asstId, final);
+          setAgentRunId(final.id);
+          void loadAgentRuns(workspaceId, final.id);
           success("Action approved — agent continued");
         },
       });
-      if (run) applyRunToThread(asstId, run);
+      if (run) {
+        applyRunToThread(asstId, run);
+        setAgentRunId(run.id);
+        void loadAgentRuns(workspaceId, run.id);
+      }
     } catch (err) {
       const msg = formatError(err);
       setError(msg);
@@ -708,6 +803,8 @@ export function ChatPage() {
     try {
       const run = await api.startAgentRun(workspaceId, goal, 5);
       applyRunToThread(asstId, run);
+      setAgentRunId(run.id);
+      void loadAgentRuns(workspaceId, run.id);
       if (run.status === "waiting_approval") {
         success("Approve the note", "Review create_note below, then Approve.");
       } else if (run.status === "completed") {
@@ -727,20 +824,32 @@ export function ChatPage() {
 
   const sessionsPanel = (
     <ChatSessionsPanel
+      mode={mode}
       workspaces={workspaces}
       workspaceId={workspaceId}
       onWorkspaceChange={setWorkspaceId}
       conversations={conversations}
       conversationId={conversationId}
-      loading={loadingWs || loadingSessions}
+      agentRuns={agentRuns}
+      agentRunId={agentRunId}
+      loading={
+        loadingWs ||
+        (mode === "chat" ? loadingSessions : loadingAgentRuns)
+      }
       onNewChat={() => void onNewChat()}
       onSelectSession={(id) => void onSelectSession(id)}
       onDeleteSession={(id) => void onDeleteSession(id)}
+      onSelectAgentRun={(id) => void onSelectAgentRun(id)}
+      onNewAgent={onNewAgent}
       onAfterNavigate={() => setSessionsOpen(false)}
     />
   );
 
   const active = conversations.find((c) => c.id === conversationId);
+  const activeAgentRun =
+    agentRuns.find((r) => r.id === agentRunId) ??
+    agentThread.find((t) => t.run)?.run ??
+    null;
 
   const thread: ThreadItem[] =
     mode === "chat"
@@ -765,8 +874,12 @@ export function ChatPage() {
         <Sheet
           open={sessionsOpen}
           onClose={() => setSessionsOpen(false)}
-          title="Sessions"
-          description="Chat history in this workspace"
+          title={mode === "agent" ? "Agent sessions" : "Chat sessions"}
+          description={
+            mode === "agent"
+              ? "Agent runs in this workspace"
+              : "Chat history in this workspace"
+          }
           side="left"
         >
           {sessionsPanel}
@@ -788,12 +901,20 @@ export function ChatPage() {
               <div className="min-w-0">
                 <div className="truncate text-sm font-semibold text-ink">
                   {mode === "agent"
-                    ? "Agent mode"
+                    ? activeAgentRun
+                      ? activeAgentRun.goal.length > 48
+                        ? `${activeAgentRun.goal.slice(0, 48)}…`
+                        : activeAgentRun.goal
+                      : agentThread.length > 0
+                        ? "Current agent run"
+                        : "New agent run"
                     : active?.title || "New session"}
                 </div>
                 <div className="text-xs text-mute">
                   {mode === "agent"
-                    ? "Tools: list / search documents, create_note (HITL)"
+                    ? activeAgentRun
+                      ? `Run · ${formatSessionDate(activeAgentRun.created_at)}`
+                      : "Tools: list / search docs, create_note (HITL)"
                     : active
                       ? `Session · ${formatSessionDate(active.created_at)}`
                       : "Send a message to start a session"}
