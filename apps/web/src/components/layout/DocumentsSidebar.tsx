@@ -76,7 +76,7 @@ export function DocumentsSidebar({
   }
 
   return (
-    <aside className="flex w-[min(100%,20rem)] shrink-0 flex-col border-r border-hairline bg-canvas sm:w-80">
+    <aside className="flex h-full w-full shrink-0 flex-col border-r border-hairline bg-canvas md:w-80">
       <div className="shrink-0 border-b border-hairline p-4">
         <h2 className="text-body-sm font-semibold text-ink">Library</h2>
         <p className="mt-0.5 text-xs text-mute">
@@ -129,7 +129,17 @@ export function DocumentsSidebar({
         </div>
 
         {loading ? (
-          <p className="px-2 py-3 text-xs text-mute">Loading…</p>
+          <div className="space-y-2 p-1" aria-busy="true">
+            {[1, 2, 3, 4].map((i) => (
+              <div
+                key={i}
+                className="animate-pulse rounded-[6px] border border-hairline bg-canvas px-2 py-3"
+              >
+                <div className="h-3 w-3/4 rounded bg-canvas-soft-2" />
+                <div className="mt-2 h-2.5 w-1/3 rounded bg-canvas-soft-2" />
+              </div>
+            ))}
+          </div>
         ) : documents.length === 0 ? (
           <p className="px-2 py-3 text-xs text-mute">No documents yet.</p>
         ) : (

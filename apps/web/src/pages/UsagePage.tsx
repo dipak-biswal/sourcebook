@@ -6,6 +6,7 @@ import { AppHeader } from "@/components/layout/AppHeader";
 import { Alert } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { CardSkeleton } from "@/components/ui/skeleton";
 import { formatError } from "@/lib/utils";
 
 function formatWhen(iso: string): string {
@@ -99,10 +100,10 @@ export function UsagePage() {
           )}
 
           {loading && !data ? (
-            <p className="flex items-center gap-2 text-sm text-mute">
-              <Loader2 className="h-4 w-4 animate-spin" />
-              Loading usage…
-            </p>
+            <div className="mb-6 grid grid-cols-1 gap-3 sm:grid-cols-2">
+              <CardSkeleton />
+              <CardSkeleton />
+            </div>
           ) : (
             <>
               <div className="mb-6 grid grid-cols-1 gap-3 sm:grid-cols-2">

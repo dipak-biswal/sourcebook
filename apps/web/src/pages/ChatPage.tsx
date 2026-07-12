@@ -1,11 +1,11 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
-import { Link, Navigate, useNavigate } from "react-router-dom";
+import { Navigate, useNavigate } from "react-router-dom";
 import {
   AlertCircle,
   Bot,
   Loader2,
   MessageCircle,
-  Plus,
+  PanelLeft,
   Send,
   Trash2,
 } from "lucide-react";
@@ -23,6 +23,7 @@ import {
   AgentStatusBadge,
   AgentStepList,
 } from "@/components/agents/shared";
+import { ChatSessionsPanel } from "@/components/chat/ChatSessionsPanel";
 import {
   CitationList,
   isDenialMessage,
@@ -32,7 +33,10 @@ import { AppHeader } from "@/components/layout/AppHeader";
 import { Alert } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { EmptyState } from "@/components/ui/empty-state";
 import { Input } from "@/components/ui/input";
+import { Sheet } from "@/components/ui/sheet";
+import { useToast } from "@/components/ui/toast";
 import { cn, formatError } from "@/lib/utils";
 
 const MODE_KEY = "sourcebook_chat_mode";
@@ -78,6 +82,7 @@ function readMode(): ChatMode {
 export function ChatPage() {
   const navigate = useNavigate();
   const bottomRef = useRef<HTMLDivElement>(null);
+  const { success, error: toastError } = useToast();
 
   const [mode, setMode] = useState<ChatMode>(readMode);
   const [workspaces, setWorkspaces] = useState<Workspace[]>([]);
@@ -92,6 +97,7 @@ export function ChatPage() {
   const [loadingSessions, setLoadingSessions] = useState(false);
   const [sending, setSending] = useState(false);
   const [approving, setApproving] = useState(false);
+  const [sessionsOpen, setSessionsOpen] = useState(false);
 
   const setModePersist = (m: ChatMode) => {
     setMode(m);
@@ -318,8 +324,15 @@ export function ChatPage() {
     try {
       const run = await api.startAgentRun(workspaceId, text, 5);
       applyRunToThread(asstId, run);
+      if (run.status === "waiting_approval") {
+        success("Approval needed", "Review the write action below.");
+      } else if (run.status === "completed") {
+        success("Agent finished");
+      }
     } catch (err) {
-      setError(formatError(err));
+      const msg = formatError(err);
+      setError(msg);
+      toastError("Agent failed", msg);
       setAgentThread((prev) =>
         prev.filter((m) => m.id !== userId && m.id !== asstId),
       );
@@ -351,12 +364,30 @@ export function ChatPage() {
     try {
       const run = await api.approveAgentRun(runId, approve);
       applyRunToThread(asstId, run);
+      success(approve ? "Action approved" : "Action rejected");
     } catch (err) {
-      setError(formatError(err));
+      const msg = formatError(err);
+      setError(msg);
+      toastError("Approval failed", msg);
     } finally {
       setApproving(false);
     }
   }
+
+  const sessionsPanel = (
+    <ChatSessionsPanel
+      workspaces={workspaces}
+      workspaceId={workspaceId}
+      onWorkspaceChange={setWorkspaceId}
+      conversations={conversations}
+      conversationId={conversationId}
+      loading={loadingWs || loadingSessions}
+      onNewChat={() => void onNewChat()}
+      onSelectSession={(id) => void onSelectSession(id)}
+      onDeleteSession={(id) => void onDeleteSession(id)}
+      onAfterNavigate={() => setSessionsOpen(false)}
+    />
+  );
 
   const active = conversations.find((c) => c.id === conversationId);
 
@@ -377,188 +408,70 @@ export function ChatPage() {
 
       <div className="flex min-h-0 flex-1">
         <aside className="hidden w-80 shrink-0 flex-col border-r border-hairline bg-canvas md:flex">
-          <div className="shrink-0 border-b border-hairline p-4">
-            <div className="flex items-center justify-between gap-2">
-              <div>
-                <h2 className="text-body-sm font-semibold text-ink">Sessions</h2>
-                <p className="mt-0.5 text-xs text-mute">
-                  RAG chat history (Agent turns stay in this tab for now)
-                </p>
-              </div>
-            </div>
-
-            {workspaces.length > 0 && (
-              <label className="mt-3 block">
-                <span className="mb-1 block text-xs text-mute">Workspace</span>
-                <select
-                  value={workspaceId}
-                  onChange={(e) => setWorkspaceId(e.target.value)}
-                  className="h-9 w-full rounded-[6px] border border-hairline bg-canvas px-2 text-sm text-ink"
-                >
-                  {workspaces.map((w) => (
-                    <option key={w.id} value={w.id}>
-                      {w.name}
-                    </option>
-                  ))}
-                </select>
-              </label>
-            )}
-
-            <Button
-              type="button"
-              className="mt-3 w-full rounded-[6px]"
-              disabled={!workspaceId || loadingWs}
-              onClick={onNewChat}
-            >
-              <Plus className="h-4 w-4" strokeWidth={1.5} />
-              New session
-            </Button>
-          </div>
-
-          <div className="document-scroll min-h-0 flex-1 overflow-y-auto p-2">
-            <div className="mb-1 px-2 py-1 text-[11px] font-medium uppercase tracking-wide text-mute">
-              Session list ({conversations.length})
-            </div>
-
-            {loadingWs || loadingSessions ? (
-              <p className="flex items-center gap-2 px-2 py-3 text-xs text-mute">
-                <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                Loading sessions…
-              </p>
-            ) : conversations.length === 0 ? (
-              <div className="rounded-[6px] border border-dashed border-hairline px-3 py-4 text-center">
-                <p className="text-xs text-mute">No sessions yet.</p>
-                <p className="mt-1 text-xs text-mute">
-                  Click <span className="font-medium text-ink">New session</span>{" "}
-                  or send a message in Chat mode.
-                </p>
-              </div>
-            ) : (
-              <ul className="space-y-1">
-                {conversations.map((c) => {
-                  const selected = c.id === conversationId;
-                  return (
-                    <li key={c.id}>
-                      <div
-                        className={cn(
-                          "group flex items-start gap-1 rounded-[6px] border px-2 py-2 transition-colors",
-                          selected
-                            ? "border-hairline bg-canvas-soft-2"
-                            : "border-transparent hover:bg-canvas-soft-2",
-                        )}
-                      >
-                        <button
-                          type="button"
-                          onClick={() => onSelectSession(c.id)}
-                          className="min-w-0 flex-1 text-left"
-                        >
-                          <div
-                            className={cn(
-                              "truncate text-sm",
-                              selected
-                                ? "font-semibold text-ink"
-                                : "font-medium text-ink",
-                            )}
-                          >
-                            {c.title || "Untitled session"}
-                          </div>
-                          <div className="mt-0.5 text-[11px] text-mute">
-                            {formatSessionDate(c.created_at)}
-                          </div>
-                        </button>
-                        <button
-                          type="button"
-                          title="Delete session"
-                          className="rounded p-1 text-mute opacity-100 transition-opacity hover:bg-canvas hover:text-ink sm:opacity-0 sm:group-hover:opacity-100"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            void onDeleteSession(c.id);
-                          }}
-                        >
-                          <Trash2 className="h-3.5 w-3.5" strokeWidth={1.5} />
-                        </button>
-                      </div>
-                    </li>
-                  );
-                })}
-              </ul>
-            )}
-          </div>
-
-          <div className="shrink-0 space-y-2 border-t border-hairline p-3">
-            <Link
-              to="/documents"
-              className="block text-xs font-medium text-ink underline-offset-2 hover:underline"
-            >
-              → Manage documents & ingest
-            </Link>
-            <Link
-              to="/agents"
-              className="block text-xs font-medium text-ink underline-offset-2 hover:underline"
-            >
-              → Agent run history & notes
-            </Link>
-            <p className="text-[11px] leading-snug text-mute">
-              Docs must show status <span className="text-ink">ready</span>{" "}
-              before Chat mode can cite them.
-            </p>
-          </div>
+          {sessionsPanel}
         </aside>
+
+        <Sheet
+          open={sessionsOpen}
+          onClose={() => setSessionsOpen(false)}
+          title="Sessions"
+          description="Chat history in this workspace"
+          side="left"
+        >
+          {sessionsPanel}
+        </Sheet>
 
         <main className="flex min-h-0 min-w-0 flex-1 flex-col">
           <div className="flex shrink-0 items-center justify-between gap-3 border-b border-hairline bg-canvas px-4 py-3 sm:px-6">
-            <div className="min-w-0">
-              <div className="truncate text-sm font-semibold text-ink">
-                {mode === "agent"
-                  ? "Agent mode"
-                  : active?.title || "New session"}
+            <div className="flex min-w-0 items-start gap-2">
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                className="mt-0.5 shrink-0 md:hidden"
+                aria-label="Open sessions"
+                onClick={() => setSessionsOpen(true)}
+              >
+                <PanelLeft className="h-4 w-4" strokeWidth={1.5} />
+              </Button>
+              <div className="min-w-0">
+                <div className="truncate text-sm font-semibold text-ink">
+                  {mode === "agent"
+                    ? "Agent mode"
+                    : active?.title || "New session"}
+                </div>
+                <div className="text-xs text-mute">
+                  {mode === "agent"
+                    ? "Tools: list / search documents, create_note (HITL)"
+                    : active
+                      ? `Session · ${formatSessionDate(active.created_at)}`
+                      : "Send a message to start a session"}
+                </div>
               </div>
-              <div className="text-xs text-mute">
-                {mode === "agent"
-                  ? "Tools: list / search documents, create_note (HITL)"
-                  : active
-                    ? `Session · ${formatSessionDate(active.created_at)}`
-                    : "Send a message to start a session"}
-              </div>
-              {/* Mobile: sessions live in sidebar on md+ */}
-              {workspaces.length > 0 && (
-                <label className="mt-2 block md:hidden">
-                  <span className="sr-only">Workspace</span>
-                  <select
-                    value={workspaceId}
-                    onChange={(e) => setWorkspaceId(e.target.value)}
-                    className="h-8 w-full max-w-xs rounded-[6px] border border-hairline bg-canvas px-2 text-xs text-ink"
-                  >
-                    {workspaces.map((w) => (
-                      <option key={w.id} value={w.id}>
-                        {w.name}
-                      </option>
-                    ))}
-                  </select>
-                </label>
+            </div>
+            <div className="flex shrink-0 items-center gap-1">
+              {mode === "chat" && active && (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => void onDeleteSession(active.id)}
+                >
+                  <Trash2 className="h-3.5 w-3.5" />
+                  <span className="hidden sm:inline">Delete</span>
+                </Button>
+              )}
+              {mode === "agent" && agentThread.length > 0 && (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => setAgentThread([])}
+                >
+                  Clear
+                </Button>
               )}
             </div>
-            {mode === "chat" && active && (
-              <Button
-                type="button"
-                variant="ghost"
-                size="sm"
-                onClick={() => void onDeleteSession(active.id)}
-              >
-                <Trash2 className="h-3.5 w-3.5" />
-                Delete
-              </Button>
-            )}
-            {mode === "agent" && agentThread.length > 0 && (
-              <Button
-                type="button"
-                variant="ghost"
-                size="sm"
-                onClick={() => setAgentThread([])}
-              >
-                Clear agent thread
-              </Button>
-            )}
           </div>
 
           {error && (
@@ -569,38 +482,23 @@ export function ChatPage() {
 
           <div className="document-scroll min-h-0 flex-1 overflow-y-auto px-4 py-5 sm:px-6 sm:py-6">
             {empty ? (
-              <div className="flex h-full flex-col items-center justify-center text-center">
-                <div className="flex h-12 w-12 items-center justify-center rounded-vercel-md bg-canvas-soft-2 text-mute">
-                  {mode === "agent" ? (
-                    <Bot className="h-5 w-5" strokeWidth={1.5} />
-                  ) : (
-                    <MessageCircle className="h-5 w-5" strokeWidth={1.5} />
-                  )}
-                </div>
-                <h2 className="mt-4 text-display-sm font-semibold text-ink">
-                  {mode === "agent"
+              <EmptyState
+                icon={mode === "agent" ? Bot : MessageCircle}
+                title={
+                  mode === "agent"
                     ? "Run tools from chat"
-                    : "Ask about your documents"}
-                </h2>
-                <p className="mt-2 max-w-md text-body-sm text-mute">
-                  {mode === "agent" ? (
-                    <>
-                      List or search documents, or create a note (writes need
-                      your approval). Full history also lives on the{" "}
-                      <Link to="/agents" className="font-medium text-ink underline">
-                        Agents
-                      </Link>{" "}
-                      page.
-                    </>
-                  ) : (
-                    <>
-                      1) Upload .txt/.md on Documents · 2) Click{" "}
-                      <strong className="text-ink">Ingest</strong> until status
-                      is <strong className="text-ink">ready</strong> · 3) Ask
-                      here.
-                    </>
-                  )}
-                </p>
+                    : "Ask about your documents"
+                }
+                description={
+                  mode === "agent"
+                    ? "List or search documents, or create a note (writes need your approval). Full history is also on the Agents page."
+                    : "Upload .txt/.md, ingest until ready, then ask grounded questions here."
+                }
+                actionLabel={mode === "chat" ? "Open documents" : undefined}
+                onAction={
+                  mode === "chat" ? () => navigate("/documents") : undefined
+                }
+              >
                 {mode === "agent" && (
                   <div className="mt-6 flex max-w-lg flex-wrap justify-center gap-1.5">
                     {AGENT_EXAMPLE_GOALS.map((g) => (
@@ -616,17 +514,7 @@ export function ChatPage() {
                     ))}
                   </div>
                 )}
-                {mode === "chat" && (
-                  <Button
-                    type="button"
-                    variant="secondary"
-                    className="mt-6"
-                    onClick={() => navigate("/documents")}
-                  >
-                    Open documents
-                  </Button>
-                )}
-              </div>
+              </EmptyState>
             ) : (
               <div className="mx-auto flex max-w-2xl flex-col gap-4">
                 {thread.map((entry) => {

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { Navigate, useNavigate } from "react-router-dom";
-import { FileText, Upload } from "lucide-react";
+import { FileText, PanelLeft, Upload } from "lucide-react";
 import {
   api,
   getToken,
@@ -10,10 +10,14 @@ import {
 import { AppHeader } from "@/components/layout/AppHeader";
 import { DocumentsSidebar } from "@/components/layout/DocumentsSidebar";
 import { Alert } from "@/components/ui/alert";
+import { Button } from "@/components/ui/button";
+import { Sheet } from "@/components/ui/sheet";
+import { useToast } from "@/components/ui/toast";
 import { formatError } from "@/lib/utils";
 
 export function DocumentsPage() {
   const navigate = useNavigate();
+  const { success, error: toastError } = useToast();
   const [workspaces, setWorkspaces] = useState<Workspace[]>([]);
   const [workspaceId, setWorkspaceId] = useState("");
   const [docs, setDocs] = useState<Document[]>([]);
@@ -21,6 +25,7 @@ export function DocumentsPage() {
   const [loading, setLoading] = useState(true);
   const [uploading, setUploading] = useState(false);
   const [ingestingId, setIngestingId] = useState<string | null>(null);
+  const [libraryOpen, setLibraryOpen] = useState(false);
 
   const loadDocs = useCallback(async (ws: string) => {
     if (!ws) return;
@@ -66,8 +71,12 @@ export function DocumentsPage() {
     try {
       await api.upload(workspaceId, file);
       await loadDocs(workspaceId);
+      success("Uploaded", file.name);
+      setLibraryOpen(false);
     } catch (err) {
-      setError(formatError(err));
+      const msg = formatError(err);
+      setError(msg);
+      toastError("Upload failed", msg);
     } finally {
       setUploading(false);
     }
@@ -78,8 +87,11 @@ export function DocumentsPage() {
     try {
       await api.deleteDocument(id);
       await loadDocs(workspaceId);
+      success("Document deleted");
     } catch (err) {
-      setError(formatError(err));
+      const msg = formatError(err);
+      setError(msg);
+      toastError("Delete failed", msg);
     }
   }
 
@@ -89,22 +101,52 @@ export function DocumentsPage() {
     try {
       await api.ingestDocument(id);
       await loadDocs(workspaceId);
-      // Poll while queued/processing (background worker)
+      // Poll while queued/processing
+      let finalStatus = "processing";
       for (let i = 0; i < 40; i++) {
         await new Promise((r) => setTimeout(r, 1500));
         const list = await api.documents(workspaceId);
         setDocs(list);
         const doc = list.find((d) => d.id === id);
-        const s = doc?.status?.toLowerCase();
-        if (!doc || s === "ready" || s === "failed" || s === "uploaded") break;
+        const s = doc?.status?.toLowerCase() ?? "";
+        if (!doc || s === "ready" || s === "failed" || s === "uploaded") {
+          finalStatus = s || "unknown";
+          if (s === "ready") success("Ingest complete", "Document is ready for chat.");
+          if (s === "failed")
+            toastError(
+              "Ingest failed",
+              doc?.error || "Check the error on the document card.",
+            );
+          break;
+        }
+      }
+      if (finalStatus === "processing" || finalStatus === "queued") {
+        success("Ingest still running", "Refresh the list if status stays processing.");
       }
     } catch (err) {
-      setError(formatError(err));
+      const msg = formatError(err);
+      setError(msg);
+      toastError("Ingest failed", msg);
       await loadDocs(workspaceId);
     } finally {
       setIngestingId(null);
     }
   }
+
+  const library = (
+    <DocumentsSidebar
+      workspaces={workspaces}
+      workspaceId={workspaceId}
+      onWorkspaceChange={setWorkspaceId}
+      documents={docs}
+      loading={loading}
+      uploading={uploading}
+      ingestingId={ingestingId}
+      onUpload={onUpload}
+      onDelete={onDelete}
+      onIngest={onIngest}
+    />
+  );
 
   return (
     <div className="app-shell">
@@ -115,20 +157,31 @@ export function DocumentsPage() {
       />
 
       <div className="flex min-h-0 flex-1">
-        <DocumentsSidebar
-          workspaces={workspaces}
-          workspaceId={workspaceId}
-          onWorkspaceChange={setWorkspaceId}
-          documents={docs}
-          loading={loading}
-          uploading={uploading}
-          ingestingId={ingestingId}
-          onUpload={onUpload}
-          onDelete={onDelete}
-          onIngest={onIngest}
-        />
+        <div className="hidden h-full shrink-0 md:flex md:w-80">{library}</div>
+
+        <Sheet
+          open={libraryOpen}
+          onClose={() => setLibraryOpen(false)}
+          title="Library"
+          description="Upload and ingest documents"
+          side="left"
+        >
+          {library}
+        </Sheet>
 
         <main className="document-scroll flex min-h-0 min-w-0 flex-1 flex-col items-center justify-center overflow-y-auto px-4 py-10 text-center sm:px-8 sm:py-12">
+          <div className="mb-6 w-full max-w-md md:hidden">
+            <Button
+              type="button"
+              variant="secondary"
+              className="w-full"
+              onClick={() => setLibraryOpen(true)}
+            >
+              <PanelLeft className="h-4 w-4" strokeWidth={1.5} />
+              Open library ({docs.length})
+            </Button>
+          </div>
+
           {error && (
             <Alert variant="danger" className="mb-6 max-w-md text-left">
               {error}
@@ -138,7 +191,7 @@ export function DocumentsPage() {
           <div className="flex h-12 w-12 items-center justify-center rounded-vercel-md bg-canvas-soft-2 text-mute">
             <Upload className="h-5 w-5" strokeWidth={1.5} />
           </div>
-          <h2 className="mt-4 text-display-sm font-semibold text-ink">
+          <h2 className="mt-4 text-display-sm font-semibold tracking-tight text-ink">
             Your document library
           </h2>
           <p className="mt-2 max-w-md text-body-sm text-mute">
