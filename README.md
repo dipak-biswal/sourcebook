@@ -295,11 +295,18 @@ Dev-only (when `DEV_MODE=true`): `/dev/users`, set test passwords.
 
 ## Security notes
 
+Summary:
+
 - Passwords are **hashed** (never stored or displayed as originals).  
 - `DEV_MODE` test-user panel is **local only** — set `DEV_MODE=false` outside personal machines.  
-- Multi-tenant queries filter by workspace membership.  
-- Write agent tools require human approval.  
+- Multi-tenant queries filter by workspace membership; retrieval always filters by `workspace_id`.  
+- Agent tools are **allowlisted**; **write** tools (`create_note`) require human approval.  
+- Per-user **rate limits** on chat, ingest, and agent starts.  
 - Do not commit `.env` or API keys.
+
+Full write-up (prompt injection, allowlist, production checklist):
+
+→ **[docs/SECURITY.md](docs/SECURITY.md)**
 
 ---
 
