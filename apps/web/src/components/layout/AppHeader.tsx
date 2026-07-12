@@ -11,13 +11,8 @@ import {
   User,
   X,
 } from "lucide-react";
-import {
-  api,
-  getCachedUser,
-  getToken,
-  setToken,
-  type UserProfile,
-} from "@/api";
+import { getToken, setToken } from "@/api";
+import { useMe } from "@/hooks/queries";
 import { SourcebookIcon } from "@/components/branding/SourcebookIcon";
 import { ThemeToggle } from "@/components/theme/ThemeToggle";
 import { cn } from "@/lib/utils";
@@ -45,24 +40,8 @@ function initialsFromEmail(email: string): string {
 
 function UserProfileMenu({ onLogout }: { onLogout?: () => void }) {
   const [open, setOpen] = useState(false);
-  const [user, setUser] = useState<UserProfile | null>(() => getCachedUser());
   const rootRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    if (!getToken()) return;
-    let cancelled = false;
-    api
-      .me()
-      .then((u) => {
-        if (!cancelled) setUser(u);
-      })
-      .catch(() => {
-        /* keep cache if offline */
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, []);
+  const { data: user } = useMe();
 
   useEffect(() => {
     if (!open) return;
@@ -144,13 +123,22 @@ function UserProfileMenu({ onLogout }: { onLogout?: () => void }) {
 
           <div className="p-1.5">
             <Link
-              to="/usage"
+              to="/settings"
               role="menuitem"
               onClick={() => setOpen(false)}
               className="flex w-full items-center gap-2 rounded-[6px] px-2.5 py-2 text-[13px] text-body transition-colors hover:bg-canvas-soft-2 hover:text-ink"
             >
               <User className="h-3.5 w-3.5" strokeWidth={1.5} />
-              Usage &amp; account activity
+              Settings
+            </Link>
+            <Link
+              to="/usage"
+              role="menuitem"
+              onClick={() => setOpen(false)}
+              className="flex w-full items-center gap-2 rounded-[6px] px-2.5 py-2 text-[13px] text-body transition-colors hover:bg-canvas-soft-2 hover:text-ink"
+            >
+              <Activity className="h-3.5 w-3.5" strokeWidth={1.5} />
+              Usage
             </Link>
             <button
               type="button"

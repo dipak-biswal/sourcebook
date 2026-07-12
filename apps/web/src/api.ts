@@ -288,6 +288,42 @@ export const api = {
   deleteNote: (noteId: string) =>
     request<void>(`/notes/${noteId}`, { method: "DELETE" }),
 
+  updateProfile: (email: string) =>
+    request<UserProfile>("/me", {
+      method: "PUT",
+      body: JSON.stringify({ email }),
+    }),
+
+  changePassword: (currentPassword: string, newPassword: string) =>
+    request<void>("/me/password", {
+      method: "PUT",
+      body: JSON.stringify({ current_password: currentPassword, new_password: newPassword }),
+    }),
+
+  createWorkspace: (name: string) =>
+    request<Workspace>("/workspaces", {
+      method: "POST",
+      body: JSON.stringify({ name }),
+    }),
+
+  updateWorkspace: (id: string, name: string) =>
+    request<Workspace>(`/workspaces/${id}`, {
+      method: "PATCH",
+      body: JSON.stringify({ name }),
+    }),
+
+  deleteWorkspace: (id: string) =>
+    request<void>(`/workspaces/${id}`, { method: "DELETE" }),
+
+  getNote: (noteId: string) =>
+    request<Note>(`/notes/${noteId}`),
+
+  updateNote: (noteId: string, title: string, body: string) =>
+    request<Note>(`/notes/${noteId}`, {
+      method: "PUT",
+      body: JSON.stringify({ title, body }),
+    }),
+
   /** Dev-only testing helpers (require DEV_MODE on API). */
   devUsers: () => request<DevUserList>("/dev/users"),
 

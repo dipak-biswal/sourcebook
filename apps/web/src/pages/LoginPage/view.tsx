@@ -1,106 +1,50 @@
-import { useCallback, useEffect, useState, type FormEvent } from "react";
-import { Navigate, useNavigate } from "react-router-dom";
-import {
-  api,
-  getToken,
-  setToken,
-  type DevUserList,
-} from "@/api";
+import { type FormEvent } from "react";
+import type { DevUserList } from "@/api";
 import { SourcebookIcon } from "@/components/branding/SourcebookIcon";
 import { AppHeader } from "@/components/layout/AppHeader";
 import { Alert } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { useDocumentTitle } from "@/hooks/useDocumentTitle";
-import { formatError } from "@/lib/utils";
 
-export function LoginPage() {
-  const navigate = useNavigate();
-  useDocumentTitle("Sign in");
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
-  const [error, setError] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
+export type LoginPageViewProps = {
+  error: string | null;
+  busy: boolean;
+  devInfo: DevUserList | null;
+  devError: string | null;
+  devBusy: boolean;
+  email: string;
+  password: string;
+  onEmailChange: (v: string) => void;
+  onPasswordChange: (v: string) => void;
+  onSubmit: (e: FormEvent, mode: "login" | "register") => void;
+  onFillLogin: (email: string, password: string | null) => void;
+  onSetPassword: (email: string) => void;
+  onSetAllPasswords: () => void;
+  onLoadDevUsers: () => void;
+};
 
-  const [devInfo, setDevInfo] = useState<DevUserList | null>(null);
-  const [devError, setDevError] = useState<string | null>(null);
-  const [devBusy, setDevBusy] = useState(false);
-
-  const loadDevUsers = useCallback(async () => {
-    setDevError(null);
-    try {
-      const data = await api.devUsers();
-      setDevInfo(data);
-    } catch {
-      // Dev mode off or API down — hide panel
-      setDevInfo(null);
-    }
-  }, []);
-
-  useEffect(() => {
-    void loadDevUsers();
-  }, [loadDevUsers]);
-
-  if (getToken()) {
-    return <Navigate to="/documents" replace />;
-  }
-
-  async function submit(e: FormEvent, mode: "login" | "register") {
-    e.preventDefault();
-    setError(null);
-    setBusy(true);
-    try {
-      const res =
-        mode === "login"
-          ? await api.login(email, password)
-          : await api.register(email, password);
-      setToken(res.access_token);
-      navigate("/documents", { replace: true });
-    } catch (err) {
-      setError(formatError(err));
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  function fillLogin(userEmail: string, userPassword: string | null) {
-    setEmail(userEmail);
-    if (userPassword) setPassword(userPassword);
-  }
-
-  async function setPasswordFor(userEmail: string) {
-    setDevBusy(true);
-    setDevError(null);
-    try {
-      const res = await api.devSetPassword(userEmail, "password123");
-      await loadDevUsers();
-      fillLogin(res.email, res.password);
-    } catch (err) {
-      setDevError(formatError(err));
-    } finally {
-      setDevBusy(false);
-    }
-  }
-
-  async function setAllPasswords() {
-    setDevBusy(true);
-    setDevError(null);
-    try {
-      await api.devSetAllPasswords("password123");
-      await loadDevUsers();
-    } catch (err) {
-      setDevError(formatError(err));
-    } finally {
-      setDevBusy(false);
-    }
-  }
-
+export function LoginPageView({
+  error,
+  busy,
+  devInfo,
+  devError,
+  devBusy,
+  email,
+  password,
+  onEmailChange,
+  onPasswordChange,
+  onSubmit,
+  onFillLogin,
+  onSetPassword,
+  onSetAllPasswords,
+  onLoadDevUsers,
+}: LoginPageViewProps) {
   return (
     <div className="flex min-h-full flex-col bg-canvas-soft">
       <AppHeader showAuthActions={false} />
 
-      <main className="mx-auto flex w-full max-w-3xl flex-1 flex-col items-center px-4 py-10 sm:px-6 sm:py-14">
+      <main id="main-content" tabIndex={-1} className="mx-auto flex w-full max-w-3xl flex-1 flex-col items-center px-4 py-10 outline-none sm:px-6 sm:py-14">
         <div className="mb-6 flex flex-col items-center text-center">
           <SourcebookIcon size="lg" />
           <h1 className="mt-5 text-display-sm font-semibold tracking-tight text-ink">
@@ -121,7 +65,7 @@ export function LoginPage() {
 
           <form
             className="flex flex-col gap-3"
-            onSubmit={(e) => submit(e, "login")}
+            onSubmit={(e) => onSubmit(e, "login")}
           >
             <label className="block">
               <span className="mb-1 block text-xs font-medium text-body">
@@ -132,7 +76,7 @@ export function LoginPage() {
                 autoComplete="email"
                 required
                 value={email}
-                onChange={(e) => setEmail(e.target.value)}
+                onChange={(e) => onEmailChange(e.target.value)}
               />
             </label>
             <label className="block">
@@ -145,7 +89,7 @@ export function LoginPage() {
                 required
                 minLength={8}
                 value={password}
-                onChange={(e) => setPassword(e.target.value)}
+                onChange={(e) => onPasswordChange(e.target.value)}
               />
             </label>
 
@@ -161,7 +105,7 @@ export function LoginPage() {
               variant="secondary"
               className="w-full"
               disabled={busy}
-              onClick={(e) => submit(e, "register")}
+              onClick={(e) => onSubmit(e as unknown as FormEvent, "register")}
             >
               Create account
             </Button>
@@ -172,7 +116,6 @@ export function LoginPage() {
           </p>
         </div>
 
-        {/* Dev testing panel */}
         {devInfo && (
           <section className="mt-8 w-full max-w-3xl rounded-vercel-md border border-warning-border bg-warning-soft p-4">
             <div className="flex flex-wrap items-start justify-between gap-2">
@@ -191,7 +134,7 @@ export function LoginPage() {
                   variant="secondary"
                   size="sm"
                   disabled={devBusy}
-                  onClick={() => void loadDevUsers()}
+                  onClick={onLoadDevUsers}
                 >
                   Refresh
                 </Button>
@@ -200,7 +143,7 @@ export function LoginPage() {
                   size="sm"
                   className="rounded-[6px]"
                   disabled={devBusy || devInfo.users.length === 0}
-                  onClick={() => void setAllPasswords()}
+                  onClick={onSetAllPasswords}
                 >
                   Set all → password123
                 </Button>
@@ -251,7 +194,7 @@ export function LoginPage() {
                               size="sm"
                               disabled={devBusy}
                               onClick={() =>
-                                fillLogin(u.email, u.test_password)
+                                onFillLogin(u.email, u.test_password)
                               }
                             >
                               Fill
@@ -261,7 +204,7 @@ export function LoginPage() {
                               size="sm"
                               className="rounded-[6px]"
                               disabled={devBusy}
-                              onClick={() => void setPasswordFor(u.email)}
+                              onClick={() => void onSetPassword(u.email)}
                             >
                               Set password123
                             </Button>

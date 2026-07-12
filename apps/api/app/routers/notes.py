@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 from app.db import get_db
 from app.deps import get_current_user
 from app.models import Note, User, WorkspaceMember
+from app.schemas import NoteUpdateRequest
 
 router = APIRouter(prefix="/notes", tags=["notes"])
 
@@ -53,6 +54,39 @@ def list_notes(
         .limit(50)
         .all()
     )
+
+
+@router.get("/{note_id}", response_model=NoteResponse)
+def get_note(
+    note_id: uuid.UUID,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    note = db.get(Note, note_id)
+    if not note:
+        raise HTTPException(status_code=404, detail="Note not found")
+    _require_member(db, current_user.id, note.workspace_id)
+    return note
+
+
+@router.put("/{note_id}", response_model=NoteResponse)
+def update_note(
+    note_id: uuid.UUID,
+    body: NoteUpdateRequest,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    note = db.get(Note, note_id)
+    if not note:
+        raise HTTPException(status_code=404, detail="Note not found")
+    _require_member(db, current_user.id, note.workspace_id)
+    if body.title is not None:
+        note.title = body.title
+    if body.body is not None:
+        note.body = body.body
+    db.commit()
+    db.refresh(note)
+    return note
 
 
 @router.delete("/{note_id}", status_code=status.HTTP_204_NO_CONTENT)

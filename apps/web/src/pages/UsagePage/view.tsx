@@ -1,14 +1,18 @@
-import { useCallback, useEffect, useState } from "react";
-import { Navigate, useNavigate } from "react-router-dom";
 import { Activity, Loader2, RefreshCw } from "lucide-react";
-import { api, getToken, type UsageSummary } from "@/api";
+import type { UsageSummary } from "@/api";
 import { AppHeader } from "@/components/layout/AppHeader";
 import { Alert } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { CardSkeleton } from "@/components/ui/skeleton";
-import { useDocumentTitle } from "@/hooks/useDocumentTitle";
-import { formatError } from "@/lib/utils";
+
+export type UsagePageViewProps = {
+  data: UsageSummary | null;
+  error: string | null;
+  loading: boolean;
+  onRefresh: () => void;
+  onLogout: () => void;
+};
 
 function formatWhen(iso: string): string {
   try {
@@ -24,47 +28,20 @@ function formatWhen(iso: string): string {
   }
 }
 
-export function UsagePage() {
-  const navigate = useNavigate();
-  useDocumentTitle("Usage");
-  const [data, setData] = useState<UsageSummary | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [loading, setLoading] = useState(true);
-
-  const load = useCallback(async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      const summary = await api.usageSummary();
-      setData(summary);
-    } catch (err) {
-      setError(formatError(err));
-      setData(null);
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    if (!getToken()) return;
-    void load();
-  }, [load]);
-
-  if (!getToken()) {
-    return <Navigate to="/login" replace />;
-  }
-
+export function UsagePageView({
+  data,
+  error,
+  loading,
+  onRefresh,
+  onLogout,
+}: UsagePageViewProps) {
   const kindEntries = Object.entries(data?.by_kind ?? {});
 
   return (
     <div className="app-shell">
-      <AppHeader
-        onLogout={() => {
-          navigate("/login", { replace: true });
-        }}
-      />
+      <AppHeader onLogout={onLogout} />
 
-      <main className="document-scroll min-h-0 flex-1 overflow-y-auto px-4 py-6 sm:px-6 sm:py-8">
+      <main id="main-content" tabIndex={-1} className="document-scroll min-h-0 flex-1 overflow-y-auto px-4 py-6 outline-none sm:px-6 sm:py-8">
         <div className="mx-auto max-w-3xl">
           <div className="mb-6 flex flex-wrap items-start justify-between gap-3">
             <div>
@@ -84,7 +61,7 @@ export function UsagePage() {
               variant="secondary"
               size="sm"
               disabled={loading}
-              onClick={() => void load()}
+              onClick={onRefresh}
             >
               {loading ? (
                 <Loader2 className="h-3.5 w-3.5 animate-spin" />
@@ -171,10 +148,12 @@ export function UsagePage() {
                           const estimated =
                             row.meta &&
                             typeof row.meta === "object" &&
+                            "estimated" in row.meta &&
                             row.meta.estimated === true;
                           const denied =
                             row.meta &&
                             typeof row.meta === "object" &&
+                            "denied" in row.meta &&
                             row.meta.denied === true;
                           return (
                             <tr

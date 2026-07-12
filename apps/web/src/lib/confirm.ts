@@ -1,8 +1,10 @@
-/** Browser confirm helper with a consistent default message. */
-export function confirmAction(
+import { showConfirm } from "@/components/ui/confirm-dialog";
+
+/** Show a styled confirmation dialog. Returns true if the user confirmed. */
+export async function confirmAction(
+  title: string,
   message: string,
-  detail?: string,
-): boolean {
-  const full = detail ? `${message}\n\n${detail}` : message;
-  return window.confirm(full);
+  confirmLabel = "Delete",
+): Promise<boolean> {
+  return showConfirm({ title, message, confirmLabel, variant: "danger" });
 }

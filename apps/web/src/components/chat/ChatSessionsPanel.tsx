@@ -25,7 +25,7 @@ function truncateGoal(goal: string, max = 56): string {
   return `${t.slice(0, max - 1)}…`;
 }
 
-type ChatSessionsPanelProps = {
+export type ChatSessionsPanelProps = {
   mode: "chat" | "agent";
   workspaces: Workspace[];
   workspaceId: string;
