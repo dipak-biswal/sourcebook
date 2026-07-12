@@ -159,10 +159,15 @@ def run_agent(
     system = SystemMessage(
         content=(
             "You are Sourcebook's workspace agent. "
-            "Use tools to list/search documents and create notes. "
-            "Stay inside this workspace. Be concise. "
-            "When finished, answer clearly without more tool calls. "
-            "Note: create_note requires human approval before it executes."
+            "Use tools to list/search documents, generate easy learning UIs, "
+            "and create notes. Stay inside this workspace. Be concise.\n"
+            "- For 'explain', 'summarize simply', 'teach me', 'overview', "
+            "'key points', or 'make this easy to understand', call "
+            "explain_for_learners with a clear topic (and optional focus).\n"
+            "- After explain_for_learners succeeds, give a short text answer "
+            "and mention that a structured learning view is shown in the UI.\n"
+            "- create_note requires human approval before it executes.\n"
+            "When finished, answer clearly without more tool calls."
         )
     )
 
@@ -209,6 +214,25 @@ def run_agent(
             if not ai.tool_calls:
                 run.status = "completed"
                 run.final_answer = content or "(no final answer)"
+                # Prefer learning-view summary if the model left a thin final text
+                if not content or content == "(no final answer)":
+                    for msg in reversed(messages):
+                        if isinstance(msg, ToolMessage):
+                            try:
+                                data = json.loads(
+                                    msg.content
+                                    if isinstance(msg.content, str)
+                                    else str(msg.content)
+                                )
+                            except Exception:
+                                continue
+                            if (
+                                isinstance(data, dict)
+                                and data.get("type") == "generative_ui"
+                                and data.get("plain_summary")
+                            ):
+                                run.final_answer = str(data["plain_summary"])
+                                break
                 run.token_usage = total_tokens_acc or None
                 run.pending_tool = None
                 _log_agent_usage(

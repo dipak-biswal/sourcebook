@@ -39,7 +39,8 @@ export function ModeTip() {
             <Bot className="inline h-3 w-3" strokeWidth={1.5} />
             Agent
           </span>{" "}
-          can list/search files and create notes (with your approval).
+          can list/search files, build a simple learning view from your docs,
+          and create notes (with your approval).
         </div>
         <button
           type="button"

@@ -4,6 +4,7 @@ from typing import Any
 from langchain_core.tools import tool
 from sqlalchemy.orm import Session
 
+from app.agents.gen_ui import build_learning_ui
 from app.ingestion.retrieve import retrieve_chunks
 from app.models import Document, Note
 
@@ -13,7 +14,7 @@ def build_tools(db: Session, *, workspace_id: uuid.UUID, user_id: uuid.UUID):
 
     @tool
     def list_documents() -> list[dict[str, Any]]:
-        """List docuemtns in the current workspace (id, filename, status)"""
+        """List documents in the current workspace (id, filename, status)."""
 
         docs = (
             db.query(Document)
@@ -29,7 +30,7 @@ def build_tools(db: Session, *, workspace_id: uuid.UUID, user_id: uuid.UUID):
 
     @tool
     def search_documents(query: str, top_k: int = 5) -> list[dict[str, Any]]:
-        """Sematic search over ingested docuemtns chunks in this workspace."""
+        """Semantic search over ingested document chunks in this workspace."""
 
         hits = retrieve_chunks(
             db,
@@ -54,10 +55,26 @@ def build_tools(db: Session, *, workspace_id: uuid.UUID, user_id: uuid.UUID):
         return results
 
     @tool
+    def explain_for_learners(topic: str, focus: str = "") -> dict[str, Any]:
+        """
+        Generate an easy-to-understand learning UI from uploaded documents.
+
+        Use when the user wants a simple overview, key points, glossary, FAQ,
+        or structured explanation of content in their workspace docs.
+        Returns a generative_ui payload (cards/blocks) for the frontend.
+        """
+        return build_learning_ui(
+            db,
+            workspace_id=workspace_id,
+            topic=topic,
+            focus=focus or "",
+        )
+
+    @tool
     def create_note(title: str, body: str = "") -> dict[str, Any]:
         """
         Create a note in the workspace.
-        Write tool - in production this may require human approval.
+        Write tool — requires human approval before it executes.
         """
 
         note = Note(
@@ -76,4 +93,9 @@ def build_tools(db: Session, *, workspace_id: uuid.UUID, user_id: uuid.UUID):
             "status": "created",
         }
 
-    return [list_documents, search_documents, create_note]
+    return [
+        list_documents,
+        search_documents,
+        explain_for_learners,
+        create_note,
+    ]

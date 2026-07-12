@@ -17,6 +17,10 @@ import {
   type Workspace,
 } from "@/api";
 import {
+  extractGenerativeUIFromSteps,
+  GenerativeUIView,
+} from "@/components/agents/GenerativeUI";
+import {
   AGENT_EXAMPLE_GOALS,
   AgentApprovalCard,
   AgentStatusBadge,
@@ -474,6 +478,18 @@ export function AgentsPage() {
                     </div>
                   )}
                 </div>
+
+                {(() => {
+                  const gen = extractGenerativeUIFromSteps(steps);
+                  return gen ? (
+                    <div>
+                      <h2 className="mb-2 text-sm font-semibold text-ink">
+                        Learning view
+                      </h2>
+                      <GenerativeUIView payload={gen} />
+                    </div>
+                  ) : null;
+                })()}
 
                 <div>
                   <h2 className="mb-2 text-sm font-semibold text-ink">

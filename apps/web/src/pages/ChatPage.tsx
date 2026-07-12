@@ -18,6 +18,10 @@ import {
   type Workspace,
 } from "@/api";
 import {
+  extractGenerativeUIFromSteps,
+  GenerativeUIView,
+} from "@/components/agents/GenerativeUI";
+import {
   AGENT_EXAMPLE_GOALS,
   AgentApprovalCard,
   AgentStatusBadge,
@@ -509,7 +513,7 @@ export function ChatPage() {
                 }
                 description={
                   mode === "agent"
-                    ? "List or search documents, or create a note (writes need your approval). Full history is also on the Agents page."
+                    ? "List/search docs, generate an easy learning view from your uploads, or create a note (writes need approval)."
                     : "Upload .txt/.md, ingest until ready, then ask grounded questions here."
                 }
                 actionLabel={mode === "chat" ? "Open documents" : undefined}
@@ -641,6 +645,19 @@ export function ChatPage() {
                           <CopyButton text={item.content} />
                         </div>
                       )}
+
+                      {!isUser &&
+                        item.run &&
+                        (() => {
+                          const gen = extractGenerativeUIFromSteps(
+                            item.run.steps ?? [],
+                          );
+                          return gen ? (
+                            <div className="mt-2 w-full max-w-[min(100%,36rem)]">
+                              <GenerativeUIView payload={gen} />
+                            </div>
+                          ) : null;
+                        })()}
 
                       {!isUser && item.run && item.run.steps?.length > 0 && (
                         <div className="mt-2 max-w-[90%] rounded-[6px] border border-hairline bg-canvas px-3 py-2">
