@@ -49,5 +49,16 @@ class Settings(BaseSettings):
     log_level: str = "INFO"
     log_json: bool = True  # false = human-readable lines for local terminals
 
+    # Comma-separated browser origins allowed to call the API (CORS).
+    # Production example: https://sourcebook-peach.vercel.app
+    cors_origins: str = (
+        "http://127.0.0.1:5173,http://localhost:5173,"
+        "http://127.0.0.1:5174,http://localhost:5174"
+    )
+
+    @property
+    def cors_origin_list(self) -> list[str]:
+        return [o.strip() for o in self.cors_origins.split(",") if o.strip()]
+
 
 settings = Settings()
