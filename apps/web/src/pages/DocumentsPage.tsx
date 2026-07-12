@@ -213,22 +213,25 @@ export function DocumentsPage() {
             Your document library
           </h2>
           <p className="mt-2 max-w-md text-body-sm text-mute">
-            Upload a .txt or .md from the sidebar, then{" "}
-            <strong className="text-ink">Ingest for chat</strong>. Watch status:{" "}
-            <strong className="text-ink">processing → ready</strong>. Progress
-            text shows while embedding.
+            Upload <strong className="text-ink">PDF, DOCX, txt/md</strong>, CSV,
+            HTML, JSON, and other text files, then{" "}
+            <strong className="text-ink">Ingest for chat</strong>. Status goes{" "}
+            <strong className="text-ink">processing → ready</strong>. Scanned
+            image-only PDFs need OCR (not included yet).
           </p>
 
           <div className="mt-6 flex flex-wrap items-center justify-center gap-2">
-            {[".txt", ".md", "Ingest → ready"].map((label) => (
-              <span
-                key={label}
-                className="inline-flex items-center gap-1.5 rounded-full border border-hairline bg-canvas px-3 py-1 text-xs text-body"
-              >
-                <FileText className="h-3.5 w-3.5" strokeWidth={1.5} />
-                {label}
-              </span>
-            ))}
+            {[".pdf", ".docx", ".txt / .md", "CSV / HTML", "Ingest → ready"].map(
+              (label) => (
+                <span
+                  key={label}
+                  className="inline-flex items-center gap-1.5 rounded-full border border-hairline bg-canvas px-3 py-1 text-xs text-body"
+                >
+                  <FileText className="h-3.5 w-3.5" strokeWidth={1.5} />
+                  {label}
+                </span>
+              ),
+            )}
           </div>
 
           <ol className="mt-8 max-w-sm space-y-2 text-left text-body-sm text-body">

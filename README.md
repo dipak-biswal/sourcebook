@@ -13,13 +13,13 @@ Multi-tenant **document AI workspace**: upload files, run an ingest pipeline (pa
 | **Auth** | Register / login (JWT), bcrypt password hashes |
 | **Tenancy** | Workspaces + membership; documents and vectors scoped by `workspace_id` |
 | **Documents** | Upload, list, delete; local file storage + Postgres metadata |
-| **Ingest** | txt/md parse → chunk → embed; status `queued` → `processing` → `ready` / `failed` |
+| **Ingest** | PDF, DOCX, txt/md, CSV/HTML/JSON + more → parse → chunk → embed; `processing` → `ready` / `failed` |
 | **Background jobs** | Redis + **RQ** worker for heavy ingest (API stays responsive) |
 | **RAG chat** | Retrieve top chunks → LLM answer; **SSE streaming**; sources (filename, score, snippet) |
 | **Chat ↔ Agent mode** | Same Chat page toggle: RAG by default, or tool-using agent + HITL |
 | **Denial** | Off-topic / empty retrieval → no fake sources |
 | **Agents** | Tools: list/search docs, **`explain_for_learners` (generative UI + citations + per-doc)**, `create_note` (HITL); save learning view as note |
-| **HITL** | `create_note` pauses at `waiting_approval` until Approve / Reject |
+| **HITL + resume** | `create_note` pauses for Approve / Reject; **Approve executes write then resumes** the agent loop |
 | **Usage** | Token usage events + **Usage** page |
 | **Rate limits** | Per-user limits on chat, ingest, agent starts |
 | **Evals** | Manual golden set: [`evals/sourcebook-v1.md`](evals/sourcebook-v1.md) (**10/12** on design-doc Qs) |
@@ -222,9 +222,9 @@ Only **ready** docs contribute useful RAG chunks (after successful embed).
 ## Agent HITL flow
 
 ```text
-Goal → tools (list/search) → if create_note → waiting_approval
-     → user Approves → note created → completed
-     → user Rejects  → cancelled
+Goal → tools (list/search/explain) → if create_note → waiting_approval
+     → Approve → execute write → resume LLM loop → final answer / next steps
+     → Reject  → cancelled
 ```
 
 ---

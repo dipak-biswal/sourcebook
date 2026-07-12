@@ -400,7 +400,7 @@ def build_learning_ui(
                 return {
                     "error": (
                         "No indexed document content found. "
-                        "Upload .txt/.md and Ingest until status is ready."
+                        "Upload a supported file (PDF, DOCX, txt/md, …) and Ingest until ready."
                     )
                 }
             hits = retrieve_chunks(

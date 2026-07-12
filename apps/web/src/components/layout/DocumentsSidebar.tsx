@@ -47,15 +47,39 @@ function statusVariant(
   return "secondary";
 }
 
+const INGEST_SUFFIXES = [
+  ".txt",
+  ".md",
+  ".markdown",
+  ".rst",
+  ".csv",
+  ".tsv",
+  ".json",
+  ".jsonl",
+  ".log",
+  ".xml",
+  ".html",
+  ".htm",
+  ".yml",
+  ".yaml",
+  ".toml",
+  ".ini",
+  ".cfg",
+  ".css",
+  ".js",
+  ".ts",
+  ".py",
+  ".sh",
+  ".pdf",
+  ".docx",
+];
+
 function canIngest(doc: Document): boolean {
   const name = doc.filename.toLowerCase();
-  const textLike =
-    name.endsWith(".txt") ||
-    name.endsWith(".md") ||
-    name.endsWith(".markdown");
+  const ok = INGEST_SUFFIXES.some((ext) => name.endsWith(ext));
   const s = doc.status.toLowerCase();
   // Allow re-queue when failed/ready/uploaded; block while queued/processing
-  return textLike && s !== "processing" && s !== "queued";
+  return ok && s !== "processing" && s !== "queued";
 }
 
 export function DocumentsSidebar({
@@ -120,7 +144,7 @@ export function DocumentsSidebar({
           ref={fileInputRef}
           type="file"
           className="hidden"
-          accept=".txt,.md,.markdown"
+          accept=".txt,.md,.markdown,.pdf,.docx,.csv,.tsv,.json,.html,.htm,.rst,.xml,.yml,.yaml,.log"
           onChange={(e) => {
             const file = e.target.files?.[0];
             if (file) onUpload(file);
@@ -135,7 +159,7 @@ export function DocumentsSidebar({
           onClick={() => fileInputRef.current?.click()}
         >
           <Upload className="h-4 w-4" strokeWidth={1.5} />
-          {uploading ? "Uploading…" : "Upload .txt / .md"}
+          {uploading ? "Uploading…" : "Upload PDF, DOCX, txt…"}
         </Button>
 
         <div className="mt-2 flex flex-wrap gap-1.5 text-[10px] text-mute">

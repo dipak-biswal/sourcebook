@@ -171,7 +171,11 @@ export function AgentApprovalCard({
         <code className="rounded bg-canvas px-1">
           {pendingTool.name ?? "unknown"}
         </code>
-        . Review args, then approve or reject.
+        . Review args, then approve or reject.{" "}
+        <span className="font-medium text-ink">
+          After approve, the agent continues
+        </span>{" "}
+        (confirm + next steps)—it does not stop at the write.
       </p>
       <pre className="mt-2 max-h-40 overflow-auto rounded border border-hairline bg-canvas p-2 text-xs text-body">
         {prettyJson(pendingTool.args ?? {})}

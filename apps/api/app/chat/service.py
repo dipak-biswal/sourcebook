@@ -28,7 +28,7 @@ def _citation_dict(db: Session, ch, score: float, index: int) -> dict:
 
 DENIAL_MESSAGE = (
     "I don't know — no relevant indexed chunks matched your question. "
-    "Upload a .txt/.md, click Ingest until status is ready, then ask again "
+    "Upload a supported file (PDF, DOCX, txt/md, …), click Ingest until ready, then ask again "
     "using terms that appear in the document."
 )
 

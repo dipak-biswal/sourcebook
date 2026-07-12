@@ -7,6 +7,7 @@ from sqlalchemy.orm import Session
 from app.config import settings
 from app.db import get_db
 from app.deps import get_current_user
+from app.ingestion.parsers import is_supported_filename, supported_types_message
 from app.models import Chunk, Document, User, WorkspaceMember
 from app.schemas import DocumentResponse
 
@@ -65,8 +66,14 @@ async def upload_document(
             status_code=status.HTTP_400_BAD_REQUEST, detail="Missing filename"
         )
 
-    doc_id = uuid.uuid4()
     safe_name = Path(file.filename).name
+    if not is_supported_filename(safe_name):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Unsupported file type. {supported_types_message()}",
+        )
+
+    doc_id = uuid.uuid4()
     rel_key = f"{workspace_id}/{doc_id}_{safe_name}"
     dest_dir = Path(settings.upload_dir) / str(workspace_id)
     dest_dir.mkdir(parents=True, exist_ok=True)

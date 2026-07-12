@@ -556,7 +556,7 @@ export function ChatPage() {
                 description={
                   mode === "agent"
                     ? "List/search docs, generate an easy learning view from your uploads, or create a note (writes need approval)."
-                    : "Upload .txt/.md, ingest until ready, then ask grounded questions here."
+                    : "Upload PDF, DOCX, or text files, ingest until ready, then ask grounded questions here."
                 }
                 actionLabel={mode === "chat" ? "Open documents" : undefined}
                 onAction={
