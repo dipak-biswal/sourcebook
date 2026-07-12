@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session
 from app.agents.tools import build_tools
 from app.config import settings
 from app.models import AgentRun, AgentStep
+from app.usage import estimate_tokens, log_usage
 
 WRITE_TOOLS = frozenset({"create_note"})
 
@@ -20,6 +21,73 @@ def _llm():
         api_key=SecretStr(settings.openai_api_key),
         base_url=settings.openai_base_url,
         temperature=0.1,
+    )
+
+
+def _content_str(content: Any) -> str:
+    if content is None:
+        return ""
+    if isinstance(content, str):
+        return content
+    return str(content)
+
+
+def _tokens_from_ai_message(ai: AIMessage) -> tuple[int, int, int]:
+    """
+    Return (prompt_tokens, completion_tokens, total_tokens) for one model turn.
+    Prefer provider usage_metadata; fall back to rough char estimate.
+    """
+    meta = getattr(ai, "usage_metadata", None) or {}
+    if isinstance(meta, dict) and meta:
+        prompt = int(meta.get("input_tokens") or meta.get("prompt_tokens") or 0)
+        completion = int(
+            meta.get("output_tokens") or meta.get("completion_tokens") or 0
+        )
+        total = int(meta.get("total_tokens") or (prompt + completion) or 0)
+        if total > 0:
+            return prompt, completion, total
+
+    # response_metadata (OpenAI-style) sometimes used by older adapters
+    resp = getattr(ai, "response_metadata", None) or {}
+    usage = resp.get("token_usage") or resp.get("usage") or {}
+    if isinstance(usage, dict) and usage:
+        prompt = int(usage.get("prompt_tokens") or usage.get("input_tokens") or 0)
+        completion = int(
+            usage.get("completion_tokens") or usage.get("output_tokens") or 0
+        )
+        total = int(usage.get("total_tokens") or (prompt + completion) or 0)
+        if total > 0:
+            return prompt, completion, total
+
+    # Fallback: content + tool call args (tool-only turns often have empty content)
+    parts: list[str] = [_content_str(ai.content)]
+    for tc in ai.tool_calls or []:
+        parts.append(str(tc.get("name") or ""))
+        parts.append(json.dumps(tc.get("args") or {}, default=str))
+    est = estimate_tokens(*parts)
+    return 0, 0, est
+
+
+def _log_agent_usage(
+    db: Session,
+    run: AgentRun,
+    *,
+    prompt_tokens: int,
+    completion_tokens: int,
+    total_tokens: int,
+) -> None:
+    if total_tokens <= 0 and prompt_tokens <= 0 and completion_tokens <= 0:
+        return
+    log_usage(
+        db,
+        kind="agent_run",
+        model=settings.chat_model,
+        user_id=run.user_id,
+        workspace_id=run.workspace_id,
+        prompt_tokens=prompt_tokens or None,
+        completion_tokens=completion_tokens or None,
+        total_tokens=total_tokens or None,
+        meta={"run_id": str(run.id), "status": run.status},
     )
 
 
@@ -54,14 +122,6 @@ def _next_step_index(db: Session, run_id: uuid.UUID) -> int:
         .first()
     )
     return (last.step_index + 1) if last else 1
-
-
-def _content_str(content: Any) -> str:
-    if content is None:
-        return ""
-    if isinstance(content, str):
-        return content
-    return str(content)
 
 
 def run_agent(
@@ -108,12 +168,19 @@ def run_agent(
 
     messages: list = [system, HumanMessage(content=goal)]
     step_index = 0
-    token_approx = 0
+    prompt_tokens_total = 0
+    completion_tokens_total = 0
+    total_tokens_acc = 0
 
     try:
         for _ in range(max(1, max_steps)):
             ai: AIMessage = model.invoke(messages)  # type: ignore[assignment]
             messages.append(ai)
+
+            p, c, t = _tokens_from_ai_message(ai)
+            prompt_tokens_total += p
+            completion_tokens_total += c
+            total_tokens_acc += t if t else (p + c)
 
             # Log model turn
             if ai.tool_calls:
@@ -137,14 +204,20 @@ def run_agent(
                     type="thought" if ai.tool_calls else "final",
                     output=content,
                 )
-                token_approx += max(1, len(content) // 4)
 
             # No tools → done
             if not ai.tool_calls:
                 run.status = "completed"
                 run.final_answer = content or "(no final answer)"
-                run.token_usage = token_approx or None
+                run.token_usage = total_tokens_acc or None
                 run.pending_tool = None
+                _log_agent_usage(
+                    db,
+                    run,
+                    prompt_tokens=prompt_tokens_total,
+                    completion_tokens=completion_tokens_total,
+                    total_tokens=total_tokens_acc,
+                )
                 db.commit()
                 db.refresh(run)
                 return run
@@ -171,10 +244,17 @@ def run_agent(
                     input=tc.get("args") or {},
                     output={"status": "waiting_approval"},
                 )
-                run.token_usage = token_approx or None
+                run.token_usage = total_tokens_acc or None
                 run.final_answer = (
                     "Waiting for your approval to run "
                     f"`{tc.get('name')}` with args: {json.dumps(tc.get('args') or {})}"
+                )
+                _log_agent_usage(
+                    db,
+                    run,
+                    prompt_tokens=prompt_tokens_total,
+                    completion_tokens=completion_tokens_total,
+                    total_tokens=total_tokens_acc,
                 )
                 db.commit()
                 db.refresh(run)
@@ -218,7 +298,14 @@ def run_agent(
             run.final_answer
             or "Stopped after max_steps without a final answer."
         )
-        run.token_usage = token_approx or None
+        run.token_usage = total_tokens_acc or None
+        _log_agent_usage(
+            db,
+            run,
+            prompt_tokens=prompt_tokens_total,
+            completion_tokens=completion_tokens_total,
+            total_tokens=total_tokens_acc,
+        )
         db.commit()
         db.refresh(run)
         return run
@@ -226,6 +313,15 @@ def run_agent(
     except Exception as e:
         run.status = "failed"
         run.error = str(e)
+        if total_tokens_acc:
+            run.token_usage = total_tokens_acc
+            _log_agent_usage(
+                db,
+                run,
+                prompt_tokens=prompt_tokens_total,
+                completion_tokens=completion_tokens_total,
+                total_tokens=total_tokens_acc,
+            )
         db.commit()
         db.refresh(run)
         raise

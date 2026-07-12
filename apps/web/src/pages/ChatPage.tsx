@@ -695,6 +695,11 @@ export function ChatPage() {
                             {item.run && (
                               <AgentStatusBadge status={item.run.status} />
                             )}
+                            {item.run?.token_usage != null && (
+                              <span className="text-[11px] text-mute">
+                                ~{item.run.token_usage.toLocaleString()} tokens
+                              </span>
+                            )}
                             {item.pending && (
                               <Loader2 className="h-3.5 w-3.5 animate-spin text-mute" />
                             )}
