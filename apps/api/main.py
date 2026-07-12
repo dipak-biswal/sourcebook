@@ -2,7 +2,18 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import settings
-from app.routers import agents, auth, chat, documents, health, ingest, usage, workspaces
+from app.routers import (
+    agents,
+    auth,
+    chat,
+    documents,
+    dev,
+    health,
+    ingest,
+    notes,
+    usage,
+    workspaces,
+)
 
 app = FastAPI(
     title="Sourcebook",
@@ -31,6 +42,9 @@ app.include_router(ingest.router)
 app.include_router(chat.router)
 app.include_router(usage.router)
 app.include_router(agents.router)
+app.include_router(notes.router)
+if settings.dev_mode:
+    app.include_router(dev.router)
 
 if __name__ == "__main__":
     import uvicorn

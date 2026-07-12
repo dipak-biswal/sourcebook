@@ -1,11 +1,21 @@
 import { useCallback, useEffect, useState, type FormEvent } from "react";
 import { Navigate, useNavigate } from "react-router-dom";
-import { Bot, Loader2, Play, RefreshCw } from "lucide-react";
+import {
+  Bot,
+  Check,
+  Loader2,
+  Play,
+  RefreshCw,
+  StickyNote,
+  Trash2,
+  X,
+} from "lucide-react";
 import {
   api,
   getToken,
   type AgentRun,
   type AgentStep,
+  type Note,
   type Workspace,
 } from "@/api";
 import { AppHeader } from "@/components/layout/AppHeader";
@@ -14,6 +24,12 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { cn, formatError } from "@/lib/utils";
+
+const EXAMPLE_GOALS = [
+  "List my documents and say which ones are ready for chat.",
+  "Search documents for mesh gradient colors and summarize.",
+  "Create a note titled Demo Approval with body hello from HITL agent.",
+];
 
 function statusVariant(
   status: string,
@@ -59,19 +75,13 @@ function StepCard({ step }: { step: AgentStep }) {
   return (
     <div className="rounded-[6px] border border-hairline bg-canvas px-3 py-2.5">
       <div className="mb-1 flex flex-wrap items-center gap-2">
-        <span className="text-xs font-semibold text-ink">
-          #{step.step_index}
-        </span>
+        <span className="text-xs font-semibold text-ink">#{step.step_index}</span>
         <Badge variant="outline">{step.type}</Badge>
-        {step.tool_name && (
-          <Badge variant="secondary">{step.tool_name}</Badge>
-        )}
+        {step.tool_name && <Badge variant="secondary">{step.tool_name}</Badge>}
       </div>
       {step.input != null && (
         <div className="mt-1">
-          <div className="text-[11px] font-medium uppercase text-mute">
-            Input
-          </div>
+          <div className="text-[11px] font-medium uppercase text-mute">Input</div>
           <pre className="mt-0.5 max-h-32 overflow-auto whitespace-pre-wrap text-xs text-body">
             {pretty(step.input)}
           </pre>
@@ -96,14 +106,19 @@ export function AgentsPage() {
   const [workspaces, setWorkspaces] = useState<Workspace[]>([]);
   const [workspaceId, setWorkspaceId] = useState("");
   const [runs, setRuns] = useState<AgentRun[]>([]);
+  const [notes, setNotes] = useState<Note[]>([]);
   const [selectedId, setSelectedId] = useState("");
   const [selected, setSelected] = useState<AgentRun | null>(null);
-  const [goal, setGoal] = useState(
-    "List my documents and say which ones are ready for chat.",
-  );
+  const [goal, setGoal] = useState(EXAMPLE_GOALS[0]);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [running, setRunning] = useState(false);
+  const [approving, setApproving] = useState(false);
+
+  const loadNotes = useCallback(async (ws: string) => {
+    if (!ws) return;
+    setNotes(await api.notes(ws));
+  }, []);
 
   const loadRuns = useCallback(async (ws: string, preferId?: string) => {
     if (!ws) return;
@@ -115,12 +130,20 @@ export function AgentsPage() {
         : list[0]?.id || "";
     setSelectedId(next);
     if (next) {
-      const detail = list.find((r) => r.id === next) ?? (await api.agentRun(next));
+      const detail =
+        list.find((r) => r.id === next) ?? (await api.agentRun(next));
       setSelected(detail);
     } else {
       setSelected(null);
     }
   }, []);
+
+  const refreshWorkspace = useCallback(
+    async (ws: string, preferRunId?: string) => {
+      await Promise.all([loadRuns(ws, preferRunId), loadNotes(ws)]);
+    },
+    [loadNotes, loadRuns],
+  );
 
   useEffect(() => {
     if (!getToken()) return;
@@ -147,8 +170,8 @@ export function AgentsPage() {
 
   useEffect(() => {
     if (!workspaceId) return;
-    loadRuns(workspaceId).catch((err) => setError(formatError(err)));
-  }, [workspaceId, loadRuns]);
+    refreshWorkspace(workspaceId).catch((err) => setError(formatError(err)));
+  }, [workspaceId, refreshWorkspace]);
 
   if (!getToken()) {
     return <Navigate to="/login" replace />;
@@ -171,12 +194,37 @@ export function AgentsPage() {
     setError(null);
     try {
       const run = await api.startAgentRun(workspaceId, goal.trim(), 5);
-      await loadRuns(workspaceId, run.id);
+      await refreshWorkspace(workspaceId, run.id);
       setSelected(run);
     } catch (err) {
       setError(formatError(err));
     } finally {
       setRunning(false);
+    }
+  }
+
+  async function onApprove(approve: boolean) {
+    if (!selected || approving) return;
+    setApproving(true);
+    setError(null);
+    try {
+      const run = await api.approveAgentRun(selected.id, approve);
+      await refreshWorkspace(workspaceId, run.id);
+      setSelected(run);
+    } catch (err) {
+      setError(formatError(err));
+    } finally {
+      setApproving(false);
+    }
+  }
+
+  async function onDeleteNote(id: string) {
+    setError(null);
+    try {
+      await api.deleteNote(id);
+      await loadNotes(workspaceId);
+    } catch (err) {
+      setError(formatError(err));
     }
   }
 
@@ -186,12 +234,9 @@ export function AgentsPage() {
 
   return (
     <div className="flex h-full flex-col overflow-hidden bg-canvas-soft">
-      <AppHeader
-        onLogout={() => navigate("/login", { replace: true })}
-      />
+      <AppHeader onLogout={() => navigate("/login", { replace: true })} />
 
       <div className="flex min-h-0 flex-1">
-        {/* Sidebar: runs */}
         <aside className="flex w-80 shrink-0 flex-col border-r border-hairline bg-canvas">
           <div className="shrink-0 border-b border-hairline p-4">
             <div className="flex items-center gap-2">
@@ -199,7 +244,7 @@ export function AgentsPage() {
               <h2 className="text-body-sm font-semibold text-ink">Agents</h2>
             </div>
             <p className="mt-0.5 text-xs text-mute">
-              Tool-using runs (list/search docs, create notes)
+              Tools + HITL for write actions
             </p>
 
             {workspaces.length > 0 && (
@@ -226,13 +271,13 @@ export function AgentsPage() {
               className="mt-3 w-full"
               disabled={loading || !workspaceId}
               onClick={() =>
-                loadRuns(workspaceId, selectedId).catch((err) =>
+                refreshWorkspace(workspaceId, selectedId).catch((err) =>
                   setError(formatError(err)),
                 )
               }
             >
               <RefreshCw className="h-3.5 w-3.5" strokeWidth={1.5} />
-              Refresh runs
+              Refresh
             </Button>
           </div>
 
@@ -276,10 +321,53 @@ export function AgentsPage() {
                 ))}
               </ul>
             )}
+
+            <div className="mb-1 mt-4 px-2 py-1 text-[11px] font-medium uppercase tracking-wide text-mute">
+              Notes ({notes.length})
+            </div>
+            {notes.length === 0 ? (
+              <p className="px-2 py-2 text-xs text-mute">
+                No notes yet. Approve a create_note run to add one.
+              </p>
+            ) : (
+              <ul className="space-y-1">
+                {notes.map((n) => (
+                  <li
+                    key={n.id}
+                    className="group rounded-[6px] border border-hairline bg-canvas px-2 py-2"
+                  >
+                    <div className="flex items-start gap-2">
+                      <StickyNote
+                        className="mt-0.5 h-3.5 w-3.5 shrink-0 text-mute"
+                        strokeWidth={1.5}
+                      />
+                      <div className="min-w-0 flex-1">
+                        <div className="truncate text-sm font-medium text-ink">
+                          {n.title}
+                        </div>
+                        <div className="mt-0.5 line-clamp-2 text-xs text-mute">
+                          {n.body || "—"}
+                        </div>
+                        <div className="mt-1 text-[11px] text-mute">
+                          {formatWhen(n.created_at)}
+                        </div>
+                      </div>
+                      <button
+                        type="button"
+                        title="Delete note"
+                        className="rounded p-1 text-mute hover:bg-canvas-soft-2 hover:text-ink"
+                        onClick={() => void onDeleteNote(n.id)}
+                      >
+                        <Trash2 className="h-3.5 w-3.5" strokeWidth={1.5} />
+                      </button>
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            )}
           </div>
         </aside>
 
-        {/* Main */}
         <main className="document-scroll min-h-0 min-w-0 flex-1 overflow-y-auto px-6 py-6">
           <div className="mx-auto max-w-2xl">
             {error && (
@@ -294,9 +382,30 @@ export function AgentsPage() {
             >
               <h1 className="text-sm font-semibold text-ink">Start agent run</h1>
               <p className="mt-1 text-xs text-mute">
-                Example: “List my documents and summarize which are ready.”
-                Write tools (create_note) run immediately for now — approval comes next.
+                Read tools run immediately.{" "}
+                <strong className="text-ink">create_note</strong> waits for
+                Approve / Reject.
               </p>
+
+              <div className="mt-3 flex flex-wrap gap-1.5">
+                {EXAMPLE_GOALS.map((g) => (
+                  <button
+                    key={g}
+                    type="button"
+                    disabled={running}
+                    onClick={() => setGoal(g)}
+                    className={cn(
+                      "rounded-full border px-2.5 py-1 text-left text-[11px] transition-colors",
+                      goal === g
+                        ? "border-ink bg-ink text-[var(--canvas)]"
+                        : "border-hairline bg-canvas text-body hover:bg-canvas-soft-2",
+                    )}
+                  >
+                    {g.length > 48 ? `${g.slice(0, 48)}…` : g}
+                  </button>
+                ))}
+              </div>
+
               <label className="mt-3 block">
                 <span className="mb-1 block text-xs text-mute">Goal</span>
                 <Input
@@ -348,10 +457,58 @@ export function AgentsPage() {
                       {selected.error}
                     </Alert>
                   )}
+
+                  {selected.status === "waiting_approval" &&
+                    selected.pending_tool && (
+                      <div className="mt-4 rounded-[6px] border border-amber-200 bg-[#fffbeb] p-3">
+                        <div className="text-sm font-semibold text-ink">
+                          Approval required
+                        </div>
+                        <p className="mt-1 text-xs text-body">
+                          Write tool{" "}
+                          <code className="rounded bg-canvas px-1">
+                            {selected.pending_tool.name}
+                          </code>
+                          . Review args, then approve or reject.
+                        </p>
+                        <pre className="mt-2 max-h-40 overflow-auto rounded border border-hairline bg-canvas p-2 text-xs text-body">
+                          {pretty(selected.pending_tool.args ?? {})}
+                        </pre>
+                        <div className="mt-3 flex flex-wrap gap-2">
+                          <Button
+                            type="button"
+                            size="sm"
+                            className="rounded-[6px]"
+                            disabled={approving}
+                            onClick={() => void onApprove(true)}
+                          >
+                            {approving ? (
+                              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                            ) : (
+                              <Check className="h-3.5 w-3.5" strokeWidth={1.5} />
+                            )}
+                            Approve
+                          </Button>
+                          <Button
+                            type="button"
+                            variant="secondary"
+                            size="sm"
+                            disabled={approving}
+                            onClick={() => void onApprove(false)}
+                          >
+                            <X className="h-3.5 w-3.5" strokeWidth={1.5} />
+                            Reject
+                          </Button>
+                        </div>
+                      </div>
+                    )}
+
                   {selected.final_answer && (
                     <div className="mt-3">
                       <div className="text-[11px] font-medium uppercase text-mute">
-                        Final answer
+                        {selected.status === "waiting_approval"
+                          ? "Status message"
+                          : "Final answer"}
                       </div>
                       <div className="mt-1 whitespace-pre-wrap text-body-sm text-body">
                         {selected.final_answer}

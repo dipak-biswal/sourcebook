@@ -3,11 +3,11 @@ import uuid
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session, joinedload
 
-from app.agents.runner import run_agent
+from app.agents.runner import approve_agent_run, run_agent
 from app.db import get_db
 from app.deps import get_current_user
 from app.models import AgentRun, User, WorkspaceMember
-from app.schemas import AgentRunCreate, AgentRunResponse
+from app.schemas import AgentApproveRequest, AgentRunCreate, AgentRunResponse
 
 router = APIRouter(prefix="/agents", tags=["agents"])
 
@@ -65,6 +65,31 @@ def start_agent_run(
     loaded = _load_run(db, run.id, current_user.id)
     if not loaded:
         raise HTTPException(status_code=500, detail="Run missing after create")
+    return loaded
+
+
+@router.post("/runs/{run_id}/approve", response_model=AgentRunResponse)
+def approve_run(
+    run_id: uuid.UUID,
+    body: AgentApproveRequest,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    run = _load_run(db, run_id, current_user.id)
+    if not run:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Run not found"
+        )
+    try:
+        approve_agent_run(db, run, approve=body.approve)
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)
+        ) from e
+
+    loaded = _load_run(db, run_id, current_user.id)
+    if not loaded:
+        raise HTTPException(status_code=500, detail="Run missing after approve")
     return loaded
 
 

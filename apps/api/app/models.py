@@ -237,6 +237,8 @@ class AgentRun(Base):
     final_answer: Mapped[str | None] = mapped_column(Text, nullable=True)
     error: Mapped[str | None] = mapped_column(Text, nullable=True)
     token_usage: Mapped[int | None] = mapped_column(nullable=True)
+    # Pending write tool awaiting human approval, e.g. create_note
+    pending_tool: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )

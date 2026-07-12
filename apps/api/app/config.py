@@ -28,5 +28,8 @@ class Settings(BaseSettings):
     # Raise (e.g. 0.25) if off-topic still retrieves; lower if on-topic misses.
     rag_min_score: float = 0.22
 
+    # Local testing helpers (list users / set test passwords). NEVER enable in production.
+    dev_mode: bool = True
+
 
 settings = Settings()

@@ -102,13 +102,18 @@ class AgentStepResponse(BaseModel):
 class AgentRunResponse(BaseModel):
     id: uuid.UUID
     workspace_id: uuid.UUID
-    user_id: uuid.UUID
+    user_id: uuid.UUID | None = None
     goal: str
     status: str
     final_answer: str | None
     error: str | None
     token_usage: int | None
+    pending_tool: dict | None = None
     created_at: datetime
     steps: list[AgentStepResponse] = []
 
     model_config = {"from_attributes": True}
+
+
+class AgentApproveRequest(BaseModel):
+    approve: bool = True

@@ -225,6 +225,51 @@ export const api = {
     request<AgentRun[]>(`/agents/runs?workspace_id=${workspaceId}`),
 
   agentRun: (runId: string) => request<AgentRun>(`/agents/runs/${runId}`),
+
+  approveAgentRun: (runId: string, approve: boolean) =>
+    request<AgentRun>(`/agents/runs/${runId}/approve`, {
+      method: "POST",
+      body: JSON.stringify({ approve }),
+    }),
+
+  notes: (workspaceId: string) =>
+    request<Note[]>(`/notes?workspace_id=${workspaceId}`),
+
+  deleteNote: (noteId: string) =>
+    request<void>(`/notes/${noteId}`, { method: "DELETE" }),
+
+  /** Dev-only testing helpers (require DEV_MODE on API). */
+  devUsers: () => request<DevUserList>("/dev/users"),
+
+  devSetPassword: (email: string, password = "password123") =>
+    request<{ email: string; password: string; message: string }>(
+      "/dev/users/set-password",
+      {
+        method: "POST",
+        body: JSON.stringify({ email, password }),
+      },
+    ),
+
+  devSetAllPasswords: (password = "password123") =>
+    request<{ password: string; updated: string[]; message: string }>(
+      `/dev/users/set-all-passwords?password=${encodeURIComponent(password)}`,
+      { method: "POST" },
+    ),
+};
+
+export type DevUserRow = {
+  id: string;
+  email: string;
+  created_at: string | null;
+  test_password: string | null;
+  password_note: string;
+};
+
+export type DevUserList = {
+  dev_mode: boolean;
+  warning: string;
+  default_test_password: string;
+  users: DevUserRow[];
 };
 
 export type UsageEventRow = {
@@ -258,12 +303,26 @@ export type AgentStep = {
 export type AgentRun = {
   id: string;
   workspace_id: string;
-  user_id: string;
+  user_id: string | null;
   goal: string;
   status: string;
   final_answer: string | null;
   error: string | null;
   token_usage: number | null;
+  pending_tool?: {
+    id?: string;
+    name?: string;
+    args?: Record<string, unknown>;
+  } | null;
   created_at: string;
   steps: AgentStep[];
+};
+
+export type Note = {
+  id: string;
+  workspace_id: string;
+  user_id: string | null;
+  title: string;
+  body: string;
+  created_at: string;
 };
