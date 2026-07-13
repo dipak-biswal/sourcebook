@@ -356,17 +356,32 @@ def _run_tool_loop(
                         run_id=str(run.id),
                         message="Agent is repeating the same tool call — breaking loop",
                     )
-                    # Inject nudge — DO NOT append ai (would orphan tool_calls)
-                    messages.append(
-                        HumanMessage(
-                            content=(
-                                "[System] You are calling the same tool with the same "
-                                "arguments repeatedly. If you are stuck, try a different "
-                                "approach or conclude your answer without more tool calls."
-                            )
-                        )
+                    # Don't append ai (would orphan tool_calls), don't re-invoke LLM.
+                    # Just exit — repeated calls waste tokens.
+                    run.status = "completed"
+                    run.final_answer = _prefer_gen_ui_summary(
+                        messages, _content_str(ai.content) or "(no final answer)"
                     )
-                    continue
+                    run.token_usage = total_tokens_acc or None
+                    run.pending_tool = None
+                    _log_agent_usage(
+                        db,
+                        run,
+                        prompt_tokens=prompt_tokens_total,
+                        completion_tokens=completion_tokens_total,
+                        total_tokens=total_tokens_acc,
+                    )
+                    db.commit()
+                    db.refresh(run)
+                    _emit(
+                        on_event,
+                        "status",
+                        run_id=str(run.id),
+                        status=run.status,
+                        token_usage=run.token_usage,
+                        final_answer=run.final_answer,
+                    )
+                    return run
 
             messages.append(ai)
 
