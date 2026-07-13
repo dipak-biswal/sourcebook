@@ -20,6 +20,7 @@ import { isGenerativeUI } from "@/components/agents/generative-ui";
 import { AgentApprovalCard, AgentStatusBadge } from "@/components/agents/shared";
 import { prettyJson } from "@/components/agents/agent-utils";
 import { Badge } from "@/components/ui/badge";
+import { MarkdownContent } from "@/components/chat/MarkdownContent";
 import { cn } from "@/lib/utils";
 
 const TOGGLE_KEY = "sourcebook_agent_show_run_view";
@@ -822,9 +823,9 @@ export function AgentRunPanel({
                 <div className="text-[10px] font-bold uppercase tracking-wide text-mute">
                   Outputs · final answer
                 </div>
-                <p className="mt-1 whitespace-pre-wrap text-xs leading-relaxed text-body">
-                  {run.final_answer}
-                </p>
+                <div className="mt-1 text-xs leading-relaxed text-body">
+                  <MarkdownContent content={run.final_answer} />
+                </div>
               </div>
             </div>
           )}

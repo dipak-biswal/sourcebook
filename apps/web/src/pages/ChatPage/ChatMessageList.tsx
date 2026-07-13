@@ -5,6 +5,7 @@ import { extractGenerativeUIFromSteps } from "@/components/agents/generative-ui"
 import { CitationList } from "@/components/chat/CitationList";
 import { isDenialMessage, shouldShowSources } from "@/components/chat/citations";
 import { CopyButton } from "@/components/chat/CopyButton";
+import { MarkdownContent } from "@/components/chat/MarkdownContent";
 import { Alert } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { EmptyState } from "@/components/ui/empty-state";
@@ -97,9 +98,11 @@ function ChatMessageItem({
         <DenialBubble content={message.content} />
       ) : (
         <ChatBubble isUser={isUser}>
-          <div className="whitespace-pre-wrap">
-            {message.content}
-          </div>
+          {isUser ? (
+            <div className="whitespace-pre-wrap">{message.content}</div>
+          ) : (
+            <MarkdownContent content={message.content} />
+          )}
         </ChatBubble>
       )}
       {!isUser && message.content && !denial && (
@@ -132,7 +135,11 @@ function AgentMessageItem({
     >
       <ChatBubble isUser={isUser}>
         {!isUser && <AgentBubbleHeader pending={item.pending} />}
-        <div className="whitespace-pre-wrap">{item.content}</div>
+        {isUser ? (
+          <div className="whitespace-pre-wrap">{item.content}</div>
+        ) : (
+          <MarkdownContent content={item.content} />
+        )}
       </ChatBubble>
 
       {!isUser && item.content && !item.pending && (
