@@ -32,7 +32,10 @@ export function formatDateTime(iso: string): string {
   }
 }
 
+import { ApiError, parseApiErrorBody } from "@/lib/api-errors";
+
 export function formatError(err: unknown): string {
+  if (err instanceof ApiError) return err.message;
   if (err instanceof Error) {
     try {
       const parsed = JSON.parse(err.message) as { detail?: string };
@@ -42,5 +45,6 @@ export function formatError(err: unknown): string {
     }
     return err.message;
   }
+  if (typeof err === "string") return parseApiErrorBody(err, 500);
   return String(err);
 }

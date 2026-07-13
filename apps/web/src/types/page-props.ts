@@ -23,6 +23,8 @@ export type DocumentsPageViewProps = {
   onDelete: (id: string) => void;
   onIngest: (id: string) => void;
   onNavigateToChat: () => void;
+  onRetryError?: () => void;
+  onDismissError?: () => void;
   onLogout: () => void;
 };
 

@@ -25,6 +25,8 @@ export type SettingsPageContextValue = {
   onCancelRename: () => void;
   onSaveRename: (id: string) => Promise<void>;
   onDeleteWorkspace: (id: string) => Promise<void>;
+  onDismissError: () => void;
+  onRetryError: () => void;
   onLogout: () => void;
 };
 

@@ -212,6 +212,21 @@ export function ChatPageProvider({ children }: { children: ReactNode }) {
     onInputChange: setInput,
     onToggleSessions: () => setSessionsOpen(true),
     onCloseSessions: () => setSessionsOpen(false),
+    onDismissError: () => sessions.setError(null),
+    onRetryError: () => {
+      sessions.setError(null);
+      void queryClient.invalidateQueries({
+        queryKey: ["conversations", sessions.workspaceId],
+      });
+      void queryClient.invalidateQueries({
+        queryKey: ["agentRuns", sessions.workspaceId],
+      });
+      if (sessions.conversationId) {
+        void queryClient.invalidateQueries({
+          queryKey: ["messages", sessions.conversationId],
+        });
+      }
+    },
     onLogout: () => navigate("/login", { replace: true }),
   };
 

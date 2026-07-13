@@ -26,11 +26,20 @@ export function useWorkspaces() {
   });
 }
 
+const INGEST_POLL_STATUSES = new Set(["processing", "queued", "chunked"]);
+
+function documentsNeedPolling(docs: Document[] | undefined): boolean {
+  if (!docs?.length) return false;
+  return docs.some((d) => INGEST_POLL_STATUSES.has(d.status.toLowerCase()));
+}
+
 export function useDocuments(workspaceId: string | undefined) {
   return useQuery<Document[]>({
     queryKey: ["documents", workspaceId],
     queryFn: () => api.documents(workspaceId!),
     enabled: !!workspaceId,
+    refetchInterval: (query) =>
+      documentsNeedPolling(query.state.data) ? 3_000 : false,
   });
 }
 

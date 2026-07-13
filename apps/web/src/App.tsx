@@ -8,10 +8,19 @@ import { ErrorBoundary } from "@/components/ui/error-boundary";
 import { ConfirmProvider } from "@/components/ui/confirm-dialog";
 import { ProtectedRoute } from "@/components/layout/ProtectedRoute";
 import { PageLoadingFallback } from "@/components/layout/PageLoadingFallback";
+import { ApiError } from "@/api";
 import { lazyWithRetry } from "@/lib/lazyWithRetry";
 
 const queryClient = new QueryClient({
-  defaultOptions: { queries: { retry: 1, staleTime: 30_000 } },
+  defaultOptions: {
+    queries: {
+      staleTime: 30_000,
+      retry: (failureCount, error) => {
+        if (error instanceof ApiError && error.status === 401) return false;
+        return failureCount < 1;
+      },
+    },
+  },
 });
 
 const DashboardPage = lazyWithRetry(() =>

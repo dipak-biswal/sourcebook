@@ -1,5 +1,5 @@
 import { AppHeader } from "@/components/layout/AppHeader";
-import { Alert } from "@/components/ui/alert";
+import { ErrorAlert } from "@/components/ui/error-alert";
 import { User } from "lucide-react";
 import { SettingsPageProvider } from "./SettingsPageContext";
 import { useSettingsPage } from "./settings-page-context";
@@ -8,7 +8,7 @@ import { SettingsPasswordForm } from "./SettingsPasswordForm";
 import { SettingsWorkspaces } from "./SettingsWorkspaces";
 
 function SettingsPageInner() {
-  const { error, onLogout } = useSettingsPage();
+  const { error, onDismissError, onRetryError, onLogout } = useSettingsPage();
 
   return (
     <div className="app-shell">
@@ -24,9 +24,12 @@ function SettingsPageInner() {
           </div>
 
           {error && (
-            <Alert variant="danger" className="mb-4">
-              {error}
-            </Alert>
+            <ErrorAlert
+              message={error}
+              className="mb-4"
+              onDismiss={onDismissError}
+              onRetry={onRetryError}
+            />
           )}
 
           <div className="space-y-6">

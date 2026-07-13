@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { PanelLeft } from "lucide-react";
 import { AppHeader } from "@/components/layout/AppHeader";
-import { Alert } from "@/components/ui/alert";
+import { ErrorAlert } from "@/components/ui/error-alert";
 import { Button } from "@/components/ui/button";
 import { Sheet } from "@/components/ui/sheet";
 import { NotesPageProvider } from "./NotesPageContext";
@@ -10,7 +10,7 @@ import { NotesSidebar } from "./NotesSidebar";
 import { NoteEditor } from "./NoteEditor";
 
 function NotesPageInner() {
-  const { error, selected, onLogout } = useNotesPage();
+  const { error, selected, onDismissError, onRetryError, onLogout } = useNotesPage();
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
   return (
@@ -55,9 +55,12 @@ function NotesPageInner() {
           <div className="min-h-0 flex-1 px-4 py-5 sm:px-6 sm:py-6">
             <div className="mx-auto max-w-2xl">
               {error && (
-                <Alert variant="danger" className="mb-4">
-                  {error}
-                </Alert>
+                <ErrorAlert
+                  message={error}
+                  className="mb-4"
+                  onDismiss={onDismissError}
+                  onRetry={onRetryError}
+                />
               )}
               <NoteEditor key={selected?.id} />
             </div>

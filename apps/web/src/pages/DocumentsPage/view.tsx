@@ -2,7 +2,7 @@ import { AppHeader } from "@/components/layout/AppHeader";
 import { DocumentsSidebar } from "@/components/layout/DocumentsSidebar";
 import { DocumentsOnboarding } from "@/components/documents/DocumentsOnboarding";
 import { OnboardingChecklist } from "@/components/onboarding/OnboardingChecklist";
-import { Alert } from "@/components/ui/alert";
+import { ErrorAlert } from "@/components/ui/error-alert";
 
 import type { DocumentsPageViewProps } from "@/types/page-props";
 
@@ -21,6 +21,8 @@ export function DocumentsPageView({
   onDelete,
   onIngest,
   onNavigateToChat,
+  onRetryError,
+  onDismissError,
   onLogout,
 }: DocumentsPageViewProps) {
   const libraryProps = {
@@ -58,7 +60,11 @@ export function DocumentsPageView({
           <DocumentsOnboarding compact />
           {error && (
             <div className="px-4 pt-3">
-              <Alert variant="danger">{error}</Alert>
+              <ErrorAlert
+                message={error}
+                onRetry={onRetryError}
+                onDismiss={onDismissError}
+              />
             </div>
           )}
           <DocumentsSidebar {...libraryProps} compact />
@@ -78,9 +84,12 @@ export function DocumentsPageView({
           )}
           {error && (
             <div className="px-8 pt-6">
-              <Alert variant="danger" className="max-w-md text-left">
-                {error}
-              </Alert>
+              <ErrorAlert
+                message={error}
+                onRetry={onRetryError}
+                onDismiss={onDismissError}
+                className="max-w-md text-left"
+              />
             </div>
           )}
           <DocumentsOnboarding onNavigateToChat={onNavigateToChat} />

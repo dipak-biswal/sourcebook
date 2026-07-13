@@ -1,10 +1,11 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { api, type ChatMessage } from "@/api";
 import { useToast } from "@/components/ui/toast";
 import { confirmAction } from "@/lib/confirm";
 import { formatError } from "@/lib/utils";
 import { useAgentRuns, useConversations, useMessages, useWorkspaces } from "@/hooks/queries";
+import { readLastWorkspaceId, writeLastWorkspaceId } from "@/lib/last-workspace";
 
 function sortMessages(raw: ChatMessage[]): ChatMessage[] {
   if (!raw.length) return [];
@@ -29,7 +30,17 @@ export function useChatSessions() {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
 
   const { data: workspaces = [], isLoading: loadingWs } = useWorkspaces();
-  const workspaceId = overrideWorkspaceId ?? workspaces[0]?.id ?? "";
+  const workspaceId = useMemo(() => {
+    if (
+      overrideWorkspaceId &&
+      workspaces.some((w) => w.id === overrideWorkspaceId)
+    ) {
+      return overrideWorkspaceId;
+    }
+    const saved = readLastWorkspaceId();
+    if (saved && workspaces.some((w) => w.id === saved)) return saved;
+    return workspaces[0]?.id ?? "";
+  }, [overrideWorkspaceId, workspaces]);
   const { data: conversations = [], isLoading: loadingSessions } = useConversations(workspaceId);
   const conversationId = overrideConversationId ?? conversations[0]?.id ?? "";
   const {
@@ -60,6 +71,7 @@ export function useChatSessions() {
 
   const setWorkspaceId = useCallback((id: string) => {
     setOverrideWorkspaceId(id || null);
+    if (id) writeLastWorkspaceId(id);
     setOverrideConversationId(null);
     setMessages([]);
   }, []);

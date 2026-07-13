@@ -1,4 +1,22 @@
+import {
+  ApiError,
+  parseApiErrorBody,
+  shouldRedirectToLogin,
+} from "@/lib/api-errors";
+
 const API_URL = import.meta.env.VITE_API_URL ?? "http://127.0.0.1:8000";
+
+export { ApiError } from "@/lib/api-errors";
+
+function failHttpResponse(status: number, text: string): never {
+  if (status === 401) {
+    setToken(null);
+    if (shouldRedirectToLogin()) {
+      window.location.replace("/login");
+    }
+  }
+  throw new ApiError(parseApiErrorBody(text, status), status);
+}
 
 export function getToken(): string | null {
   return localStorage.getItem("sourcebook_token");
@@ -44,7 +62,7 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
 
   if (!res.ok) {
     const text = await res.text();
-    throw new Error(text || res.statusText);
+    failHttpResponse(res.status, text || res.statusText);
   }
 
   if (res.status === 204) return undefined as T;
@@ -122,7 +140,7 @@ async function consumeSSE(url: string, body: Record<string, unknown>, onEvent: (
     });
     if (!res.ok) {
       const text = await res.text();
-      throw new Error(text || res.statusText);
+      failHttpResponse(res.status, text || res.statusText);
     }
     if (!res.body) throw new Error("No response body for stream");
 

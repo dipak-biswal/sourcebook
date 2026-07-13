@@ -75,5 +75,7 @@ export type ChatPageContextValue = {
   onSetMode: (mode: ChatMode) => void;
   onApproveAgent: (asstId: string, runId: string, approve: boolean) => void;
   onSaveLearningNote: (title: string, body: string) => void;
+  onDismissError: () => void;
+  onRetryError: () => void;
   onLogout: () => void;
 };

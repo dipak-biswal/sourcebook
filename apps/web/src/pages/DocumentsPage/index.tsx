@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useQueryClient } from "@tanstack/react-query";
 import {
@@ -9,6 +9,7 @@ import { useDocumentTitle } from "@/hooks/useDocumentTitle";
 import { confirmAction } from "@/lib/confirm";
 import { formatError } from "@/lib/utils";
 import { useDocuments, useWorkspaces } from "@/hooks/queries";
+import { useLastWorkspace } from "@/hooks/useLastWorkspace";
 import { DocumentsPageView } from "./view";
 
 const INGEST_STEPS = [
@@ -27,19 +28,14 @@ export function DocumentsPage() {
   const { success, error: toastError } = useToast();
   const queryClient = useQueryClient();
   useDocumentTitle("Documents");
-  const [workspaceId, setWorkspaceId] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
   const [ingestingId, setIngestingId] = useState<string | null>(null);
   const [ingestProgress, setIngestProgress] = useState<string | null>(null);
 
   const { data: workspaces = [], isLoading: loading } = useWorkspaces();
-  const { data: docs = [] } = useDocuments(workspaceId);
-
-  useEffect(() => {
-    if (!workspaces.length || workspaceId) return;
-    setWorkspaceId(workspaces[0].id);
-  }, [workspaces, workspaceId]);
+  const { workspaceId, setWorkspaceId } = useLastWorkspace(workspaces);
+  const { data: docs = [], refetch: refetchDocs } = useDocuments(workspaceId);
 
   async function onUpload(file: File) {
     if (!workspaceId) return;
@@ -144,6 +140,11 @@ export function DocumentsPage() {
       onRefreshWorkspaces={() => {
         void queryClient.invalidateQueries({ queryKey: ["workspaces"] });
       }}
+      onRetryError={() => {
+        setError(null);
+        void refetchDocs();
+      }}
+      onDismissError={() => setError(null)}
       onUpload={onUpload}
       onDelete={onDelete}
       onIngest={onIngest}

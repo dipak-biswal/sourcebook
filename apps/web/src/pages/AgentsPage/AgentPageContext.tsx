@@ -14,6 +14,7 @@ import {
   makeLlmEndPatch,
 } from "@/hooks/useAgentStream";
 import { useAgentRuns, useNotes, useWorkspaces } from "@/hooks/queries";
+import { useLastWorkspace } from "@/hooks/useLastWorkspace";
 import type { AgentPageContextValue } from "@/types/agents";
 import { AgentPageContext } from "./agent-page-context";
 import { AGENT_EXAMPLE_GOALS } from "@/components/agents/agent-utils";
@@ -25,7 +26,6 @@ export function AgentPageProvider({ children }: { children: ReactNode }) {
   const queryClient = useQueryClient();
   useDocumentTitle("Agents");
 
-  const [workspaceId, setWorkspaceId] = useState("");
   const [selectedId, setSelectedId] = useState("");
   const [goal, setGoal] = useState(AGENT_EXAMPLE_GOALS[0]);
   const [error, setError] = useState<string | null>(null);
@@ -43,13 +43,14 @@ export function AgentPageProvider({ children }: { children: ReactNode }) {
   const [loopWarning, setLoopWarning] = useState<string | null>(null);
 
   const { data: workspaces = [], isLoading: loading } = useWorkspaces();
-  const effectiveWorkspaceId = workspaceId || workspaces[0]?.id || "";
+  const { workspaceId: effectiveWorkspaceId, setWorkspaceId: persistWorkspace } =
+    useLastWorkspace(workspaces);
   const { data: runs = [] } = useAgentRuns(effectiveWorkspaceId);
   const { data: notes = [] } = useNotes(effectiveWorkspaceId);
   const effectiveSelectedId = selectedId;
 
   const onChangeWorkspace = useCallback((id: string) => {
-    setWorkspaceId(id);
+    persistWorkspace(id);
     setSelectedId("");
     setSelected(null);
     setError(null);
@@ -60,7 +61,7 @@ export function AgentPageProvider({ children }: { children: ReactNode }) {
     setLiveGoal(null);
     setActiveToolCalls([]);
     setLoopWarning(null);
-  }, []);
+  }, [persistWorkspace]);
 
   const onSelect = useCallback(async (id: string) => {
     setSelectedId(id);
@@ -86,14 +87,14 @@ export function AgentPageProvider({ children }: { children: ReactNode }) {
       try {
         const run = await api.agentRun(runId);
         if (run.workspace_id && run.workspace_id !== effectiveWorkspaceId) {
-          setWorkspaceId(run.workspace_id);
+          persistWorkspace(run.workspace_id);
         }
         await onSelect(runId);
       } catch (err) {
         setError(formatError(err));
       }
     })();
-  }, [searchParams, selectedId, onSelect, setSearchParams, effectiveWorkspaceId]);
+  }, [searchParams, selectedId, onSelect, setSearchParams, effectiveWorkspaceId, persistWorkspace]);
 
   function resetLiveTrace(goalText: string) {
     setLiveGoal(goalText);
@@ -379,6 +380,13 @@ export function AgentPageProvider({ children }: { children: ReactNode }) {
       void queryClient.invalidateQueries({ queryKey: ["workspaces"] });
       void queryClient.invalidateQueries({ queryKey: ["agentRuns", effectiveWorkspaceId] });
       void queryClient.invalidateQueries({ queryKey: ["notes", effectiveWorkspaceId] });
+    },
+    onDismissError: () => setError(null),
+    onRetryError: () => {
+      setError(null);
+      void queryClient.invalidateQueries({ queryKey: ["agentRuns", effectiveWorkspaceId] });
+      void queryClient.invalidateQueries({ queryKey: ["notes", effectiveWorkspaceId] });
+      if (selectedId) void onSelect(selectedId);
     },
     onToggleSidebar: () => setSidebarOpen(true),
     onSidebarClose: () => setSidebarOpen(false),

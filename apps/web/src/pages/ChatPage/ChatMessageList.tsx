@@ -8,7 +8,7 @@ import { CitationList } from "@/components/chat/CitationList";
 import { isDenialMessage, shouldShowSources } from "@/components/chat/citations";
 import { CopyButton } from "@/components/chat/CopyButton";
 import { MarkdownContent } from "@/components/chat/MarkdownContent";
-import { Alert } from "@/components/ui/alert";
+import { ErrorAlert } from "@/components/ui/error-alert";
 import { Badge } from "@/components/ui/badge";
 import { EmptyState } from "@/components/ui/empty-state";
 import { MessageListSkeleton } from "@/components/ui/skeleton";
@@ -276,6 +276,8 @@ export function ChatMessageList() {
     bottomRef,
     loadingMessageHistory,
     onSendMessage,
+    onDismissError,
+    onRetryError,
   } = useChatPage();
 
   const streamingMessageId =
@@ -291,7 +293,11 @@ export function ChatMessageList() {
     <>
       {error && (
         <div className="px-4 pt-3 sm:px-6">
-          <Alert variant="danger">{error}</Alert>
+          <ErrorAlert
+            message={error}
+            onDismiss={onDismissError}
+            onRetry={onRetryError}
+          />
         </div>
       )}
 

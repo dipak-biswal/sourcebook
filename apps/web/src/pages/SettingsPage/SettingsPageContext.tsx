@@ -152,6 +152,12 @@ export function SettingsPageProvider({ children }: { children: ReactNode }) {
     onCancelRename: () => setRenamingId(null),
     onSaveRename,
     onDeleteWorkspace,
+    onDismissError: () => setError(null),
+    onRetryError: () => {
+      setError(null);
+      void queryClient.invalidateQueries({ queryKey: ["me"] });
+      void queryClient.invalidateQueries({ queryKey: ["workspaces"] });
+    },
     onLogout: () => navigate("/login", { replace: true }),
   };
 

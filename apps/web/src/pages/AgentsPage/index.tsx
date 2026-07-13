@@ -1,7 +1,7 @@
 import { AppHeader } from "@/components/layout/AppHeader";
 import { Button } from "@/components/ui/button";
 import { PanelLeft } from "lucide-react";
-import { Alert } from "@/components/ui/alert";
+import { ErrorAlert } from "@/components/ui/error-alert";
 import { Sheet } from "@/components/ui/sheet";
 import { AgentPageProvider } from "./AgentPageContext";
 import { useAgentPage } from "./agent-page-context";
@@ -16,6 +16,8 @@ function AgentsPageInner() {
     sidebarOpen,
     onToggleSidebar,
     onSidebarClose,
+    onDismissError,
+    onRetryError,
     onLogout,
   } = useAgentPage();
 
@@ -53,9 +55,12 @@ function AgentsPageInner() {
             </div>
 
             {error && (
-              <Alert variant="danger" className="mb-4">
-                {error}
-              </Alert>
+              <ErrorAlert
+                message={error}
+                className="mb-4"
+                onDismiss={onDismissError}
+                onRetry={onRetryError}
+              />
             )}
 
             <AgentRunForm />

@@ -9,6 +9,8 @@ export type NotesPageContextValue = {
   saving: boolean;
   onChangeWorkspace: (id: string) => void;
   onRefreshWorkspaces: () => void;
+  onDismissError: () => void;
+  onRetryError: () => void;
   onSelect: (note: Note) => void;
   onSave: (title: string, body: string) => void;
   onDelete: (id: string) => void;

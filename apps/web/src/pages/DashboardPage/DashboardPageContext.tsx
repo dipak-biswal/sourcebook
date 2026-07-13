@@ -1,7 +1,8 @@
-import { useEffect, useState, type ReactNode } from "react";
+import { type ReactNode } from "react";
 import { useNavigate } from "react-router-dom";
 import { useQueryClient } from "@tanstack/react-query";
 import { useDocuments, useConversations, useAgentRuns, useNotes, useWorkspaces, useMe } from "@/hooks/queries";
+import { useLastWorkspace } from "@/hooks/useLastWorkspace";
 import type { DashboardPageContextValue } from "@/types/dashboard";
 import { DashboardPageContext } from "./dashboard-page-context";
 
@@ -17,14 +18,9 @@ type RecentItem = {
 export function DashboardPageProvider({ children }: { children: ReactNode }) {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
-  const [workspaceId, setWorkspaceId] = useState("");
   const { data: workspaces = [] } = useWorkspaces();
-  const effectiveWorkspaceId = workspaceId || workspaces[0]?.id || "";
-
-  useEffect(() => {
-    if (!workspaces.length || workspaceId) return;
-    setWorkspaceId(workspaces[0].id);
-  }, [workspaces, workspaceId]);
+  const { workspaceId: effectiveWorkspaceId, setWorkspaceId } =
+    useLastWorkspace(workspaces);
   const { data: user } = useMe();
   const { data: documents = [], isLoading: docsLoading } = useDocuments(effectiveWorkspaceId);
   const { data: conversations = [], isLoading: convsLoading } = useConversations(effectiveWorkspaceId);

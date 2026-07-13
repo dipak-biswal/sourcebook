@@ -13,7 +13,7 @@ import {
 import { useMemo, useState } from "react";
 import { api } from "@/api";
 import { AppHeader } from "@/components/layout/AppHeader";
-import { Alert } from "@/components/ui/alert";
+import { ErrorAlert } from "@/components/ui/error-alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Sheet } from "@/components/ui/sheet";
@@ -151,9 +151,11 @@ export function UsagePageView({
       </div>
 
       {error && (
-        <Alert variant="danger" className="mb-4">
-          {error}
-        </Alert>
+        <ErrorAlert
+          message={error}
+          className="mb-4"
+          onRetry={onRefresh}
+        />
       )}
 
       {loading && !data ? (
