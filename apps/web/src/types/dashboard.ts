@@ -9,6 +9,8 @@ export type DashboardPageContextValue = {
   loading: boolean;
   userEmail: string;
   recent: RecentItem[];
+  onChangeWorkspace: (id: string) => void;
+  onRefreshWorkspaces: () => void;
   onLogout: () => void;
 };
 

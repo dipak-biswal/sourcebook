@@ -12,12 +12,14 @@ import {
 import type { Document, Workspace } from "@/api";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { WorkspaceSelect } from "@/components/workspace/WorkspaceSelect";
 import { cn } from "@/lib/utils";
 
 type DocumentsSidebarProps = {
   workspaces: Workspace[];
   workspaceId: string;
   onWorkspaceChange: (id: string) => void;
+  onRefreshWorkspaces: () => void;
   documents: Document[];
   loading?: boolean;
   uploading?: boolean;
@@ -86,6 +88,7 @@ export function DocumentsSidebar({
   workspaces,
   workspaceId,
   onWorkspaceChange,
+  onRefreshWorkspaces,
   documents,
   loading,
   uploading,
@@ -124,20 +127,14 @@ export function DocumentsSidebar({
         )}
 
         {workspaces.length > 0 && (
-          <label className={cn("block", !compact && "mt-3")}>
-            <span className="mb-1 block text-xs text-mute">Workspace</span>
-            <select
-              value={workspaceId}
-              onChange={(e) => onWorkspaceChange(e.target.value)}
-              className="h-9 w-full rounded-[6px] border border-hairline bg-canvas px-2 text-sm text-ink"
-            >
-              {workspaces.map((w) => (
-                <option key={w.id} value={w.id}>
-                  {w.name}
-                </option>
-              ))}
-            </select>
-          </label>
+          <div className={cn(!compact && "mt-3")}>
+            <WorkspaceSelect
+              workspaces={workspaces}
+              workspaceId={workspaceId}
+              onChange={onWorkspaceChange}
+              onRefresh={onRefreshWorkspaces}
+            />
+          </div>
         )}
 
         <input

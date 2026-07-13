@@ -18,6 +18,7 @@ export type DocumentsPageViewProps = {
   ingestProgress: string | null;
   loading: boolean;
   onChangeWorkspace: (id: string) => void;
+  onRefreshWorkspaces: () => void;
   onUpload: (file: File) => void;
   onDelete: (id: string) => void;
   onIngest: (id: string) => void;

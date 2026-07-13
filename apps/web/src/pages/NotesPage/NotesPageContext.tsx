@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from "react";
+import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { useQueryClient } from "@tanstack/react-query";
 import { api, type Note } from "@/api";
@@ -23,8 +23,25 @@ export function NotesPageProvider({ children }: { children: ReactNode }) {
 
   const { data: workspaces = [] } = useWorkspaces();
   const effectiveWorkspaceId = workspaceId || workspaces[0]?.id || "";
+
+  useEffect(() => {
+    if (!workspaces.length || workspaceId) return;
+    setWorkspaceId(workspaces[0].id);
+  }, [workspaces, workspaceId]);
+
   const { data: notes = [] } = useNotes(effectiveWorkspaceId);
   const { data: selected } = useNote(noteId);
+
+  const onChangeWorkspace = useCallback(
+    (id: string) => {
+      setWorkspaceId(id);
+      setError(null);
+      if (selected && selected.workspace_id !== id) {
+        navigate("/notes", { replace: true });
+      }
+    },
+    [selected, navigate],
+  );
 
   async function onSave(title: string, body: string) {
     if (!selected || saving) return;
@@ -71,7 +88,10 @@ export function NotesPageProvider({ children }: { children: ReactNode }) {
     selected: selected ?? null,
     error,
     saving,
-    onChangeWorkspace: setWorkspaceId,
+    onChangeWorkspace,
+    onRefreshWorkspaces: () => {
+      void queryClient.invalidateQueries({ queryKey: ["workspaces"] });
+    },
     onSelect,
     onSave,
     onDelete,

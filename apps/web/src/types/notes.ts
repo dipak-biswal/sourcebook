@@ -8,10 +8,11 @@ export type NotesPageContextValue = {
   error: string | null;
   saving: boolean;
   onChangeWorkspace: (id: string) => void;
+  onRefreshWorkspaces: () => void;
   onSelect: (note: Note) => void;
   onSave: (title: string, body: string) => void;
   onDelete: (id: string) => void;
   onLogout: () => void;
 };
 
-type Workspace = { id: string; name: string };
+type Workspace = { id: string; name: string; role: string };

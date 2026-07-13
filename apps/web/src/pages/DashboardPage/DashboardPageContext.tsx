@@ -1,5 +1,6 @@
-import { type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { useNavigate } from "react-router-dom";
+import { useQueryClient } from "@tanstack/react-query";
 import { useDocuments, useConversations, useAgentRuns, useNotes, useWorkspaces, useMe } from "@/hooks/queries";
 import type { DashboardPageContextValue } from "@/types/dashboard";
 import { DashboardPageContext } from "./dashboard-page-context";
@@ -15,13 +16,20 @@ type RecentItem = {
 
 export function DashboardPageProvider({ children }: { children: ReactNode }) {
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
+  const [workspaceId, setWorkspaceId] = useState("");
   const { data: workspaces = [] } = useWorkspaces();
-  const workspaceId = workspaces[0]?.id || "";
+  const effectiveWorkspaceId = workspaceId || workspaces[0]?.id || "";
+
+  useEffect(() => {
+    if (!workspaces.length || workspaceId) return;
+    setWorkspaceId(workspaces[0].id);
+  }, [workspaces, workspaceId]);
   const { data: user } = useMe();
-  const { data: documents = [], isLoading: docsLoading } = useDocuments(workspaceId);
-  const { data: conversations = [], isLoading: convsLoading } = useConversations(workspaceId);
-  const { data: agentRuns = [], isLoading: runsLoading } = useAgentRuns(workspaceId);
-  const { data: notes = [], isLoading: notesLoading } = useNotes(workspaceId);
+  const { data: documents = [], isLoading: docsLoading } = useDocuments(effectiveWorkspaceId);
+  const { data: conversations = [], isLoading: convsLoading } = useConversations(effectiveWorkspaceId);
+  const { data: agentRuns = [], isLoading: runsLoading } = useAgentRuns(effectiveWorkspaceId);
+  const { data: notes = [], isLoading: notesLoading } = useNotes(effectiveWorkspaceId);
 
   const loading = docsLoading || convsLoading || runsLoading || notesLoading;
 
@@ -62,7 +70,7 @@ export function DashboardPageProvider({ children }: { children: ReactNode }) {
 
   const value: DashboardPageContextValue = {
     workspaces,
-    workspaceId,
+    workspaceId: effectiveWorkspaceId,
     documentsCount: documents.length,
     readyDocumentsCount: documents.filter((d) => d.status === "ready").length,
     conversationsCount: conversations.length,
@@ -71,6 +79,10 @@ export function DashboardPageProvider({ children }: { children: ReactNode }) {
     loading,
     userEmail: user?.email || "",
     recent,
+    onChangeWorkspace: setWorkspaceId,
+    onRefreshWorkspaces: () => {
+      void queryClient.invalidateQueries({ queryKey: ["workspaces"] });
+    },
     onLogout: () => navigate("/login", { replace: true }),
   };
 

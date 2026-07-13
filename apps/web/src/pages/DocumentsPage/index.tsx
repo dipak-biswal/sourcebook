@@ -137,7 +137,13 @@ export function DocumentsPage() {
       ingestingId={ingestingId}
       ingestProgress={ingestProgress}
       loading={loading}
-      onChangeWorkspace={setWorkspaceId}
+      onChangeWorkspace={(id) => {
+        setWorkspaceId(id);
+        setError(null);
+      }}
+      onRefreshWorkspaces={() => {
+        void queryClient.invalidateQueries({ queryKey: ["workspaces"] });
+      }}
       onUpload={onUpload}
       onDelete={onDelete}
       onIngest={onIngest}

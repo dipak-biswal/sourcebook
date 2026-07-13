@@ -1,4 +1,5 @@
 import { StickyNote } from "lucide-react";
+import { WorkspaceSelect } from "@/components/workspace/WorkspaceSelect";
 import { formatDate } from "@/lib/utils";
 import { useNotesPage } from "./notes-page-context";
 
@@ -13,6 +14,7 @@ export function NotesSidebar({
     notes,
     selected,
     onChangeWorkspace,
+    onRefreshWorkspaces,
     onSelect,
   } = useNotesPage();
 
@@ -25,18 +27,14 @@ export function NotesSidebar({
         </div>
 
         {workspaces.length > 0 && (
-          <label className="mt-3 block">
-            <span className="mb-1 block text-xs text-mute">Workspace</span>
-            <select
-              value={workspaceId}
-              onChange={(e) => onChangeWorkspace(e.target.value)}
-              className="h-9 w-full rounded-[6px] border border-hairline bg-canvas px-2 text-sm text-ink"
-            >
-              {workspaces.map((w) => (
-                <option key={w.id} value={w.id}>{w.name}</option>
-              ))}
-            </select>
-          </label>
+          <div className="mt-3">
+            <WorkspaceSelect
+              workspaces={workspaces}
+              workspaceId={workspaceId}
+              onChange={onChangeWorkspace}
+              onRefresh={onRefreshWorkspaces}
+            />
+          </div>
         )}
       </div>
 

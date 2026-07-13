@@ -1,5 +1,6 @@
 import { AppHeader } from "@/components/layout/AppHeader";
 import { OnboardingChecklist } from "@/components/onboarding/OnboardingChecklist";
+import { WorkspaceSelect } from "@/components/workspace/WorkspaceSelect";
 import { DashboardPageProvider } from "./DashboardPageContext";
 import { useDashboardPage } from "./dashboard-page-context";
 import { DashboardStats } from "./DashboardStats";
@@ -7,7 +8,14 @@ import { DashboardQuickActions } from "./DashboardQuickActions";
 import { DashboardRecentActivity } from "./DashboardRecentActivity";
 
 function DashboardPageInner() {
-  const { userEmail, workspaceId, onLogout } = useDashboardPage();
+  const {
+    userEmail,
+    workspaces,
+    workspaceId,
+    onChangeWorkspace,
+    onRefreshWorkspaces,
+    onLogout,
+  } = useDashboardPage();
 
   return (
     <div className="app-shell">
@@ -21,6 +29,17 @@ function DashboardPageInner() {
           <p className="mt-1.5 text-body-sm text-body">
             Overview of your workspace activity.
           </p>
+
+          {workspaces.length > 0 && (
+            <div className="mt-5 max-w-sm">
+              <WorkspaceSelect
+                workspaces={workspaces}
+                workspaceId={workspaceId}
+                onChange={onChangeWorkspace}
+                onRefresh={onRefreshWorkspaces}
+              />
+            </div>
+          )}
 
           <div className="mt-8 space-y-8">
             {workspaceId && <OnboardingChecklist workspaceId={workspaceId} />}
