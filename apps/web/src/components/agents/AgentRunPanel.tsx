@@ -306,6 +306,144 @@ function LlmLiveNode({
   );
 }
 
+function StepRow({ step }: { step: AgentStep }) {
+  const [open, setOpen] = useState(false);
+  const gen = isGenerativeUI(step.output);
+
+  return (
+    <div className="border-b border-hairline/60 last:border-b-0">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        className="flex w-full items-center gap-2 px-3 py-2 text-left hover:bg-canvas-soft-2"
+      >
+        <span className="shrink-0 text-mute">
+          {open ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
+        </span>
+        <span className="font-mono text-[10px] tabular-nums text-mute">
+          #{step.step_index}
+        </span>
+        <span className="text-xs font-medium text-ink">
+          {step.tool_name || stepKindLabel(step)}
+        </span>
+        <Badge variant="outline" className="text-[10px]">
+          {step.type === "tool_call"
+            ? "tool"
+            : step.type === "tool_result"
+              ? "result"
+              : step.type === "thought"
+                ? "think"
+                : step.type === "final"
+                  ? "final"
+                  : step.type}
+        </Badge>
+        {formatMs(step.duration_ms) && (
+          <span className="ml-auto inline-flex items-center gap-0.5 font-mono text-[10px] text-mute">
+            <Timer className="h-2.5 w-2.5" />
+            {formatMs(step.duration_ms)}
+          </span>
+        )}
+        {gen && (
+          <Badge variant="success" className="gap-0.5 text-[10px]">
+            <Sparkles className="h-2.5 w-2.5" />
+            gen UI
+          </Badge>
+        )}
+      </button>
+
+      {open && (
+        <div className="space-y-2 px-3 pb-2.5">
+          {step.input != null && step.type !== "final" && (
+            <div>
+              <div className="mb-1 text-[10px] font-bold uppercase tracking-wide text-mute">
+                Inputs
+              </div>
+              <pre className="max-h-44 overflow-auto rounded-[6px] border border-hairline bg-canvas p-2 font-mono text-[11px] leading-relaxed text-body">
+                {prettyJson(step.input)}
+              </pre>
+            </div>
+          )}
+          {step.output != null && (
+            <div>
+              <div className="mb-1 text-[10px] font-bold uppercase tracking-wide text-mute">
+                Outputs
+              </div>
+              <pre className="max-h-56 overflow-auto rounded-[6px] border border-hairline bg-canvas p-2 font-mono text-[11px] leading-relaxed text-body">
+                {prettyJson(step.output)}
+              </pre>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function StepGroup({ steps, isLast }: { steps: AgentStep[]; isLast?: boolean }) {
+  const [open, setOpen] = useState(true);
+  const firstTool = steps.find((s) => s.type === "tool_call");
+  const toolName = firstTool?.tool_name || stepKindLabel(steps[0]);
+  const totalDuration = steps.reduce((acc, s) => acc + (s.duration_ms ?? 0), 0) || null;
+  const hasTool = steps.some((s) => s.type === "tool_call" || s.type === "tool_result");
+
+  return (
+    <div className="relative mb-1.5 pl-7">
+      {!isLast && (
+        <div className="absolute bottom-0 left-[11px] top-5 w-px bg-hairline" />
+      )}
+      <div
+        className={cn(
+          "absolute left-0 top-2.5 flex h-[22px] w-[22px] items-center justify-center rounded-full border-2 bg-canvas",
+          hasTool ? "border-ink" : "border-mute",
+        )}
+      >
+        {hasTool ? (
+          <Wrench className="h-2.5 w-2.5 text-ink" strokeWidth={2} />
+        ) : (
+          <Brain className="h-2.5 w-2.5 text-mute" strokeWidth={2} />
+        )}
+      </div>
+
+      <div className="overflow-hidden rounded-[8px] border border-hairline bg-canvas transition-shadow hover:shadow-[var(--elevation-1)]">
+        <button
+          type="button"
+          onClick={() => setOpen((v) => !v)}
+          className="flex w-full items-start gap-2 px-3 py-2.5 text-left hover:bg-canvas-soft"
+        >
+          <span className="mt-0.5 shrink-0 text-mute">
+            {open ? (
+              <ChevronDown className="h-3.5 w-3.5" />
+            ) : (
+              <ChevronRight className="h-3.5 w-3.5" />
+            )}
+          </span>
+          <div className="min-w-0 flex-1">
+            <div className="flex flex-wrap items-center gap-1.5">
+              <span className="text-xs font-semibold text-ink">{toolName}</span>
+              <Badge variant="secondary" className="text-[10px]">
+                {steps.length} {steps.length === 1 ? "step" : "steps"}
+              </Badge>
+              {formatMs(totalDuration) && (
+                <span className="inline-flex items-center gap-0.5 font-mono text-[10px] text-mute">
+                  <Timer className="h-2.5 w-2.5" />
+                  {formatMs(totalDuration)}
+                </span>
+              )}
+            </div>
+            {!open && (
+              <p className="mt-0.5 line-clamp-1 font-mono text-[10px] text-mute">
+                {steps.map((s) => stepKindLabel(s)).join(" → ")}
+              </p>
+            )}
+          </div>
+        </button>
+
+        {open && <div className="border-t border-hairline bg-canvas-soft">{steps.map((s) => <StepRow key={s.id} step={s} />)}</div>}
+      </div>
+    </div>
+  );
+}
+
 export function AgentRunPanel({
   run,
   pending,
@@ -409,6 +547,34 @@ export function AgentRunPanel({
       llmCount,
     };
   }, [mergedSteps, liveTrace, liveLlmEvents, tree.length]);
+
+  /** Group consecutive tool steps into collapsible groups for scannability */
+  type GroupedItem =
+    | { kind: "llm"; event: LlmTraceEvent }
+    | { kind: "steps"; steps: AgentStep[] };
+
+  const grouped = useMemo(() => {
+    const items: GroupedItem[] = [];
+    let buf: AgentStep[] = [];
+    const BREAK = new Set(["final", "approval"]);
+
+    function flush() {
+      if (buf.length) items.push({ kind: "steps", steps: buf });
+      buf = [];
+    }
+
+    for (const node of tree) {
+      if (node.kind === "llm") {
+        flush();
+        items.push({ kind: "llm", event: node.event });
+      } else {
+        if (BREAK.has(node.step.type) && buf.length) flush();
+        buf.push(node.step);
+      }
+    }
+    flush();
+    return items;
+  }, [tree]);
 
   const displayGoal = goal || run?.goal || null;
   const tokens = liveTokenUsage ?? run?.token_usage ?? null;
@@ -623,26 +789,28 @@ export function AgentRunPanel({
             </div>
           )}
 
-          {tree.map((node, idx) => {
-            const isLast = idx === tree.length - 1 && !run?.final_answer;
-            if (node.kind === "llm") {
+          {grouped.map((item, idx) => {
+            const isLast = idx === grouped.length - 1 && !run?.final_answer;
+            if (item.kind === "llm") {
+              return <LlmLiveNode key={item.event.id} event={item.event} isLast={isLast} />;
+            }
+            if (item.steps.length <= 1) {
+              const step = item.steps[0];
               return (
-                <LlmLiveNode key={node.event.id} event={node.event} isLast={isLast} />
+                <TraceNode
+                  key={step.id}
+                  step={step}
+                  isLast={isLast}
+                  defaultOpen={
+                    idx === grouped.length - 1 ||
+                    step.type === "approval" ||
+                    step.type === "final" ||
+                    isGenerativeUI(step.output)
+                  }
+                />
               );
             }
-            return (
-              <TraceNode
-                key={node.step.id}
-                step={node.step}
-                isLast={isLast}
-                defaultOpen={
-                  idx === tree.length - 1 ||
-                  node.step.type === "approval" ||
-                  node.step.type === "final" ||
-                  isGenerativeUI(node.step.output)
-                }
-              />
-            );
+            return <StepGroup key={item.steps[0].id + "-group"} steps={item.steps} isLast={isLast} />;
           })}
 
           {run?.final_answer && !isLive && (
