@@ -1,9 +1,8 @@
 import { Link } from "react-router-dom";
-import { Bot, MessageCircle, Plus, Trash2 } from "lucide-react";
-import type { AgentRun, Conversation, Workspace } from "@/api";
+import { Bot, MessageCircle, Trash2 } from "lucide-react";
+import type { AgentRun, Conversation } from "@/api";
 import { AgentStatusBadge } from "@/components/agents/shared";
 import { ListSkeleton } from "@/components/ui/skeleton";
-import { Button } from "@/components/ui/button";
 import { cn, formatDate } from "@/lib/utils";
 
 function truncateGoal(goal: string, max = 56): string {
@@ -14,9 +13,6 @@ function truncateGoal(goal: string, max = 56): string {
 
 export type ChatSessionsPanelProps = {
   mode: "chat" | "agent";
-  workspaces: Workspace[];
-  workspaceId: string;
-  onWorkspaceChange: (id: string) => void;
   /** Chat mode */
   conversations: Conversation[];
   conversationId: string;
@@ -24,30 +20,23 @@ export type ChatSessionsPanelProps = {
   agentRuns?: AgentRun[];
   agentRunId?: string;
   loading: boolean;
-  onNewChat: () => void;
   onSelectSession: (id: string) => void;
   onDeleteSession?: (id: string) => void;
   onSelectAgentRun?: (id: string) => void;
-  onNewAgent?: () => void;
   /** Close mobile sheet after navigation */
   onAfterNavigate?: () => void;
 };
 
 export function ChatSessionsPanel({
   mode,
-  workspaces,
-  workspaceId,
-  onWorkspaceChange,
   conversations,
   conversationId,
   agentRuns = [],
   agentRunId = "",
   loading,
-  onNewChat,
   onSelectSession,
   onDeleteSession,
   onSelectAgentRun,
-  onNewAgent,
   onAfterNavigate,
 }: ChatSessionsPanelProps) {
   const isAgent = mode === "agent";
@@ -66,42 +55,6 @@ export function ChatSessionsPanel({
             {isAgent ? "Agent sessions" : "Chat sessions"}
           </h2>
         </div>
-        <p className="mt-0.5 text-xs text-mute">
-          {isAgent
-            ? "Past agent runs in this workspace"
-            : "RAG chat history for this workspace"}
-        </p>
-
-        {workspaces.length > 0 && (
-          <label className="mt-3 block">
-            <span className="mb-1 block text-xs text-mute">Workspace</span>
-            <select
-              value={workspaceId}
-              onChange={(e) => onWorkspaceChange(e.target.value)}
-              className="h-9 w-full rounded-[6px] border border-hairline bg-canvas px-2 text-sm text-ink"
-            >
-              {workspaces.map((w) => (
-                <option key={w.id} value={w.id}>
-                  {w.name}
-                </option>
-              ))}
-            </select>
-          </label>
-        )}
-
-        <Button
-          type="button"
-          className="mt-3 w-full rounded-[6px]"
-          disabled={!workspaceId || loading}
-          onClick={() => {
-            if (isAgent) onNewAgent?.();
-            else onNewChat();
-            onAfterNavigate?.();
-          }}
-        >
-          <Plus className="h-4 w-4" strokeWidth={1.5} />
-          {isAgent ? "New agent run" : "New session"}
-        </Button>
       </div>
 
       <div className="document-scroll min-h-0 flex-1 overflow-y-auto p-2">
