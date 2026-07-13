@@ -64,16 +64,7 @@ export function WorkspaceSelect({
 
   return (
     <div>
-      <div className="mb-1.5 flex items-center justify-between">
-        <span className="text-xs text-mute">Workspace</span>
-        <Link
-          to="/settings"
-          className="rounded p-0.5 text-mute transition-colors hover:text-ink"
-          title="Manage workspaces"
-        >
-          <Settings className="h-3.5 w-3.5" strokeWidth={1.5} />
-        </Link>
-      </div>
+      <span className="mb-1.5 block text-xs text-mute">Workspace</span>
 
       <DropdownMenu open={open} onOpenChange={setOpen}>
         <DropdownMenuTrigger asChild>
