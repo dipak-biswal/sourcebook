@@ -55,7 +55,7 @@ def build_tools(db: Session, *, workspace_id: uuid.UUID, user_id: uuid.UUID):
         return results
 
     @tool
-    def explain_for_learners(
+    def study_guide(
         topic: str,
         focus: str = "",
         document_id: str = "",
@@ -105,6 +105,6 @@ def build_tools(db: Session, *, workspace_id: uuid.UUID, user_id: uuid.UUID):
     return [
         list_documents,
         search_documents,
-        explain_for_learners,
+        study_guide,
         create_note,
     ]

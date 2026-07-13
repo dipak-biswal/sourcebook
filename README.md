@@ -20,7 +20,7 @@ Multi-tenant **document AI workspace**: upload files, run an ingest pipeline (pa
 | **Chat ↔ Agent mode** | Same Chat page toggle: RAG by default, or tool-using agent + HITL |
 | **Denial** | Off-topic / empty retrieval → no fake sources (configurable `rag_min_score`) |
 | **Conversations** | Create, list, delete conversations; per-conversation message history with citations |
-| **Agents** | Tools: `list_documents`, `search_documents` (semantic), **`explain_for_learners` (generative UI + citations + per-doc)**, `create_note` (HITL) |
+| **Agents** | Tools: `list_documents`, `search_documents` (semantic), **`study_guide` (generative UI + citations + per-doc)**, `create_note` (HITL) |
 | **Generative UI** | Structured learning views: summary, key points, key terms, FAQ, steps, callouts; per-block source citations; save as note |
 | **Agent streaming** | LangSmith-style live SSE traces (`llm_start`, `llm_end`, step, status, done events) |
 | **HITL + resume** | `create_note` pauses for Approve / Reject; **Approve executes write then resumes** the agent loop with SSE |
