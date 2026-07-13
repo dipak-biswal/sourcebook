@@ -54,6 +54,10 @@ export function AgentRunDisplay() {
   } = useAgentPage();
 
   const steps = selected?.steps ?? [];
+  const gen = extractGenerativeUIFromSteps(
+    liveSteps.length ? liveSteps : steps,
+  );
+  const [activeTab, setActiveTab] = useState<TabKey>(gen ? "learning" : "trace");
 
   if (!selected && !running) {
     return (
@@ -67,11 +71,9 @@ export function AgentRunDisplay() {
     );
   }
 
-  const gen = extractGenerativeUIFromSteps(
-    liveSteps.length ? liveSteps : steps,
-  );
 
-  const [activeTab, setActiveTab] = useState<TabKey>(gen ? "learning" : "trace");
+
+
 
   return (
     <div className="space-y-4">
