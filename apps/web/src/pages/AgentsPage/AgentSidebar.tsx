@@ -1,23 +1,18 @@
-import { Bot, RefreshCw, StickyNote, Trash2 } from "lucide-react";
+import { Bot, StickyNote, Trash2 } from "lucide-react";
 import { Link } from "react-router-dom";
 import { agentStatusVariant } from "@/components/agents/agent-utils";
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
 import { ListSkeleton } from "@/components/ui/skeleton";
 import { formatDate } from "@/lib/utils";
 import { useAgentPage } from "./agent-page-context";
 
 export function AgentSidebar() {
   const {
-    workspaces,
-    workspaceId,
     runs,
     notes,
     loading,
-    onChangeWorkspace,
     onSelectRun,
     onSidebarClose,
-    onRefresh,
     onDeleteNote,
     onDeleteRun,
   } = useAgentPage();
@@ -27,37 +22,8 @@ export function AgentSidebar() {
       <div className="shrink-0 border-b border-hairline p-4">
         <div className="flex items-center gap-2">
           <Bot className="h-4 w-4 text-ink" strokeWidth={1.5} />
-          <h2 className="text-body-sm font-semibold text-ink">Agents</h2>
+          <h2 className="text-body-sm font-semibold text-ink">Runs</h2>
         </div>
-
-        {workspaces.length > 0 && (
-          <label className="mt-3 block">
-            <span className="mb-1 block text-xs text-mute">Workspace</span>
-            <select
-              value={workspaceId}
-              onChange={(e) => onChangeWorkspace(e.target.value)}
-              className="h-9 w-full rounded-[6px] border border-hairline bg-canvas px-2 text-sm text-ink"
-            >
-              {workspaces.map((w) => (
-                <option key={w.id} value={w.id}>
-                  {w.name}
-                </option>
-              ))}
-            </select>
-          </label>
-        )}
-
-        <Button
-          type="button"
-          variant="secondary"
-          size="sm"
-          className="mt-3 w-full"
-          disabled={loading || !workspaceId}
-          onClick={onRefresh}
-        >
-          <RefreshCw className="h-3.5 w-3.5" strokeWidth={1.5} />
-          Refresh
-        </Button>
       </div>
 
       <div className="document-scroll min-h-0 flex-1 overflow-y-auto p-2">
