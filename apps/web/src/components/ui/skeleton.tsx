@@ -29,6 +29,26 @@ export function ListSkeleton({ rows = 5 }: { rows?: number }) {
   );
 }
 
+/** Chat thread placeholders while session history loads */
+export function MessageListSkeleton() {
+  return (
+    <div className="mx-auto flex max-w-2xl flex-col gap-4" aria-busy="true" aria-label="Loading messages">
+      <div className="flex justify-end">
+        <Skeleton className="h-10 w-[min(70%,16rem)] rounded-vercel-md" />
+      </div>
+      <div className="flex justify-start">
+        <Skeleton className="h-16 w-[min(80%,20rem)] rounded-vercel-md" />
+      </div>
+      <div className="flex justify-end">
+        <Skeleton className="h-10 w-[min(60%,14rem)] rounded-vercel-md" />
+      </div>
+      <div className="flex justify-start">
+        <Skeleton className="h-20 w-[min(85%,22rem)] rounded-vercel-md" />
+      </div>
+    </div>
+  );
+}
+
 export function CardSkeleton({ className }: { className?: string }) {
   return (
     <div

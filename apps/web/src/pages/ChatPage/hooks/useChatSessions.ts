@@ -1,4 +1,4 @@
-import { useCallback, useState, useRef } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { api, type ChatMessage } from "@/api";
 import { useToast } from "@/components/ui/toast";
@@ -32,27 +32,48 @@ export function useChatSessions() {
   const workspaceId = overrideWorkspaceId ?? workspaces[0]?.id ?? "";
   const { data: conversations = [], isLoading: loadingSessions } = useConversations(workspaceId);
   const conversationId = overrideConversationId ?? conversations[0]?.id ?? "";
-  useMessages(conversationId);
+  const {
+    data: fetchedMessages = [],
+    isFetching: loadingMessages,
+  } = useMessages(conversationId || undefined);
   const { data: agentRuns = [], isLoading: loadingAgentRuns } = useAgentRuns(workspaceId);
   const agentRunId = overrideAgentRunId ?? agentRuns[0]?.id ?? "";
 
-  // Synchronously initialize messages from query cache when conversation changes.
-  const prevConvRef = useRef(conversationId);
-  if (conversationId !== prevConvRef.current) {
-    prevConvRef.current = conversationId;
-    setMessages(sortMessages(
-      queryClient.getQueryData<ChatMessage[]>(["messages", conversationId || undefined]) ?? [],
-    ));
-  }
+  useEffect(() => {
+    if (!conversationId) {
+      setMessages([]);
+      return;
+    }
+    const cached = queryClient.getQueryData<ChatMessage[]>(["messages", conversationId]);
+    const source =
+      fetchedMessages.length > 0
+        ? fetchedMessages
+        : cached && cached.length > 0
+          ? cached
+          : null;
+    if (source) {
+      setMessages(sortMessages(source));
+    } else if (!loadingMessages) {
+      setMessages([]);
+    }
+  }, [conversationId, fetchedMessages, loadingMessages, queryClient]);
 
   const setWorkspaceId = useCallback((id: string) => {
     setOverrideWorkspaceId(id || null);
+    setOverrideConversationId(null);
     setMessages([]);
   }, []);
+
   const setConversationId = useCallback((id: string) => {
     setOverrideConversationId(id || null);
-    setMessages([]);
-  }, []);
+    const cached = id
+      ? queryClient.getQueryData<ChatMessage[]>(["messages", id])
+      : undefined;
+    if (cached?.length) {
+      setMessages(sortMessages(cached));
+    }
+  }, [queryClient]);
+
   const setAgentRunId = useCallback((id: string) => {
     setOverrideAgentRunId(id || null);
   }, []);
@@ -102,6 +123,7 @@ export function useChatSessions() {
           ? conversations.find((c) => c.id !== id)?.id
           : conversationId;
       if (nextPrefer) setConversationId(nextPrefer);
+      else setMessages([]);
       await queryClient.invalidateQueries({ queryKey: ["conversations", workspaceId] });
       success("Session deleted");
     } catch (err) {
@@ -110,6 +132,9 @@ export function useChatSessions() {
       toastError("Delete failed", msg);
     }
   }
+
+  const loadingMessageHistory =
+    !!conversationId && loadingMessages && messages.length === 0;
 
   return {
     workspaces,
@@ -128,6 +153,7 @@ export function useChatSessions() {
     loadingWs,
     loadingSessions,
     loadingAgentRuns,
+    loadingMessageHistory,
     onNewChat,
     onNewAgent,
     onSelectSession,

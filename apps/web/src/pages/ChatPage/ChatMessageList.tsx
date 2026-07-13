@@ -1,5 +1,6 @@
 import { useNavigate } from "react-router-dom";
 import { AlertCircle, Bot, Loader2, MessageCircle, Sparkles } from "lucide-react";
+import { TypingIndicator } from "@/components/chat/TypingIndicator";
 import { AgentRunPanel } from "@/components/agents/AgentRunPanel";
 import { GenerativeUIView } from "@/components/agents/GenerativeUI";
 import { extractGenerativeUIFromSteps } from "@/components/agents/generative-ui";
@@ -10,6 +11,7 @@ import { MarkdownContent } from "@/components/chat/MarkdownContent";
 import { Alert } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { EmptyState } from "@/components/ui/empty-state";
+import { MessageListSkeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
 import type { ChatMessage } from "@/api";
 import type { AgentThreadItem } from "@/types/chat";
@@ -83,12 +85,15 @@ function AgentBubbleHeader({ pending }: { pending?: boolean }) {
 
 function ChatMessageItem({
   message,
+  streaming = false,
 }: {
   message: ChatMessage;
+  streaming?: boolean;
 }) {
   const isUser = message.role === "user";
   const denial =
     !isUser && message.content && isDenialMessage(message.content);
+  const showTyping = !isUser && streaming && !message.content;
 
   return (
     <div
@@ -103,6 +108,8 @@ function ChatMessageItem({
         <ChatBubble isUser={isUser}>
           {isUser ? (
             <div className="whitespace-pre-wrap">{message.content}</div>
+          ) : showTyping ? (
+            <TypingIndicator />
           ) : (
             <MarkdownContent content={message.content} />
           )}
@@ -210,10 +217,12 @@ function AgentMessageItem({
 
 function SuggestionChips({
   questions,
-  onSelect,
+  onSend,
+  disabled,
 }: {
   questions: string[];
-  onSelect: (q: string) => void;
+  onSend: (q: string) => void;
+  disabled?: boolean;
 }) {
   return (
     <div className="mx-auto mt-4 flex max-w-lg flex-wrap justify-center gap-2">
@@ -221,8 +230,9 @@ function SuggestionChips({
         <button
           key={i}
           type="button"
-          onClick={() => onSelect(q)}
-          className="inline-flex items-center gap-1.5 rounded-full border border-hairline bg-canvas px-3.5 py-1.5 text-xs font-medium text-body transition-colors hover:border-ink hover:bg-canvas-soft hover:text-ink"
+          disabled={disabled}
+          onClick={() => onSend(q)}
+          className="inline-flex items-center gap-1.5 rounded-full border border-hairline bg-canvas px-3.5 py-1.5 text-xs font-medium text-body transition-colors hover:border-ink hover:bg-canvas-soft hover:text-ink disabled:cursor-not-allowed disabled:opacity-50"
         >
           <Sparkles className="h-3 w-3 shrink-0 text-mute" strokeWidth={1.5} />
           <span className="line-clamp-1 max-w-[240px]">{q}</span>
@@ -243,8 +253,14 @@ export function ChatMessageList() {
     empty,
     workspaceId,
     bottomRef,
-    onInputChange,
+    loadingMessageHistory,
+    onSendMessage,
   } = useChatPage();
+
+  const streamingMessageId =
+    sending && mode === "chat"
+      ? [...messages].reverse().find((m) => m.role === "assistant")?.id
+      : undefined;
 
   const { data: suggestions, isLoading: loadingSuggestions } = useChatSuggestions(
     mode === "chat" ? workspaceId : undefined,
@@ -259,7 +275,9 @@ export function ChatMessageList() {
       )}
 
       <div className="document-scroll min-h-0 flex-1 overflow-y-auto px-4 py-5 sm:px-6 sm:py-6">
-        {empty ? (
+        {loadingMessageHistory && mode === "chat" ? (
+          <MessageListSkeleton />
+        ) : empty ? (
           <div className="flex flex-col items-center">
             <EmptyState
               icon={mode === "agent" ? Bot : MessageCircle}
@@ -283,9 +301,8 @@ export function ChatMessageList() {
                 </p>
                 <SuggestionChips
                   questions={suggestions}
-                  onSelect={(q) => {
-                    onInputChange(q);
-                  }}
+                  onSend={onSendMessage}
+                  disabled={sending}
                 />
               </>
             )}
@@ -297,10 +314,18 @@ export function ChatMessageList() {
             )}
           </div>
         ) : (
-          <div className="mx-auto flex max-w-2xl flex-col gap-4">
+          <div
+            className="mx-auto flex max-w-2xl flex-col gap-4"
+            aria-live="polite"
+            aria-relevant="additions text"
+          >
             {mode === "chat"
               ? messages.map((m) => (
-                  <ChatMessageItem key={m.id} message={m} />
+                  <ChatMessageItem
+                    key={m.id}
+                    message={m}
+                    streaming={m.id === streamingMessageId}
+                  />
                 ))
               : agentThread.map((item) => (
                   <AgentMessageItem
@@ -308,12 +333,6 @@ export function ChatMessageList() {
                     item={item}
                   />
                 ))}
-            {sending && mode === "chat" && (
-              <div className="flex items-center gap-2 text-sm text-mute">
-                <Loader2 className="h-4 w-4 animate-spin" />
-                Retrieving & generating…
-              </div>
-            )}
             <div ref={bottomRef} aria-hidden className="h-px shrink-0" />
           </div>
         )}

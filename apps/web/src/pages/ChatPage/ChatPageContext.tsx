@@ -64,10 +64,9 @@ export function ChatPageProvider({ children }: { children: ReactNode }) {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [sessions.messages, agent.agentThread, sending]);
 
-  async function onSend(e?: FormEvent) {
-    e?.preventDefault();
-    const text = input.trim();
-    if (!text || sending || !sessions.workspaceId) return;
+  async function onSendMessage(text: string) {
+    const trimmed = text.trim();
+    if (!trimmed || sending || !sessions.workspaceId) return;
 
     sessions.setError(null);
     setInput("");
@@ -75,7 +74,7 @@ export function ChatPageProvider({ children }: { children: ReactNode }) {
     if (mode === "agent") {
       setSending(true);
       try {
-        await agent.onSendAgent(text);
+        await agent.onSendAgent(trimmed);
       } finally {
         setSending(false);
       }
@@ -84,10 +83,15 @@ export function ChatPageProvider({ children }: { children: ReactNode }) {
 
     setSending(true);
     try {
-      await chatMessages.onSendChat(text);
+      await chatMessages.onSendChat(trimmed);
     } finally {
       setSending(false);
     }
+  }
+
+  async function onSend(e?: FormEvent) {
+    e?.preventDefault();
+    await onSendMessage(input);
   }
 
   async function onSelectAgentRun(id: string) {
@@ -172,6 +176,7 @@ export function ChatPageProvider({ children }: { children: ReactNode }) {
     showDelete: mode === "chat" && !!active,
     showClear: mode === "agent" && agent.agentThread.length > 0,
     loading,
+    loadingMessageHistory: sessions.loadingMessageHistory,
     sessionPanelProps: {
       mode,
       workspaces: sessions.workspaces,
@@ -201,6 +206,7 @@ export function ChatPageProvider({ children }: { children: ReactNode }) {
     onSelectAgentRun,
     onNewAgent,
     onSend,
+    onSendMessage: (text) => { void onSendMessage(text); },
     onApproveAgent: (asstId, runId, approve) => { void agent.onApproveAgent(asstId, runId, approve); },
     onSaveLearningNote: (title, body) => { void agent.onSaveLearningNote(title, body); },
     onInputChange: setInput,

@@ -58,10 +58,12 @@ export type ChatPageContextValue = {
   showDelete: boolean;
   showClear: boolean;
   loading: boolean;
+  loadingMessageHistory: boolean;
   sessionPanelProps: Omit<ChatSessionsPanelProps, "onAfterNavigate"> & { onAfterNavigate: () => void };
   bottomRef: RefObject<HTMLDivElement | null>;
   onInputChange: (v: string) => void;
   onSend: (e?: React.FormEvent) => void;
+  onSendMessage: (text: string) => void;
   onNewChat: () => void;
   onNewAgent: () => void;
   onSelectSession: (id: string) => void;
