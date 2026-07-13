@@ -1,13 +1,23 @@
 import { useState } from "react";
-import { Loader2, Plus, Settings } from "lucide-react";
+import { ChevronsUpDown, Loader2, Plus, Settings } from "lucide-react";
+import { Link } from "react-router-dom";
 import { api, type Workspace } from "@/api";
 import { Button } from "@/components/ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { FieldError } from "@/components/ui/field-error";
 import { Input } from "@/components/ui/input";
 import { useToast } from "@/components/ui/toast";
 import { validateWorkspaceName } from "@/lib/validation";
 import { formatError } from "@/lib/utils";
-import { Link } from "react-router-dom";
 
 type WorkspaceSelectProps = {
   workspaces: Workspace[];
@@ -23,9 +33,12 @@ export function WorkspaceSelect({
   onRefresh,
 }: WorkspaceSelectProps) {
   const { success, error: toastError } = useToast();
+  const [open, setOpen] = useState(false);
   const [creating, setCreating] = useState(false);
   const [newName, setNewName] = useState("");
   const [error, setError] = useState<string | null>(null);
+
+  const active = workspaces.find((w) => w.id === workspaceId);
 
   async function onCreate() {
     const err = validateWorkspaceName(newName);
@@ -41,6 +54,7 @@ export function WorkspaceSelect({
       setError(null);
       onRefresh();
       onChange(ws.id);
+      setOpen(false);
     } catch (err) {
       toastError("Create failed", formatError(err));
     } finally {
@@ -50,56 +64,108 @@ export function WorkspaceSelect({
 
   return (
     <div>
-      <div className="mb-1 flex items-center justify-between">
+      <div className="mb-1.5 flex items-center justify-between">
         <span className="text-xs text-mute">Workspace</span>
         <Link
           to="/settings"
-          className="text-[11px] text-mute hover:text-ink"
+          className="rounded p-0.5 text-mute transition-colors hover:text-ink"
+          title="Manage workspaces"
         >
-          <Settings className="inline-block h-3 w-3" strokeWidth={1.5} />
+          <Settings className="h-3.5 w-3.5" strokeWidth={1.5} />
         </Link>
       </div>
-      <select
-        value={workspaceId}
-        onChange={(e) => onChange(e.target.value)}
-        className="h-9 w-full rounded-[6px] border border-hairline bg-canvas px-2 text-sm text-ink"
-      >
-        {workspaces.map((w) => (
-          <option key={w.id} value={w.id}>
-            {w.name}
-          </option>
-        ))}
-      </select>
-      <div className="mt-1.5">
-        <div className="flex gap-1">
-          <Input
-            value={newName}
-            onChange={(e) => { setNewName(e.target.value); setError(null); }}
-            placeholder="New workspace name…"
-            className="h-7 text-xs"
-            aria-invalid={!!error || undefined}
-            onKeyDown={(e) => {
-              if (e.key === "Enter") { e.preventDefault(); void onCreate(); }
-            }}
-          />
+
+      <DropdownMenu open={open} onOpenChange={setOpen}>
+        <DropdownMenuTrigger asChild>
           <Button
             type="button"
-            variant="secondary"
-            size="icon"
-            className="h-7 w-7 shrink-0"
-            disabled={!newName.trim() || creating}
-            onClick={() => void onCreate()}
-            title="Create workspace"
+            variant="outline"
+            role="combobox"
+            aria-expanded={open}
+            aria-label="Select workspace"
+            className="h-9 w-full justify-between rounded-[6px] px-2.5 font-normal"
           >
-            {creating ? (
-              <Loader2 className="h-3 w-3 animate-spin" />
-            ) : (
-              <Plus className="h-3 w-3" strokeWidth={1.5} />
-            )}
+            <span className="truncate text-sm text-ink">
+              {active?.name ?? "Select workspace"}
+            </span>
+            <ChevronsUpDown
+              className="ml-2 h-3.5 w-3.5 shrink-0 text-mute"
+              strokeWidth={1.5}
+            />
           </Button>
-        </div>
-        <FieldError error={error} />
-      </div>
+        </DropdownMenuTrigger>
+
+        <DropdownMenuContent align="start" className="w-[var(--radix-dropdown-menu-trigger-width)]">
+          <DropdownMenuLabel>Workspaces</DropdownMenuLabel>
+          <DropdownMenuRadioGroup
+            value={workspaceId}
+            onValueChange={onChange}
+          >
+            {workspaces.map((w) => (
+              <DropdownMenuRadioItem
+                key={w.id}
+                value={w.id}
+                className="cursor-pointer"
+              >
+                <span className="truncate">{w.name}</span>
+              </DropdownMenuRadioItem>
+            ))}
+          </DropdownMenuRadioGroup>
+
+          <DropdownMenuSeparator />
+
+          <div
+            className="space-y-1.5 p-2"
+            onPointerDown={(e) => e.stopPropagation()}
+            onKeyDown={(e) => e.stopPropagation()}
+          >
+            <p className="text-[11px] font-medium text-mute">New workspace</p>
+            <div className="flex gap-1">
+              <Input
+                value={newName}
+                onChange={(e) => {
+                  setNewName(e.target.value);
+                  setError(null);
+                }}
+                placeholder="Name…"
+                className="h-8 text-xs"
+                aria-invalid={!!error || undefined}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    e.preventDefault();
+                    void onCreate();
+                  }
+                }}
+              />
+              <Button
+                type="button"
+                variant="secondary"
+                size="icon"
+                className="h-8 w-8 shrink-0"
+                disabled={!newName.trim() || creating}
+                onClick={() => void onCreate()}
+                title="Create workspace"
+              >
+                {creating ? (
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                ) : (
+                  <Plus className="h-3.5 w-3.5" strokeWidth={1.5} />
+                )}
+              </Button>
+            </div>
+            <FieldError error={error} />
+          </div>
+
+          <DropdownMenuSeparator />
+
+          <DropdownMenuItem asChild className="cursor-pointer">
+            <Link to="/settings" onClick={() => setOpen(false)}>
+              <Settings className="h-3.5 w-3.5 text-mute" strokeWidth={1.5} />
+              Manage workspaces
+            </Link>
+          </DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
     </div>
   );
 }
