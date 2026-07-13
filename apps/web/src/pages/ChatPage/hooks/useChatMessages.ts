@@ -64,6 +64,19 @@ export function useChatMessages(
 
       await queryClient.invalidateQueries({ queryKey: ["messages", convId] });
       await queryClient.invalidateQueries({ queryKey: ["conversations", workspaceId] });
+      const updated = queryClient.getQueryData<ChatMessage[]>(["messages", convId]);
+      if (updated) {
+        setMessages(
+          [...updated].sort((a, b) => {
+            const ta = new Date(a.created_at).getTime();
+            const tb = new Date(b.created_at).getTime();
+            if (ta !== tb) return ta - tb;
+            if (a.role === "user" && b.role === "assistant") return -1;
+            if (a.role === "assistant" && b.role === "user") return 1;
+            return a.id.localeCompare(b.id);
+          }),
+        );
+      }
       if (convId !== conversationId) setConversationId(convId);
     } catch (err) {
       setError(formatError(err));
