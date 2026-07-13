@@ -43,7 +43,7 @@ export function UsageDetailPanel({
           </div>
         ) : detail?.kind === "agent_run" ? (
           <AgentRunDetail detail={detail} />
-        ) : detail?.kind === "chat" || detail?.kind === "stream" ? (
+        ) : detail?.kind === "chat" || detail?.kind === "chat_stream" || detail?.kind === "stream" ? (
           <ChatDetail detail={detail} />
         ) : (
           <div className="px-4 py-6 text-center text-sm text-mute">

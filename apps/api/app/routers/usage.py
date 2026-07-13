@@ -195,7 +195,7 @@ def get_usage_event_detail(
                     token_usage=run.token_usage,
                 )
 
-    elif event.kind in ("chat", "stream"):
+    elif event.kind in ("chat", "chat_stream", "stream"):
         conversation_id = meta.get("conversation_id")
         if conversation_id:
             msgs = (
