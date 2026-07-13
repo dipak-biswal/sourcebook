@@ -48,6 +48,20 @@ export function AgentPageProvider({ children }: { children: ReactNode }) {
   const { data: notes = [] } = useNotes(effectiveWorkspaceId);
   const effectiveSelectedId = selectedId;
 
+  const onChangeWorkspace = useCallback((id: string) => {
+    setWorkspaceId(id);
+    setSelectedId("");
+    setSelected(null);
+    setError(null);
+    setLiveSteps([]);
+    setLiveTrace([]);
+    setLiveLlmEvents([]);
+    setLiveTokenUsage(null);
+    setLiveGoal(null);
+    setActiveToolCalls([]);
+    setLoopWarning(null);
+  }, []);
+
   const onSelect = useCallback(async (id: string) => {
     setSelectedId(id);
     setError(null);
@@ -353,7 +367,7 @@ export function AgentPageProvider({ children }: { children: ReactNode }) {
     liveTrace,
     activeToolCalls,
     loopWarning,
-    onChangeWorkspace: setWorkspaceId,
+    onChangeWorkspace,
     onSelectRun: onSelect,
     onGoalChange: setGoal,
     onRun,
@@ -362,8 +376,9 @@ export function AgentPageProvider({ children }: { children: ReactNode }) {
     onDeleteRun,
     onSaveLearningNote,
     onRefresh: () => {
-      queryClient.invalidateQueries({ queryKey: ["agentRuns", effectiveWorkspaceId] });
-      queryClient.invalidateQueries({ queryKey: ["notes", effectiveWorkspaceId] });
+      void queryClient.invalidateQueries({ queryKey: ["workspaces"] });
+      void queryClient.invalidateQueries({ queryKey: ["agentRuns", effectiveWorkspaceId] });
+      void queryClient.invalidateQueries({ queryKey: ["notes", effectiveWorkspaceId] });
     },
     onToggleSidebar: () => setSidebarOpen(true),
     onSidebarClose: () => setSidebarOpen(false),

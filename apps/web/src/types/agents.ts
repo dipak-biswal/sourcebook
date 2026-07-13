@@ -36,5 +36,5 @@ export type AgentPageContextValue = {
   onLogout: () => void;
 };
 
-type Workspace = { id: string; name: string };
+type Workspace = { id: string; name: string; role: string };
 export type NoteSummary = { id: string; title: string; body: string | null; created_at: string };

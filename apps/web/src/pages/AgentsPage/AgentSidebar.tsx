@@ -3,14 +3,19 @@ import { Link } from "react-router-dom";
 import { agentStatusVariant } from "@/components/agents/agent-utils";
 import { Badge } from "@/components/ui/badge";
 import { ListSkeleton } from "@/components/ui/skeleton";
+import { WorkspaceSelect } from "@/components/workspace/WorkspaceSelect";
 import { formatDate } from "@/lib/utils";
 import { useAgentPage } from "./agent-page-context";
 
 export function AgentSidebar() {
   const {
+    workspaces,
+    workspaceId,
     runs,
     notes,
     loading,
+    onChangeWorkspace,
+    onRefresh,
     onSelectRun,
     onSidebarClose,
     onDeleteNote,
@@ -19,11 +24,19 @@ export function AgentSidebar() {
 
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <div className="shrink-0 border-b border-hairline p-4">
+      <div className="shrink-0 space-y-3 border-b border-hairline p-4">
         <div className="flex items-center gap-2">
           <Bot className="h-4 w-4 text-ink" strokeWidth={1.5} />
-          <h2 className="text-body-sm font-semibold text-ink">Runs</h2>
+          <h2 className="text-body-sm font-semibold text-ink">Runs & notes</h2>
         </div>
+        {workspaces.length > 0 && (
+          <WorkspaceSelect
+            workspaces={workspaces}
+            workspaceId={workspaceId}
+            onChange={onChangeWorkspace}
+            onRefresh={onRefresh}
+          />
+        )}
       </div>
 
       <div className="document-scroll min-h-0 flex-1 overflow-y-auto p-2">
