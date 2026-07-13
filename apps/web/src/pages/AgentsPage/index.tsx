@@ -1,11 +1,10 @@
-import { Navigate } from "react-router-dom";
-import { getToken } from "@/api";
 import { AppHeader } from "@/components/layout/AppHeader";
 import { Button } from "@/components/ui/button";
 import { PanelLeft } from "lucide-react";
 import { Alert } from "@/components/ui/alert";
 import { Sheet } from "@/components/ui/sheet";
-import { AgentPageProvider, useAgentPage } from "./AgentPageContext";
+import { AgentPageProvider } from "./AgentPageContext";
+import { useAgentPage } from "./agent-page-context";
 import { AgentSidebar } from "./AgentSidebar";
 import { AgentRunForm } from "./AgentRunForm";
 import { AgentRunDisplay } from "./AgentRunDisplay";
@@ -69,10 +68,6 @@ function AgentsPageInner() {
 }
 
 export function AgentsPage() {
-  if (!getToken()) {
-    return <Navigate to="/login" replace />;
-  }
-
   return (
     <AgentPageProvider>
       <AgentsPageInner />

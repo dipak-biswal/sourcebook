@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useState, useRef } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { api, type ChatMessage } from "@/api";
 import { useToast } from "@/components/ui/toast";
@@ -6,51 +6,56 @@ import { confirmAction } from "@/lib/confirm";
 import { formatError } from "@/lib/utils";
 import { useAgentRuns, useConversations, useMessages, useWorkspaces } from "@/hooks/queries";
 
+function sortMessages(raw: ChatMessage[]): ChatMessage[] {
+  if (!raw.length) return [];
+  return [...raw].sort((a, b) => {
+    const ta = new Date(a.created_at).getTime();
+    const tb = new Date(b.created_at).getTime();
+    if (ta !== tb) return ta - tb;
+    if (a.role === "user" && b.role === "assistant") return -1;
+    if (a.role === "assistant" && b.role === "user") return 1;
+    return a.id.localeCompare(b.id);
+  });
+}
+
 export function useChatSessions() {
   const { success, error: toastError } = useToast();
   const queryClient = useQueryClient();
 
-  const [workspaceId, setWorkspaceId] = useState("");
-  const [conversationId, setConversationId] = useState("");
-  const [agentRunId, setAgentRunId] = useState("");
+  const [overrideWorkspaceId, setOverrideWorkspaceId] = useState<string | null>(null);
+  const [overrideConversationId, setOverrideConversationId] = useState<string | null>(null);
+  const [overrideAgentRunId, setOverrideAgentRunId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
 
   const { data: workspaces = [], isLoading: loadingWs } = useWorkspaces();
+  const workspaceId = overrideWorkspaceId ?? workspaces[0]?.id ?? "";
   const { data: conversations = [], isLoading: loadingSessions } = useConversations(workspaceId);
-  const { data: rawMessages = [] } = useMessages(conversationId);
+  const conversationId = overrideConversationId ?? conversations[0]?.id ?? "";
+  useMessages(conversationId);
   const { data: agentRuns = [], isLoading: loadingAgentRuns } = useAgentRuns(workspaceId);
+  const agentRunId = overrideAgentRunId ?? agentRuns[0]?.id ?? "";
 
-  useEffect(() => {
-    if (!workspaces.length || workspaceId) return;
-    setWorkspaceId(workspaces[0].id);
-  }, [workspaces, workspaceId]);
+  // Synchronously initialize messages from query cache when conversation changes.
+  const prevConvRef = useRef(conversationId);
+  if (conversationId !== prevConvRef.current) {
+    prevConvRef.current = conversationId;
+    setMessages(sortMessages(
+      queryClient.getQueryData<ChatMessage[]>(["messages", conversationId || undefined]) ?? [],
+    ));
+  }
 
-  useEffect(() => {
-    if (!workspaceId) return;
-    if (conversations.length && !conversationId) {
-      setConversationId(conversations[0].id);
-    }
-    if (agentRuns.length && !agentRunId) {
-      setAgentRunId(agentRuns[0].id);
-    }
-  }, [workspaceId, conversations, agentRuns, conversationId, agentRunId]);
-
-  useEffect(() => {
-    if (!rawMessages.length) {
-      setMessages([]);
-      return;
-    }
-    const sorted = [...rawMessages].sort((a, b) => {
-      const ta = new Date(a.created_at).getTime();
-      const tb = new Date(b.created_at).getTime();
-      if (ta !== tb) return ta - tb;
-      if (a.role === "user" && b.role === "assistant") return -1;
-      if (a.role === "assistant" && b.role === "user") return 1;
-      return a.id.localeCompare(b.id);
-    });
-    setMessages(sorted);
-  }, [rawMessages]);
+  const setWorkspaceId = useCallback((id: string) => {
+    setOverrideWorkspaceId(id || null);
+    setMessages([]);
+  }, []);
+  const setConversationId = useCallback((id: string) => {
+    setOverrideConversationId(id || null);
+    setMessages([]);
+  }, []);
+  const setAgentRunId = useCallback((id: string) => {
+    setOverrideAgentRunId(id || null);
+  }, []);
 
   async function onNewChat() {
     if (!workspaceId) return;

@@ -1,18 +1,6 @@
 import { StickyNote } from "lucide-react";
-import { useNotesPage } from "./NotesPageContext";
-
-function formatWhen(iso: string): string {
-  try {
-    return new Date(iso).toLocaleString(undefined, {
-      month: "short",
-      day: "numeric",
-      hour: "2-digit",
-      minute: "2-digit",
-    });
-  } catch {
-    return iso;
-  }
-}
+import { formatDate } from "@/lib/utils";
+import { useNotesPage } from "./notes-page-context";
 
 export function NotesSidebar() {
   const {
@@ -74,7 +62,7 @@ export function NotesSidebar() {
                     {n.body || "—"}
                   </div>
                   <div className="mt-1 text-[11px] text-mute">
-                    {formatWhen(n.created_at)}
+                    {formatDate(n.created_at)}
                   </div>
                 </button>
               </li>

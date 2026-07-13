@@ -10,19 +10,31 @@ Multi-tenant **document AI workspace**: upload files, run an ingest pipeline (pa
 
 | Area | What you get |
 |------|----------------|
-| **Auth** | Register / login (JWT), bcrypt password hashes |
-| **Tenancy** | Workspaces + membership; documents and vectors scoped by `workspace_id` |
-| **Documents** | Upload, list, delete; local file storage + Postgres metadata |
-| **Ingest** | PDF, DOCX, txt/md, CSV/HTML/JSON + more → parse → chunk → embed; `processing` → `ready` / `failed` |
-| **Background jobs** | Redis + **RQ** worker for heavy ingest (API stays responsive) |
-| **RAG chat** | Retrieve top chunks → LLM answer; **SSE streaming**; sources (filename, score, snippet) |
+| **Auth** | Register / login (JWT), bcrypt password hashes; dev panel for local testing |
+| **Tenancy** | Workspaces + membership (owner/member); documents, chunks, conversations, agent runs, notes, usage all scoped by `workspace_id` |
+| **Workspace management** | Create, rename, delete workspaces; workspace selector in UI |
+| **Documents** | Upload, list, delete; local file storage + Postgres metadata; status lifecycle (uploaded → queued → processing → ready/failed) |
+| **Ingest pipeline** | PDF, DOCX, txt/md, RST, CSV/TSV, HTML/XML, JSON/JSONL, YAML/TOML, INI/CFG, CSS, JS/TS, PY, SH, LOG → parse → chunk → embed |
+| **Background jobs** | Redis + **RQ** worker for heavy ingest (API stays responsive); configurable queue on/off |
+| **RAG chat** | Retrieve top-k chunks → LLM answer with **SSE streaming**; sources (filename, score, snippet) |
 | **Chat ↔ Agent mode** | Same Chat page toggle: RAG by default, or tool-using agent + HITL |
-| **Denial** | Off-topic / empty retrieval → no fake sources |
-| **Agents** | Tools: list/search docs, **`explain_for_learners` (generative UI + citations + per-doc)**, `create_note` (HITL); save learning view as note |
-| **HITL + resume** | `create_note` pauses for Approve / Reject; **Approve executes write then resumes** the agent loop |
-| **Usage** | Token usage events + **Usage** page |
-| **Rate limits** | Per-user limits on chat, ingest, agent starts |
-| **Evals** | Manual golden set: [`evals/sourcebook-v1.md`](evals/sourcebook-v1.md) (**10/12** on design-doc Qs) |
+| **Denial** | Off-topic / empty retrieval → no fake sources (configurable `rag_min_score`) |
+| **Conversations** | Create, list, delete conversations; per-conversation message history with citations |
+| **Agents** | Tools: `list_documents`, `search_documents` (semantic), **`explain_for_learners` (generative UI + citations + per-doc)**, `create_note` (HITL) |
+| **Generative UI** | Structured learning views: summary, key points, key terms, FAQ, steps, callouts; per-block source citations; save as note |
+| **Agent streaming** | LangSmith-style live SSE traces (`llm_start`, `llm_end`, step, status, done events) |
+| **HITL + resume** | `create_note` pauses for Approve / Reject; **Approve executes write then resumes** the agent loop with SSE |
+| **Notes** | Full CRUD for notes (list, get, create via agent, update, delete); editor with sidebar; linked from agent learning views |
+| **Usage tracking** | Token usage events (prompt/completion/total per kind); aggregated **Usage** page with by-kind breakdown |
+| **Rate limits** | Per-user fixed-window limits on chat (20/min), ingest (10/min), agent starts (10/min); Redis backed with in-memory fallback |
+| **Settings** | Profile (email update), change password, workspace management in UI |
+| **Dashboard** | Home page with workspace stats, quick actions, recent activity |
+| **Theme** | Light/dark mode toggle with persistent preference |
+| **UI components** | Toast notifications, confirm dialogs, error boundary, empty states, skeletons, badges, cards, alerts, sheets |
+| **Accessibility** | Skip-to-content link, semantic HTML, keyboard-navigable, focus management |
+| **Structured logging** | Request ID correlation (`X-Request-ID`), JSON structured logs, per-request timing |
+| **Dev tools** | `DEV_MODE` panel to list users, set/reset test passwords; Swagger docs at `/docs` |
+| **Evals** | Manual golden set: [`evals/sourcebook-v1.md`](evals/sourcebook-v1.md) (**10/12** on design-doc Qs) including denial cases |
 
 ---
 
@@ -31,21 +43,22 @@ Multi-tenant **document AI workspace**: upload files, run an ingest pipeline (pa
 ```text
 ┌──────────────┐     JWT      ┌─────────────────┐
 │  React Web   │─────────────▶│  FastAPI (API)  │
-│  Vite :5173  │              └────────┬────────┘
-└──────────────┘                       │
-                                       ├──── Postgres (users, docs, chunks, chat, agents, usage)
-                                       │
-                                       ├──── OpenAI (embeddings + chat; configurable via env)
-                                       │
-                                       └──── Redis
-                                              │
-                                              ├─ RQ queue: document ingest jobs
-                                              └─ rate-limit counters
-                                                     │
-                                              ┌──────▼──────┐
-                                              │ RQ Worker   │
-                                              │ (ingest)    │
-                                              └─────────────┘
+│  Vite :5173  │   SSE stream └────────┬────────┘
+└──────────────┘  (chat+agent)         │
+                                        ├──── Postgres (users, docs, chunks, conversations, messages, agents, notes, usage)
+                                        │
+                                        ├──── OpenAI (embeddings + chat; configurable via env)
+                                        │
+                                        └──── Redis
+                                               │
+                                               ├─ RQ queue: document ingest jobs
+                                               ├─ rate-limit counters
+                                               └─ agent run coordination (future)
+                                                      │
+                                               ┌──────▼──────┐
+                                               │ RQ Worker   │
+                                               │ (ingest)    │
+                                               └─────────────┘
 ```
 
 ```mermaid
@@ -88,19 +101,37 @@ flowchart LR
 ```text
 sourcebook/
 ├── apps/
-│   ├── api/                 # FastAPI
+│   ├── api/                         # FastAPI backend
 │   │   ├── app/
-│   │   │   ├── agents/      # tools + runner
-│   │   │   ├── chat/        # RAG + SSE
-│   │   │   ├── ingestion/   # parse, chunk, embed, retrieve
-│   │   │   ├── routers/     # HTTP routes
-│   │   │   └── workers/     # RQ ingest jobs
+│   │   │   ├── agents/              # tools, runner, gen_ui (generative UI)
+│   │   │   ├── chat/                # RAG + SSE streaming
+│   │   │   ├── ingestion/           # parse, chunk, embed, retrieve
+│   │   │   ├── middleware/          # request logging, request ID
+│   │   │   ├── routers/             # HTTP routes (auth, docs, chat, agents, notes, usage, workspaces, dev)
+│   │   │   ├── workers/             # RQ ingest jobs + queue
+│   │   │   ├── config.py           # env-based settings
+│   │   │   ├── db.py               # SQLAlchemy session
+│   │   │   ├── deps.py             # FastAPI dependencies (auth)
+│   │   │   ├── models.py           # SQLAlchemy ORM models
+│   │   │   ├── rate_limit.py       # per-user rate limiter
+│   │   │   ├── schemas.py          # Pydantic request/response schemas
+│   │   │   ├── security.py         # JWT + bcrypt
+│   │   │   └── usage.py            # token usage logging
+│   │   ├── tests/                  # parser + logging tests
 │   │   ├── main.py
 │   │   └── pyproject.toml
-│   └── web/                 # React UI
-├── docs/                    # Roadmap & career plan
-├── evals/                   # RAG golden-set notes
-├── docker-compose.yml       # Postgres + Redis
+│   └── web/                         # React + Vite frontend
+│       └── src/
+│           ├── pages/               # Dashboard, Login, Documents, Chat, Agents, Notes, Usage, Settings
+│           ├── components/          # layout, chat, agents (incl. GenerativeUI), theme, ui, workspace, branding
+│           ├── hooks/               # useAgentStream, queries, useDocumentTitle
+│           ├── lib/                 # utils, validation, confirm
+│           ├── api.ts              # full API client + SSE streaming
+│           ├── App.tsx             # routes + providers
+│           └── main.tsx
+├── docs/                           # Roadmap, career plan, security, build guide
+├── evals/                          # RAG golden-set manual evals
+├── docker-compose.yml              # Postgres + Redis
 └── README.md
 ```
 
@@ -200,11 +231,14 @@ Open the Vite URL (e.g. http://127.0.0.1:5173).
 
 | Route | Purpose |
 |-------|---------|
+| `/` | **Dashboard** — workspace stats, quick actions, recent activity |
 | `/login` | Auth; **DEV** panel can list users / set `password123` when `DEV_MODE=true` |
 | `/documents` | Upload, ingest (queue), status badges |
-| `/chat` | Streaming RAG chat + sources; **Agent** mode for tools + HITL |
-| `/agents` | Agent run history, step timeline, approve/reject writes, notes list |
-| `/usage` | Logged token usage for your user |
+| `/chat` | Streaming RAG chat + citations; **Agent** mode toggle for tools + HITL |
+| `/agents` | Agent run history, step timeline, approve/reject writes, start new runs |
+| `/notes` | Notes list, sidebar, editor; linked from agent learning views |
+| `/usage` | Logged token usage summary + per-event breakdown |
+| `/settings` | Profile (email), change password, workspace management (create, rename, delete) |
 
 ---
 
@@ -274,23 +308,37 @@ Plans / career strategy: [`docs/CAREER_SWITCH_30_DAY_PLAN.md`](docs/CAREER_SWITC
 ```text
 POST   /auth/register | /auth/login
 GET    /workspaces
+POST   /workspaces                    create workspace
+PATCH  /workspaces/{id}               rename (owner only)
+DELETE /workspaces/{id}               delete (owner only)
 GET    /me
-POST   /documents                 multipart upload
+PUT    /me                            update profile email
+PUT    /me/password                   change password
+POST   /documents                     multipart upload
 GET    /documents?workspace_id=
 DELETE /documents/{id}
-POST   /documents/{id}/ingest     enqueue or sync
+POST   /documents/{id}/ingest         enqueue or sync
 POST   /conversations
 GET    /conversations?workspace_id=
-POST   /chat | /chat/stream
+DELETE /conversations/{id}
+GET    /conversations/{id}/messages
+POST   /chat | /chat/stream           SSE streaming
 POST   /agents/runs
+POST   /agents/runs/stream            SSE agent trace
 POST   /agents/runs/{id}/approve
+POST   /agents/runs/{id}/approve/stream  SSE resume trace
 GET    /agents/runs?workspace_id=
+GET    /agents/runs/{id}
 GET    /notes?workspace_id=
+GET    /notes/{id}
+PUT    /notes/{id}
+DELETE /notes/{id}
 GET    /usage/summary
+GET    /usage/events
 GET    /health
 ```
 
-Dev-only (when `DEV_MODE=true`): `/dev/users`, set test passwords.
+Dev-only (when `DEV_MODE=true`): `GET /dev/users`, `POST /dev/users/set-password`, `POST /dev/users/set-all-passwords`.
 
 ---
 
@@ -315,11 +363,13 @@ Full write-up (prompt injection, allowlist, production checklist):
 ## Interview talking points
 
 1. Multi-tenant RAG: isolate vectors/docs by workspace.  
-2. Streaming UX + citations + denial path.  
+2. Streaming UX for chat + agent traces (SSE).  
 3. Async ingest (queue + worker) vs blocking API.  
-4. Agent tools with max steps and HITL for writes.  
-5. Rate limits and usage logging for cost control.  
-6. Eval golden set, not vibes-only quality.
+4. Agent tools with max steps, generative UI, and HITL for writes (approve → resume).  
+5. Rate limits (Redis + in-memory fallback) and usage logging for cost control.  
+6. Structured logging with request ID correlation.  
+7. Eval golden set, not vibes-only quality.  
+8. Full-stack: FastAPI + React/Vite + Postgres + Redis, deployed-ready (CORS, env config).
 
 ---
 

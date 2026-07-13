@@ -2,7 +2,7 @@ import { Bot, Loader2, MessageCircle, Send } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
-import { useChatPage } from "./ChatPageContext";
+import { useChatPage } from "./chat-page-context";
 
 export function ChatInput() {
   const {

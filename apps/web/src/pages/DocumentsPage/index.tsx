@@ -1,9 +1,8 @@
 import { useEffect, useState } from "react";
-import { Navigate, useNavigate } from "react-router-dom";
+import { useNavigate } from "react-router-dom";
 import { useQueryClient } from "@tanstack/react-query";
 import {
   api,
-  getToken,
 } from "@/api";
 import { useToast } from "@/components/ui/toast";
 import { useDocumentTitle } from "@/hooks/useDocumentTitle";
@@ -41,10 +40,6 @@ export function DocumentsPage() {
     if (!workspaces.length || workspaceId) return;
     setWorkspaceId(workspaces[0].id);
   }, [workspaces, workspaceId]);
-
-  if (!getToken()) {
-    return <Navigate to="/login" replace />;
-  }
 
   async function onUpload(file: File) {
     if (!workspaceId) return;

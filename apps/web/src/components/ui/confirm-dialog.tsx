@@ -1,14 +1,12 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { AlertTriangle } from "lucide-react";
 import { Button } from "@/components/ui/button";
-
-type ConfirmDialogOptions = {
-  title: string;
-  message: string;
-  confirmLabel?: string;
-  cancelLabel?: string;
-  variant?: "danger" | "default";
-};
+import type { ConfirmDialogOptions } from "./confirm-dialog-state";
+import {
+  subscribeToConfirm,
+  getConfirmState,
+  resolveConfirm,
+} from "./confirm-dialog-state";
 
 type ConfirmDialogProps = ConfirmDialogOptions & {
   onConfirm: () => void;
@@ -77,46 +75,24 @@ export function ConfirmDialog({
   );
 }
 
-type ConfirmFn = (opts: ConfirmDialogOptions) => Promise<boolean>;
-
-let confirmResolve: ((value: boolean) => void) | null = null;
-let confirmState: ConfirmDialogOptions | null = null;
-let confirmListeners: Array<() => void> = [];
-
-function notifyListeners() {
-  confirmListeners.forEach((fn) => fn());
-}
-
-export function showConfirm(opts: ConfirmDialogOptions): Promise<boolean> {
-  confirmState = opts;
-  notifyListeners();
-  return new Promise<boolean>((resolve) => {
-    confirmResolve = resolve;
-  });
-}
-
 export function ConfirmProvider({ children }: { children: ReactNode }) {
   const [dialog, setDialog] = useState<ConfirmDialogOptions | null>(null);
 
   useEffect(() => {
-    const listener = () => setDialog({ ...confirmState! });
-    confirmListeners.push(listener);
-    return () => {
-      confirmListeners = confirmListeners.filter((l) => l !== listener);
-    };
+    const unsub = subscribeToConfirm(() => {
+      const state = getConfirmState();
+      if (state) setDialog({ ...state });
+    });
+    return unsub;
   }, []);
 
   function handleConfirm() {
-    confirmResolve?.(true);
-    confirmResolve = null;
-    confirmState = null;
+    resolveConfirm(true);
     setDialog(null);
   }
 
   function handleCancel() {
-    confirmResolve?.(false);
-    confirmResolve = null;
-    confirmState = null;
+    resolveConfirm(false);
     setDialog(null);
   }
 
@@ -133,5 +109,3 @@ export function ConfirmProvider({ children }: { children: ReactNode }) {
     </>
   );
 }
-
-export const confirm: ConfirmFn = showConfirm;

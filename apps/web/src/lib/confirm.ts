@@ -1,4 +1,4 @@
-import { showConfirm } from "@/components/ui/confirm-dialog";
+import { showConfirm } from "@/components/ui/confirm-dialog-state";
 
 /** Show a styled confirmation dialog. Returns true if the user confirmed. */
 export async function confirmAction(

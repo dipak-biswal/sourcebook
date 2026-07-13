@@ -1,10 +1,9 @@
-import { Navigate } from "react-router-dom";
-import { getToken } from "@/api";
 import { ChatSessionsPanel } from "@/components/chat/ChatSessionsPanel";
 import { ModeTip } from "@/components/chat/ModeTip";
 import { AppHeader } from "@/components/layout/AppHeader";
 import { Sheet } from "@/components/ui/sheet";
-import { ChatPageProvider, useChatPage } from "./ChatPageContext";
+import { ChatPageProvider } from "./ChatPageContext";
+import { useChatPage } from "./chat-page-context";
 import { ChatPageHeader } from "./ChatPageHeader";
 import { ChatMessageList } from "./ChatMessageList";
 import { ChatInput } from "./ChatInput";
@@ -53,10 +52,6 @@ function ChatPageInner() {
 }
 
 export function ChatPage() {
-  if (!getToken()) {
-    return <Navigate to="/login" replace />;
-  }
-
   return (
     <ChatPageProvider>
       <ChatPageInner />

@@ -9,12 +9,11 @@ import { useToast } from "@/components/ui/toast";
 import { formatError } from "@/lib/utils";
 import {
   makeAgentStreamHandlers,
-  makeApprovalHandlers,
   upsertSteps,
   upsertTraceStep,
   makeLlmEndPatch,
 } from "@/hooks/useAgentStream";
-import type { AgentThreadItem } from "../types/types";
+import type { AgentThreadItem } from "@/types/chat";
 
 export function useAgentThread(
   workspaceId: string,
@@ -271,7 +270,7 @@ export function useAgentThread(
       const run = await api.approveAgentRunStream(
         runId,
         true,
-        makeApprovalHandlers(
+        makeAgentStreamHandlers(
           {
             onLlmStart: (event) => {
               appendTrace(asstId, { kind: "llm", event });
@@ -329,6 +328,7 @@ export function useAgentThread(
             void queryClient.invalidateQueries({ queryKey: ["agentRuns", workspaceId] });
             success("Action approved — agent continued");
           },
+          false,
         ),
       );
       if (run) {

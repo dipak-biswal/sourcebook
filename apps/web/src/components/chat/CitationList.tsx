@@ -2,15 +2,8 @@ import { useMemo, useState } from "react";
 import { ChevronDown, ChevronRight, FileText } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
-
-export type Citation = {
-  index?: number;
-  chunk_id?: string;
-  document_id?: string;
-  filename?: string | null;
-  score?: number;
-  snippet?: string;
-};
+import type { Citation } from "@/api";
+import { asCitations } from "./citations";
 
 type FileGroup = {
   key: string;
@@ -18,11 +11,6 @@ type FileGroup = {
   bestScore?: number;
   chunks: Citation[];
 };
-
-function asCitations(value: unknown): Citation[] {
-  if (!Array.isArray(value)) return [];
-  return value as Citation[];
-}
 
 function scoreLabel(score?: number): string {
   if (typeof score !== "number") return "";
@@ -67,32 +55,6 @@ function groupByFile(items: Citation[]): FileGroup[] {
   return [...map.values()].sort(
     (a, b) => (b.bestScore ?? 0) - (a.bestScore ?? 0),
   );
-}
-
-export function isDenialMessage(content: string): boolean {
-  const t = content.trim().toLowerCase();
-  return (
-    t.includes("no relevant indexed chunks") ||
-    t.includes("no indexed document chunks") ||
-    t.includes("no grounded match") ||
-    (t.includes("i don't know") &&
-      (t.includes("ingest") || t.includes("document") || t.includes("chunk")))
-  );
-}
-
-/** Only show sources when retrieval returned real citations and answer isn't a denial. */
-export function shouldShowSources(
-  content: string,
-  citations: unknown,
-): boolean {
-  if (isDenialMessage(content || "")) return false;
-  const items = asCitations(citations);
-  if (items.length === 0) return false;
-  const scores = items
-    .map((c) => c.score)
-    .filter((s): s is number => typeof s === "number");
-  if (scores.length > 0 && scores.every((s) => s < 0.18)) return false;
-  return true;
 }
 
 type CitationListProps = {

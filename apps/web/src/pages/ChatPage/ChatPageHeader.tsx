@@ -1,6 +1,6 @@
 import { PanelLeft, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { useChatPage } from "./ChatPageContext";
+import { useChatPage } from "./chat-page-context";
 
 export function ChatPageHeader() {
   const {

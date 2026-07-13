@@ -1,22 +1,17 @@
 import { AlertCircle, Bot, Loader2, MessageCircle } from "lucide-react";
 import { AgentRunPanel } from "@/components/agents/AgentRunPanel";
-import {
-  extractGenerativeUIFromSteps,
-  GenerativeUIView,
-} from "@/components/agents/GenerativeUI";
-import {
-  CitationList,
-  isDenialMessage,
-  shouldShowSources,
-} from "@/components/chat/CitationList";
+import { GenerativeUIView } from "@/components/agents/GenerativeUI";
+import { extractGenerativeUIFromSteps } from "@/components/agents/generative-ui";
+import { CitationList } from "@/components/chat/CitationList";
+import { isDenialMessage, shouldShowSources } from "@/components/chat/citations";
 import { CopyButton } from "@/components/chat/CopyButton";
 import { Alert } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { EmptyState } from "@/components/ui/empty-state";
 import { cn } from "@/lib/utils";
 import type { ChatMessage } from "@/api";
-import type { AgentThreadItem } from "./types/types";
-import { useChatPage } from "./ChatPageContext";
+import type { AgentThreadItem } from "@/types/chat";
+import { useChatPage } from "./chat-page-context";
 
 function ChatBubble({
   isUser,

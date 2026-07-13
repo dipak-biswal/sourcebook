@@ -1,10 +1,10 @@
-import { useState, type FormEvent } from "react";
+import { useEffect, useState, type FormEvent } from "react";
 import { Loader2, Save, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { FieldError } from "@/components/ui/field-error";
 import { Input } from "@/components/ui/input";
 import { validateNoteTitle } from "@/lib/validation";
-import { useNotesPage } from "./NotesPageContext";
+import { useNotesPage } from "./notes-page-context";
 
 export function NoteEditor() {
   const {
@@ -16,6 +16,15 @@ export function NoteEditor() {
   const [title, setTitle] = useState(selected?.title ?? "");
   const [body, setBody] = useState(selected?.body ?? "");
   const [titleError, setTitleError] = useState<string | null>(null);
+
+  const dirty = title !== (selected?.title ?? "") || body !== (selected?.body ?? "");
+
+  useEffect(() => {
+    if (!dirty) return;
+    const handler = (e: BeforeUnloadEvent) => { e.preventDefault(); };
+    window.addEventListener("beforeunload", handler);
+    return () => window.removeEventListener("beforeunload", handler);
+  }, [dirty]);
 
   if (!selected) {
     return (
@@ -36,7 +45,7 @@ export function NoteEditor() {
   return (
     <form onSubmit={handleSave} className="space-y-4" noValidate>
       <div className="flex items-center justify-between gap-2">
-        <div className="flex items-center gap-1">
+        <div className="flex items-center gap-2">
           <Button
             type="submit"
             size="sm"
@@ -50,6 +59,9 @@ export function NoteEditor() {
             )}
             Save
           </Button>
+          {dirty && (
+            <span className="text-[11px] text-amber-600">Unsaved changes</span>
+          )}
           <Button
             type="button"
             variant="secondary"

@@ -1,47 +1,22 @@
-import { createContext, useContext, useEffect, useState, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { useNavigate } from "react-router-dom";
-import { api, getToken, setCachedUser, type Workspace } from "@/api";
+import { useQueryClient } from "@tanstack/react-query";
+import { api, setCachedUser } from "@/api";
 import { useToast } from "@/components/ui/toast";
 import { useDocumentTitle } from "@/hooks/useDocumentTitle";
+import { useMe, useWorkspaces } from "@/hooks/queries";
 import { confirmAction } from "@/lib/confirm";
 import { formatError } from "@/lib/utils";
-
-type SettingsPageContextValue = {
-  email: string;
-  error: string | null;
-  savingProfile: boolean;
-  savingPassword: boolean;
-  currentPassword: string;
-  newPassword: string;
-  confirmPassword: string;
-  workspaces: Workspace[];
-  newWsName: string;
-  creatingWs: boolean;
-  renamingId: string | null;
-  renameValue: string;
-  savingRename: boolean;
-  onEmailChange: (v: string) => void;
-  onUpdateProfile: () => Promise<void>;
-  onCurrentPasswordChange: (v: string) => void;
-  onNewPasswordChange: (v: string) => void;
-  onConfirmPasswordChange: (v: string) => void;
-  onChangePassword: () => Promise<void>;
-  onNewWsNameChange: (v: string) => void;
-  onCreateWorkspace: () => Promise<void>;
-  onStartRename: (id: string, name: string) => void;
-  onRenameValueChange: (v: string) => void;
-  onCancelRename: () => void;
-  onSaveRename: (id: string) => Promise<void>;
-  onDeleteWorkspace: (id: string) => Promise<void>;
-  onLogout: () => void;
-};
-
-const SettingsPageContext = createContext<SettingsPageContextValue | null>(null);
+import { SettingsPageContext } from "./settings-page-context";
 
 export function SettingsPageProvider({ children }: { children: ReactNode }) {
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
   const { success, error: toastError } = useToast();
   useDocumentTitle("Settings");
+
+  const { data: user } = useMe();
+  const { data: workspaces = [] } = useWorkspaces();
 
   const [email, setEmail] = useState("");
   const [currentPassword, setCurrentPassword] = useState("");
@@ -51,7 +26,6 @@ export function SettingsPageProvider({ children }: { children: ReactNode }) {
   const [savingProfile, setSavingProfile] = useState(false);
   const [savingPassword, setSavingPassword] = useState(false);
 
-  const [workspaces, setWorkspaces] = useState<Workspace[]>([]);
   const [newWsName, setNewWsName] = useState("");
   const [creatingWs, setCreatingWs] = useState(false);
   const [renamingId, setRenamingId] = useState<string | null>(null);
@@ -59,19 +33,8 @@ export function SettingsPageProvider({ children }: { children: ReactNode }) {
   const [savingRename, setSavingRename] = useState(false);
 
   useEffect(() => {
-    if (!getToken()) return;
-    api.me()
-      .then((u) => { setEmail(u.email); })
-      .catch((err) => setError(formatError(err)));
-    loadWorkspaces();
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  async function loadWorkspaces() {
-    try {
-      setWorkspaces(await api.workspaces());
-    } catch { /* ignore */ }
-  }
+    if (user?.email) setEmail(user.email);
+  }, [user?.email]);
 
   async function onUpdateProfile() {
     if (!email.trim() || savingProfile) return;
@@ -109,6 +72,10 @@ export function SettingsPageProvider({ children }: { children: ReactNode }) {
     }
   }
 
+  function invalidateWorkspaces() {
+    queryClient.invalidateQueries({ queryKey: ["workspaces"] });
+  }
+
   async function onCreateWorkspace() {
     const name = newWsName.trim();
     if (!name || creatingWs) return;
@@ -118,7 +85,7 @@ export function SettingsPageProvider({ children }: { children: ReactNode }) {
       await api.createWorkspace(name);
       setNewWsName("");
       success(`Workspace "${name}" created`);
-      await loadWorkspaces();
+      invalidateWorkspaces();
     } catch (err) {
       const msg = formatError(err);
       setError(msg);
@@ -138,7 +105,7 @@ export function SettingsPageProvider({ children }: { children: ReactNode }) {
       setRenamingId(null);
       setRenameValue("");
       success("Workspace renamed");
-      await loadWorkspaces();
+      invalidateWorkspaces();
     } catch (err) {
       const msg = formatError(err);
       setError(msg);
@@ -159,7 +126,7 @@ export function SettingsPageProvider({ children }: { children: ReactNode }) {
     try {
       await api.deleteWorkspace(id);
       success("Workspace deleted");
-      await loadWorkspaces();
+      invalidateWorkspaces();
     } catch (err) {
       const msg = formatError(err);
       setError(msg);
@@ -192,10 +159,4 @@ export function SettingsPageProvider({ children }: { children: ReactNode }) {
       {children}
     </SettingsPageContext.Provider>
   );
-}
-
-export function useSettingsPage(): SettingsPageContextValue {
-  const ctx = useContext(SettingsPageContext);
-  if (!ctx) throw new Error("useSettingsPage must be used within SettingsPageProvider");
-  return ctx;
 }

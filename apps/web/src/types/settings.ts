@@ -1,0 +1,31 @@
+export type SettingsPageContextValue = {
+  email: string;
+  error: string | null;
+  savingProfile: boolean;
+  savingPassword: boolean;
+  currentPassword: string;
+  newPassword: string;
+  confirmPassword: string;
+  workspaces: Workspace[];
+  newWsName: string;
+  creatingWs: boolean;
+  renamingId: string | null;
+  renameValue: string;
+  savingRename: boolean;
+  onEmailChange: (v: string) => void;
+  onUpdateProfile: () => Promise<void>;
+  onCurrentPasswordChange: (v: string) => void;
+  onNewPasswordChange: (v: string) => void;
+  onConfirmPasswordChange: (v: string) => void;
+  onChangePassword: () => Promise<void>;
+  onNewWsNameChange: (v: string) => void;
+  onCreateWorkspace: () => Promise<void>;
+  onStartRename: (id: string, name: string) => void;
+  onRenameValueChange: (v: string) => void;
+  onCancelRename: () => void;
+  onSaveRename: (id: string) => Promise<void>;
+  onDeleteWorkspace: (id: string) => Promise<void>;
+  onLogout: () => void;
+};
+
+type Workspace = { id: string; name: string; role: string };

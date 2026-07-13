@@ -4,20 +4,7 @@ import type { AgentRun, Conversation, Workspace } from "@/api";
 import { AgentStatusBadge } from "@/components/agents/shared";
 import { ListSkeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
-import { cn } from "@/lib/utils";
-
-function formatSessionDate(iso: string): string {
-  try {
-    return new Date(iso).toLocaleString(undefined, {
-      month: "short",
-      day: "numeric",
-      hour: "2-digit",
-      minute: "2-digit",
-    });
-  } catch {
-    return "";
-  }
-}
+import { cn, formatDate } from "@/lib/utils";
 
 function truncateGoal(goal: string, max = 56): string {
   const t = goal.trim().replace(/\s+/g, " ");
@@ -165,7 +152,7 @@ export function ChatSessionsPanel({
                         <AgentStatusBadge status={run.status} />
                       </div>
                       <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[11px] text-mute">
-                        <span>{formatSessionDate(run.created_at)}</span>
+                        <span>{formatDate(run.created_at)}</span>
                         {run.token_usage != null && (
                           <span className="font-mono">
                             {run.token_usage.toLocaleString()} tok
@@ -222,7 +209,7 @@ export function ChatSessionsPanel({
                         {c.title || "Untitled session"}
                       </div>
                       <div className="mt-0.5 text-[11px] text-mute">
-                        {formatSessionDate(c.created_at)}
+                        {formatDate(c.created_at)}
                       </div>
                     </button>
                     {onDeleteSession && (

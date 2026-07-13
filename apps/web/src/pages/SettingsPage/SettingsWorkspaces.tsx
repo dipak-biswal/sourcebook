@@ -11,7 +11,7 @@ import { Button } from "@/components/ui/button";
 import { FieldError } from "@/components/ui/field-error";
 import { Input } from "@/components/ui/input";
 import { validateWorkspaceName } from "@/lib/validation";
-import { useSettingsPage } from "./SettingsPageContext";
+import { useSettingsPage } from "./settings-page-context";
 
 export function SettingsWorkspaces() {
   const {

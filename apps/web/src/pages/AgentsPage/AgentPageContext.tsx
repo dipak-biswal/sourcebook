@@ -1,8 +1,7 @@
-import { createContext, useContext, useState, type FormEvent, type ReactNode } from "react";
+import { useState, type ReactNode, type SubmitEvent } from "react";
 import { useNavigate } from "react-router-dom";
 import { useQueryClient } from "@tanstack/react-query";
-import { api, type AgentStep } from "@/api";
-import type { AgentRun } from "@/api";
+import { api, type AgentStep, type AgentRun } from "@/api";
 import type { LiveTraceSpan, LlmTraceEvent } from "@/components/agents/AgentRunPanel";
 import { useToast } from "@/components/ui/toast";
 import { useDocumentTitle } from "@/hooks/useDocumentTitle";
@@ -10,51 +9,17 @@ import { confirmAction } from "@/lib/confirm";
 import { formatError } from "@/lib/utils";
 import {
   makeAgentStreamHandlers,
-  makeApprovalHandlers,
   upsertSteps,
   upsertTraceStep,
   makeLlmEndPatch,
 } from "@/hooks/useAgentStream";
 import { useAgentRuns, useNotes, useWorkspaces } from "@/hooks/queries";
-
-type AgentPageContextValue = {
-  workspaces: Workspace[];
-  workspaceId: string;
-  runs: AgentRun[];
-  notes: NoteSummary[];
-  selected: AgentRun | null;
-  selectedId: string;
-  goal: string;
-  error: string | null;
-  running: boolean;
-  approving: boolean;
-  sidebarOpen: boolean;
-  savingNote: boolean;
-  loading: boolean;
-  liveGoal: string | null;
-  liveSteps: AgentStep[];
-  liveTokenUsage: number | null;
-  liveLlmEvents: LlmTraceEvent[];
-  liveTrace: LiveTraceSpan[];
-  onChangeWorkspace: (id: string) => void;
-  onSelectRun: (id: string) => void;
-  onGoalChange: (v: string) => void;
-  onRun: (e: FormEvent) => void;
-  onApprove: (approve: boolean) => void;
-  onDeleteNote: (id: string) => void;
-  onSaveLearningNote: (title: string, body: string) => void;
-  onRefresh: () => void;
-  onToggleSidebar: () => void;
-  onSidebarClose: () => void;
-  onLogout: () => void;
-};
-
-type Workspace = { id: string; name: string };
-type NoteSummary = { id: string; title: string; body: string | null; created_at: string };
-
-const AgentPageContext = createContext<AgentPageContextValue | null>(null);
-
-import { AGENT_EXAMPLE_GOALS } from "@/components/agents/shared";
+import {
+  AgentPageContext,
+  type AgentPageContextValue,
+  type NoteSummary,
+} from "./agent-page-context";
+import { AGENT_EXAMPLE_GOALS } from "@/components/agents/agent-utils";
 
 export function AgentPageProvider({ children }: { children: ReactNode }) {
   const navigate = useNavigate();
@@ -106,7 +71,7 @@ export function AgentPageProvider({ children }: { children: ReactNode }) {
     setLiveTrace([]);
   }
 
-  async function onRun(e: FormEvent) {
+  async function onRun(e: SubmitEvent<HTMLFormElement>) {
     e.preventDefault();
     if (!effectiveWorkspaceId || !goal.trim() || running) return;
     const goalText = goal.trim();
@@ -207,7 +172,7 @@ export function AgentPageProvider({ children }: { children: ReactNode }) {
       const run = await api.approveAgentRunStream(
         selected.id,
         true,
-        makeApprovalHandlers(
+        makeAgentStreamHandlers(
           {
             onLlmStart: (event) => {
               setLiveLlmEvents((prev) => [
@@ -245,6 +210,7 @@ export function AgentPageProvider({ children }: { children: ReactNode }) {
           (final) => {
             setSelected(final);
           },
+          false,
         ),
       );
       if (run) {
@@ -342,10 +308,4 @@ export function AgentPageProvider({ children }: { children: ReactNode }) {
       {children}
     </AgentPageContext.Provider>
   );
-}
-
-export function useAgentPage(): AgentPageContextValue {
-  const ctx = useContext(AgentPageContext);
-  if (!ctx) throw new Error("useAgentPage must be used within AgentPageProvider");
-  return ctx;
 }

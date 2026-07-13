@@ -1,9 +1,8 @@
-import { Navigate } from "react-router-dom";
-import { getToken } from "@/api";
 import { AppHeader } from "@/components/layout/AppHeader";
 import { Alert } from "@/components/ui/alert";
 import { User } from "lucide-react";
-import { SettingsPageProvider, useSettingsPage } from "./SettingsPageContext";
+import { SettingsPageProvider } from "./SettingsPageContext";
+import { useSettingsPage } from "./settings-page-context";
 import { SettingsProfileForm } from "./SettingsProfileForm";
 import { SettingsPasswordForm } from "./SettingsPasswordForm";
 import { SettingsWorkspaces } from "./SettingsWorkspaces";
@@ -42,10 +41,6 @@ function SettingsPageInner() {
 }
 
 export function SettingsPage() {
-  if (!getToken()) {
-    return <Navigate to="/login" replace />;
-  }
-
   return (
     <SettingsPageProvider>
       <SettingsPageInner />

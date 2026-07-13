@@ -1,7 +1,6 @@
-import { Navigate } from "react-router-dom";
-import { getToken } from "@/api";
 import { AppHeader } from "@/components/layout/AppHeader";
-import { DashboardPageProvider, useDashboardPage } from "./DashboardPageContext";
+import { DashboardPageProvider } from "./DashboardPageContext";
+import { useDashboardPage } from "./dashboard-page-context";
 import { DashboardStats } from "./DashboardStats";
 import { DashboardQuickActions } from "./DashboardQuickActions";
 import { DashboardRecentActivity } from "./DashboardRecentActivity";
@@ -45,10 +44,6 @@ function DashboardPageInner() {
 }
 
 export function DashboardPage() {
-  if (!getToken()) {
-    return <Navigate to="/login" replace />;
-  }
-
   return (
     <DashboardPageProvider>
       <DashboardPageInner />

@@ -1,8 +1,8 @@
 import { Loader2, Play } from "lucide-react";
-import { AGENT_EXAMPLE_GOALS } from "@/components/agents/shared";
+import { AGENT_EXAMPLE_GOALS } from "@/components/agents/agent-utils";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { useAgentPage } from "./AgentPageContext";
+import { useAgentPage } from "./agent-page-context";
 
 export function AgentRunForm() {
   const {

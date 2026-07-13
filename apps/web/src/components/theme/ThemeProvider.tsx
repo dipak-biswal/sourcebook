@@ -1,33 +1,11 @@
 import {
-  createContext,
   useCallback,
-  useContext,
   useEffect,
   useMemo,
   useState,
   type ReactNode,
 } from "react";
-
-export type Theme = "light" | "dark";
-
-type ThemeContextValue = {
-  theme: Theme;
-  /** true when following OS preference (no manual override stored) */
-  followsSystem: boolean;
-  toggle: () => void;
-  setTheme: (theme: Theme | "system") => void;
-};
-
-const ThemeContext = createContext<ThemeContextValue>({
-  theme: "light",
-  followsSystem: true,
-  toggle: () => {},
-  setTheme: () => {},
-});
-
-export function useTheme() {
-  return useContext(ThemeContext);
-}
+import { ThemeContext, type Theme } from "./theme-context";
 
 function systemTheme(): Theme {
   return window.matchMedia("(prefers-color-scheme: dark)").matches

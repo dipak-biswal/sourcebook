@@ -1,19 +1,7 @@
 import { Bot, Files, MessageCircle, StickyNote } from "lucide-react";
 import { Link } from "react-router-dom";
-import { useDashboardPage } from "./DashboardPageContext";
-
-function formatDate(iso: string): string {
-  try {
-    return new Date(iso).toLocaleString(undefined, {
-      month: "short",
-      day: "numeric",
-      hour: "2-digit",
-      minute: "2-digit",
-    });
-  } catch {
-    return "";
-  }
-}
+import { useDashboardPage } from "./dashboard-page-context";
+import { formatDate } from "@/lib/utils";
 
 const TYPE_ICONS = {
   document: Files,

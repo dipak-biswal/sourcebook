@@ -1,59 +1,12 @@
-import { createContext, useContext, useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { useNavigate } from "react-router-dom";
 import { api } from "@/api";
-import type { AgentRun, ChatMessage, Conversation, Workspace } from "@/api";
-import type { ChatSessionsPanelProps } from "@/components/chat/ChatSessionsPanel";
 import { useDocumentTitle } from "@/hooks/useDocumentTitle";
-import type { AgentThreadItem, ChatMode } from "./types/types";
 import { useChatSessions } from "./hooks/useChatSessions";
 import { useChatMessages } from "./hooks/useChatMessages";
 import { useAgentThread } from "./hooks/useAgentThread";
-
-type ChatPageContextValue = {
-  mode: ChatMode;
-  input: string;
-  sessionsOpen: boolean;
-  sending: boolean;
-  error: string | null;
-  workspaces: Workspace[];
-  workspaceId: string;
-  conversations: Conversation[];
-  conversationId: string;
-  agentRuns: AgentRun[];
-  agentRunId: string;
-  messages: ChatMessage[];
-  agentThread: AgentThreadItem[];
-  approving: boolean;
-  savingNote: boolean;
-  loadingWs: boolean;
-  loadingSessions: boolean;
-  loadingAgentRuns: boolean;
-  active: Conversation | undefined;
-  activeAgentRun: AgentRun | null;
-  empty: boolean;
-  title: string;
-  subtitle: string;
-  showDelete: boolean;
-  showClear: boolean;
-  loading: boolean;
-  sessionPanelProps: Omit<ChatSessionsPanelProps, "onAfterNavigate"> & { onAfterNavigate: () => void };
-  onSetMode: (m: ChatMode) => void;
-  onChangeWorkspace: (id: string) => void;
-  onSelectSession: (id: string) => void;
-  onNewChat: () => void;
-  onDeleteSession: (id: string) => void;
-  onSelectAgentRun: (id: string) => void;
-  onNewAgent: () => void;
-  onSend: (e?: FormEvent) => void;
-  onApproveAgent: (asstId: string, runId: string, approve: boolean) => void;
-  onSaveLearningNote: (title: string, body: string) => void;
-  onInputChange: (v: string) => void;
-  onToggleSessions: () => void;
-  onCloseSessions: () => void;
-  onLogout: () => void;
-};
-
-const ChatPageContext = createContext<ChatPageContextValue | null>(null);
+import { formatDate } from "@/lib/utils";
+import { ChatPageContext } from "./chat-page-context";
 
 const MODE_KEY = "sourcebook_chat_mode";
 
@@ -65,19 +18,6 @@ function readMode(): ChatMode {
     /* ignore */
   }
   return "chat";
-}
-
-function formatDate(iso: string): string {
-  try {
-    return new Date(iso).toLocaleString(undefined, {
-      month: "short",
-      day: "numeric",
-      hour: "2-digit",
-      minute: "2-digit",
-    });
-  } catch {
-    return "";
-  }
 }
 
 export function ChatPageProvider({ children }: { children: ReactNode }) {
@@ -267,10 +207,4 @@ export function ChatPageProvider({ children }: { children: ReactNode }) {
       {children}
     </ChatPageContext.Provider>
   );
-}
-
-export function useChatPage(): ChatPageContextValue {
-  const ctx = useContext(ChatPageContext);
-  if (!ctx) throw new Error("useChatPage must be used within ChatPageProvider");
-  return ctx;
 }

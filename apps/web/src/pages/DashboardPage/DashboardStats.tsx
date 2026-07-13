@@ -1,5 +1,5 @@
 import { Bot, Files, MessageCircle, StickyNote } from "lucide-react";
-import { useDashboardPage } from "./DashboardPageContext";
+import { useDashboardPage } from "./dashboard-page-context";
 
 const STATS = [
   { key: "documents", icon: Files, label: "Documents", color: "text-blue-500" },

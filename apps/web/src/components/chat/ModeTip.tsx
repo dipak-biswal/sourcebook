@@ -1,18 +1,18 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { Bot, MessageCircle, X } from "lucide-react";
 
 const KEY = "sourcebook_chat_mode_tip_dismissed";
 
-export function ModeTip() {
-  const [visible, setVisible] = useState(false);
+function isTipVisible(): boolean {
+  try {
+    return localStorage.getItem(KEY) !== "1";
+  } catch {
+    return true;
+  }
+}
 
-  useEffect(() => {
-    try {
-      if (localStorage.getItem(KEY) !== "1") setVisible(true);
-    } catch {
-      setVisible(true);
-    }
-  }, []);
+export function ModeTip() {
+  const [visible, setVisible] = useState(isTipVisible);
 
   if (!visible) return null;
 

@@ -1,23 +1,11 @@
 import { Bot, RefreshCw, StickyNote, Trash2 } from "lucide-react";
 import { Link } from "react-router-dom";
-import { agentStatusVariant } from "@/components/agents/shared";
+import { agentStatusVariant } from "@/components/agents/agent-utils";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { ListSkeleton } from "@/components/ui/skeleton";
-import { useAgentPage } from "./AgentPageContext";
-
-function formatWhen(iso: string): string {
-  try {
-    return new Date(iso).toLocaleString(undefined, {
-      month: "short",
-      day: "numeric",
-      hour: "2-digit",
-      minute: "2-digit",
-    });
-  } catch {
-    return iso;
-  }
-}
+import { formatDate } from "@/lib/utils";
+import { useAgentPage } from "./agent-page-context";
 
 export function AgentSidebar() {
   const {
@@ -110,7 +98,7 @@ export function AgentSidebar() {
                       {r.status}
                     </Badge>
                     <span className="text-[11px] text-mute">
-                      {formatWhen(r.created_at)}
+                      {formatDate(r.created_at)}
                     </span>
                   </div>
                 </button>
@@ -149,7 +137,7 @@ export function AgentSidebar() {
                       {n.body || "—"}
                     </div>
                     <div className="mt-1 text-[11px] text-mute">
-                      {formatWhen(n.created_at)}
+                      {formatDate(n.created_at)}
                     </div>
                   </div>
                   <button

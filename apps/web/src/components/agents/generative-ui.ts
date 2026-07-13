@@ -1,0 +1,173 @@
+export type GenUIBlock = {
+  type: string;
+  title?: string | null;
+  body?: string | null;
+  items?: string[] | null;
+  terms?: { term: string; definition: string }[] | null;
+  faqs?: { question: string; answer: string }[] | null;
+  source_indices?: number[] | null;
+};
+
+export type GenUISource = {
+  index: number;
+  chunk_id?: string;
+  document_id?: string;
+  filename?: string | null;
+  score?: number | null;
+  snippet?: string;
+};
+
+export type GenerativeUIPayload = {
+  type: "generative_ui";
+  title: string;
+  plain_summary?: string;
+  blocks?: GenUIBlock[];
+  source_files?: string[];
+  sources?: GenUISource[];
+  document_id?: string | null;
+  document_filename?: string | null;
+};
+
+export function isGenerativeUI(value: unknown): value is GenerativeUIPayload {
+  if (!value || typeof value !== "object") return false;
+  const v = value as Record<string, unknown>;
+  return v.type === "generative_ui" && typeof v.title === "string";
+}
+
+function asStringList(value: unknown): string[] {
+  if (!value) return [];
+  if (typeof value === "string") return value.trim() ? [value.trim()] : [];
+  if (!Array.isArray(value)) return [];
+  const out: string[] = [];
+  for (const x of value) {
+    if (typeof x === "string" && x.trim()) out.push(x.trim());
+    else if (x && typeof x === "object") {
+      const o = x as Record<string, unknown>;
+      for (const k of ["text", "point", "item", "content", "value"]) {
+        if (typeof o[k] === "string" && (o[k] as string).trim()) {
+          out.push((o[k] as string).trim());
+          break;
+        }
+      }
+    }
+  }
+  return out;
+}
+
+export function normalizeGenerativeUI(raw: GenerativeUIPayload): GenerativeUIPayload {
+  const blocks = (raw.blocks ?? []).map((b) => {
+    const anyB = b as GenUIBlock & Record<string, unknown>;
+    const body =
+      b.body ||
+      (typeof anyB.content === "string" ? anyB.content : null) ||
+      (typeof anyB.text === "string" ? anyB.text : null) ||
+      (typeof anyB.description === "string" ? anyB.description : null);
+
+    const items =
+      (b.items && b.items.length ? b.items : null) ||
+      asStringList(anyB.points) ||
+      asStringList(anyB.bullets) ||
+      asStringList(anyB.key_points) ||
+      asStringList(anyB.steps) ||
+      undefined;
+
+    let terms = b.terms;
+    if ((!terms || !terms.length) && Array.isArray(anyB.glossary)) {
+      terms = (anyB.glossary as Record<string, unknown>[])
+        .map((t) => ({
+          term: String(t.term ?? t.name ?? t.word ?? ""),
+          definition: String(
+            t.definition ?? t.meaning ?? t.description ?? "",
+          ),
+        }))
+        .filter((t) => t.term && t.definition);
+    }
+
+    let faqs = b.faqs;
+    if ((!faqs || !faqs.length) && Array.isArray(anyB.questions)) {
+      faqs = (anyB.questions as Record<string, unknown>[])
+        .map((f) => ({
+          question: String(f.question ?? f.q ?? ""),
+          answer: String(f.answer ?? f.a ?? ""),
+        }))
+        .filter((f) => f.question && f.answer);
+    }
+
+    return {
+      ...b,
+      body: body || b.body,
+      items: items && items.length ? items : b.items,
+      terms: terms && terms.length ? terms : b.terms,
+      faqs: faqs && faqs.length ? faqs : b.faqs,
+    };
+  });
+
+  const filled = blocks.filter(
+    (b) =>
+      !!(
+        (b.body && b.body.trim()) ||
+        (b.items && b.items.length) ||
+        (b.terms && b.terms.length) ||
+        (b.faqs && b.faqs.length)
+      ),
+  );
+
+  return {
+    ...raw,
+    plain_summary:
+      raw.plain_summary ||
+      (typeof (raw as { summary?: string }).summary === "string"
+        ? (raw as { summary?: string }).summary
+        : undefined),
+    blocks: filled.length ? filled : blocks,
+  };
+}
+
+export function extractGenerativeUIFromSteps(
+  steps: { type: string; tool_name?: string | null; output?: unknown }[],
+): GenerativeUIPayload | null {
+  for (let i = steps.length - 1; i >= 0; i--) {
+    const s = steps[i];
+    const out = s.output;
+    if (isGenerativeUI(out)) return normalizeGenerativeUI(out);
+    if (typeof out === "string") {
+      try {
+        const parsed = JSON.parse(out) as unknown;
+        if (isGenerativeUI(parsed)) return normalizeGenerativeUI(parsed);
+      } catch {
+        /* ignore */
+      }
+    }
+  }
+  return null;
+}
+
+export function generativeUIToNoteBody(payload: GenerativeUIPayload): string {
+  const lines: string[] = [`# ${payload.title}`];
+  if (payload.document_filename) {
+    lines.push(`_Source: ${payload.document_filename}_`);
+  }
+  if (payload.plain_summary) {
+    lines.push("", payload.plain_summary);
+  }
+  for (const b of payload.blocks ?? []) {
+    const t = b.title || b.type.replace(/_/g, " ");
+    lines.push("", `## ${t}`);
+    if (b.body) lines.push(b.body);
+    for (const item of b.items ?? []) lines.push(`- ${item}`);
+    for (const term of b.terms ?? []) {
+      lines.push(`- **${term.term}**: ${term.definition}`);
+    }
+    for (const f of b.faqs ?? []) {
+      lines.push(`**Q: ${f.question}**`, `A: ${f.answer}`);
+    }
+    const idxs = b.source_indices ?? [];
+    if (idxs.length) {
+      lines.push(`_Sources: ${idxs.map((i) => `[${i}]`).join(", ")}_`);
+    }
+  }
+  if (payload.source_files?.length) {
+    lines.push("", `_Files: ${payload.source_files.join(", ")}_`);
+  }
+  return lines.join("\n").trim();
+}

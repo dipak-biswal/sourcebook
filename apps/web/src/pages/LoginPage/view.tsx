@@ -9,22 +9,7 @@ import { FieldError } from "@/components/ui/field-error";
 import { Input } from "@/components/ui/input";
 import { validateEmail, validatePassword } from "@/lib/validation";
 
-export type LoginPageViewProps = {
-  error: string | null;
-  busy: boolean;
-  devInfo: DevUserList | null;
-  devError: string | null;
-  devBusy: boolean;
-  email: string;
-  password: string;
-  onEmailChange: (v: string) => void;
-  onPasswordChange: (v: string) => void;
-  onSubmit: (e: FormEvent, mode: "login" | "register") => void;
-  onFillLogin: (email: string, password: string | null) => void;
-  onSetPassword: (email: string) => void;
-  onSetAllPasswords: () => void;
-  onLoadDevUsers: () => void;
-};
+import type { LoginPageViewProps } from "@/types/page-props";
 
 export function LoginPageView({
   error,

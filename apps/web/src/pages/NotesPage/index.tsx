@@ -1,8 +1,7 @@
-import { Navigate } from "react-router-dom";
-import { getToken } from "@/api";
 import { AppHeader } from "@/components/layout/AppHeader";
 import { Alert } from "@/components/ui/alert";
-import { NotesPageProvider, useNotesPage } from "./NotesPageContext";
+import { NotesPageProvider } from "./NotesPageContext";
+import { useNotesPage } from "./notes-page-context";
 import { NotesSidebar } from "./NotesSidebar";
 import { NoteEditor } from "./NoteEditor";
 
@@ -32,10 +31,6 @@ function NotesPageInner() {
 }
 
 export function NotesPage() {
-  if (!getToken()) {
-    return <Navigate to="/login" replace />;
-  }
-
   return (
     <NotesPageProvider>
       <NotesPageInner />

@@ -1,19 +1,7 @@
-import { createContext, useContext, type ReactNode } from "react";
+import { type ReactNode } from "react";
 import { useNavigate } from "react-router-dom";
 import { useDocuments, useConversations, useAgentRuns, useNotes, useWorkspaces, useMe } from "@/hooks/queries";
-
-type DashboardPageContextValue = {
-  workspaces: Workspace[];
-  workspaceId: string;
-  documentsCount: number;
-  conversationsCount: number;
-  agentRunsCount: number;
-  notesCount: number;
-  loading: boolean;
-  userEmail: string;
-  recent: RecentItem[];
-  onLogout: () => void;
-};
+import { DashboardPageContext, type DashboardPageContextValue } from "./dashboard-page-context";
 
 type Workspace = { id: string; name: string; role: string };
 
@@ -25,8 +13,6 @@ type RecentItem = {
   href: string;
   created_at: string;
 };
-
-const DashboardPageContext = createContext<DashboardPageContextValue | null>(null);
 
 export function DashboardPageProvider({ children }: { children: ReactNode }) {
   const navigate = useNavigate();
@@ -93,10 +79,4 @@ export function DashboardPageProvider({ children }: { children: ReactNode }) {
       {children}
     </DashboardPageContext.Provider>
   );
-}
-
-export function useDashboardPage(): DashboardPageContextValue {
-  const ctx = useContext(DashboardPageContext);
-  if (!ctx) throw new Error("useDashboardPage must be used within DashboardPageProvider");
-  return ctx;
 }

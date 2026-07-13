@@ -1,26 +1,10 @@
 import { FileText, Upload } from "lucide-react";
-import type { Document, Workspace } from "@/api";
 import { AppHeader } from "@/components/layout/AppHeader";
 import { DocumentsSidebar } from "@/components/layout/DocumentsSidebar";
 import { Alert } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 
-export type DocumentsPageViewProps = {
-  workspaces: Workspace[];
-  workspaceId: string;
-  docs: Document[];
-  error: string | null;
-  uploading: boolean;
-  ingestingId: string | null;
-  ingestProgress: string | null;
-  loading: boolean;
-  onChangeWorkspace: (id: string) => void;
-  onUpload: (file: File) => void;
-  onDelete: (id: string) => void;
-  onIngest: (id: string) => void;
-  onNavigateToChat: () => void;
-  onLogout: () => void;
-};
+import type { DocumentsPageViewProps } from "@/types/page-props";
 
 export function DocumentsPageView({
   workspaces,

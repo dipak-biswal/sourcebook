@@ -73,12 +73,21 @@ export type Conversation = {
   created_at: string;
 };
 
+export type Citation = {
+  index?: number;
+  chunk_id?: string;
+  document_id?: string;
+  filename?: string | null;
+  score?: number;
+  snippet?: string;
+};
+
 export type ChatMessage = {
   id: string;
   conversation_id: string;
   role: string;
   content: string;
-  citations?: unknown;
+  citations?: Citation[];
   created_at: string;
 };
 
@@ -95,78 +104,83 @@ export type StreamChatHandlers = {
   onError?: (detail: string) => void;
 };
 
+const SSE_TIMEOUT_MS = 30_000;
+
+async function consumeSSE(url: string, body: Record<string, unknown>, onEvent: (payload: Record<string, unknown>) => void): Promise<void> {
+  const token = getToken();
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), SSE_TIMEOUT_MS);
+  try {
+    const res = await fetch(`${API_URL}${url}`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      },
+      body: JSON.stringify(body),
+      signal: controller.signal,
+    });
+    if (!res.ok) {
+      const text = await res.text();
+      throw new Error(text || res.statusText);
+    }
+    if (!res.body) throw new Error("No response body for stream");
+
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = "";
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+
+      const parts = buffer.split("\n\n");
+      buffer = parts.pop() ?? "";
+
+      for (const part of parts) {
+        const line = part
+          .split("\n")
+          .map((l) => l.trim())
+          .find((l) => l.startsWith("data:"));
+        if (!line) continue;
+        const raw = line.replace(/^data:\s*/, "");
+        if (!raw || raw === "[DONE]") continue;
+
+        let payload: Record<string, unknown>;
+        try {
+          payload = JSON.parse(raw) as Record<string, unknown>;
+        } catch {
+          continue;
+        }
+        onEvent(payload);
+      }
+    }
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 /** Consume POST /chat/stream (SSE). */
 export async function streamChat(
   conversationId: string,
   message: string,
   handlers: StreamChatHandlers = {},
 ): Promise<void> {
-  const token = getToken();
-  const res = await fetch(`${API_URL}/chat/stream`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-    },
-    body: JSON.stringify({
-      conversation_id: conversationId,
-      message,
-    }),
-  });
-
-  if (!res.ok) {
-    const text = await res.text();
-    throw new Error(text || res.statusText);
-  }
-  if (!res.body) {
-    throw new Error("No response body for stream");
-  }
-
-  const reader = res.body.getReader();
-  const decoder = new TextDecoder();
-  let buffer = "";
-
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    buffer += decoder.decode(value, { stream: true });
-
-    const parts = buffer.split("\n\n");
-    buffer = parts.pop() ?? "";
-
-    for (const part of parts) {
-      const line = part
-        .split("\n")
-        .map((l) => l.trim())
-        .find((l) => l.startsWith("data:"));
-      if (!line) continue;
-      const raw = line.replace(/^data:\s*/, "");
-      if (!raw || raw === "[DONE]") continue;
-
-      let payload: {
-        type?: string;
-        content?: string;
-        citations?: Array<Record<string, unknown>>;
-        detail?: string;
-      };
-      try {
-        payload = JSON.parse(raw) as typeof payload;
-      } catch {
-        continue;
-      }
-
-      if (payload.type === "token" && payload.content) {
-        handlers.onToken?.(payload.content);
-      } else if (payload.type === "citations" && payload.citations) {
-        handlers.onCitations?.(payload.citations);
-      } else if (payload.type === "done") {
-        handlers.onDone?.();
-      } else if (payload.type === "error") {
-        handlers.onError?.(payload.detail || "Stream error");
-        throw new Error(payload.detail || "Stream error");
-      }
+  await consumeSSE("/chat/stream", { conversation_id: conversationId, message }, (payload) => {
+    const type = String(payload.type || "");
+    if (type === "token" && payload.content) {
+      handlers.onToken?.(String(payload.content));
+    } else if (type === "citations" && payload.citations) {
+      handlers.onCitations?.(payload.citations as Array<Record<string, unknown>>);
+    } else if (type === "done") {
+      handlers.onDone?.();
+    } else if (type === "error") {
+      const detail = String(payload.detail || "Stream error");
+      handlers.onError?.(detail);
+      throw new Error(detail);
     }
-  }
+  });
 }
 
 export const api = {
@@ -436,84 +450,44 @@ async function streamAgentRun(
   body: Record<string, unknown>,
   handlers: AgentStreamHandlers,
 ): Promise<AgentRun | null> {
-  const token = getToken();
-  const res = await fetch(`${API_URL}${path}`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-    },
-    body: JSON.stringify(body),
-  });
-  if (!res.ok) {
-    const text = await res.text();
-    throw new Error(text || res.statusText);
-  }
-  if (!res.body) throw new Error("No response body for agent stream");
-
-  const reader = res.body.getReader();
-  const decoder = new TextDecoder();
-  let buffer = "";
   let finalRun: AgentRun | null = null;
-
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    buffer += decoder.decode(value, { stream: true });
-    const parts = buffer.split("\n\n");
-    buffer = parts.pop() ?? "";
-
-    for (const part of parts) {
-      const line = part
-        .split("\n")
-        .map((l) => l.trim())
-        .find((l) => l.startsWith("data:"));
-      if (!line) continue;
-      const raw = line.replace(/^data:\s*/, "");
-      if (!raw) continue;
-      let payload: Record<string, unknown>;
-      try {
-        payload = JSON.parse(raw) as Record<string, unknown>;
-      } catch {
-        continue;
-      }
-      const type = String(payload.type || "");
-      if (type === "run_start") {
-        handlers.onRunStart?.({
-          run_id: payload.run_id as string | undefined,
-          goal: payload.goal as string | undefined,
-          status: payload.status as string | undefined,
-        });
-      } else if (type === "llm_start") {
-        handlers.onLlmStart?.(payload);
-      } else if (type === "llm_end") {
-        handlers.onLlmEnd?.({
-          duration_ms: payload.duration_ms as number | undefined,
-          prompt_tokens: payload.prompt_tokens as number | undefined,
-          completion_tokens: payload.completion_tokens as number | undefined,
-          total_tokens: payload.total_tokens as number | undefined,
-          token_usage_so_far: payload.token_usage_so_far as number | undefined,
-          has_tool_calls: payload.has_tool_calls as boolean | undefined,
-        });
-      } else if (type === "step" && payload.step) {
-        handlers.onStep?.(payload.step as AgentStep);
-      } else if (type === "status") {
-        handlers.onStatus?.({
-          status: payload.status as string | undefined,
-          token_usage: (payload.token_usage as number | null | undefined) ?? null,
-          final_answer: (payload.final_answer as string | null | undefined) ?? null,
-          pending_tool: payload.pending_tool as AgentRun["pending_tool"],
-        });
-      } else if (type === "done" && payload.run) {
-        finalRun = payload.run as AgentRun;
-        handlers.onDone?.(finalRun);
-      } else if (type === "error") {
-        const detail = String(payload.detail || "Agent stream error");
-        handlers.onError?.(detail);
-        throw new Error(detail);
-      }
+  await consumeSSE(path, body, (payload) => {
+    const type = String(payload.type || "");
+    if (type === "run_start") {
+      handlers.onRunStart?.({
+        run_id: payload.run_id as string | undefined,
+        goal: payload.goal as string | undefined,
+        status: payload.status as string | undefined,
+      });
+    } else if (type === "llm_start") {
+      handlers.onLlmStart?.(payload);
+    } else if (type === "llm_end") {
+      handlers.onLlmEnd?.({
+        duration_ms: payload.duration_ms as number | undefined,
+        prompt_tokens: payload.prompt_tokens as number | undefined,
+        completion_tokens: payload.completion_tokens as number | undefined,
+        total_tokens: payload.total_tokens as number | undefined,
+        token_usage_so_far: payload.token_usage_so_far as number | undefined,
+        has_tool_calls: payload.has_tool_calls as boolean | undefined,
+      });
+    } else if (type === "step" && payload.step) {
+      handlers.onStep?.(payload.step as AgentStep);
+    } else if (type === "status") {
+      handlers.onStatus?.({
+        status: payload.status as string | undefined,
+        token_usage: (payload.token_usage as number | null | undefined) ?? null,
+        final_answer: (payload.final_answer as string | null | undefined) ?? null,
+        pending_tool: payload.pending_tool as AgentRun["pending_tool"],
+      });
+    } else if (type === "done" && payload.run) {
+      finalRun = payload.run as AgentRun;
+      handlers.onDone?.(finalRun);
+    } else if (type === "error") {
+      const detail = String(payload.detail || "Agent stream error");
+      handlers.onError?.(detail);
+      throw new Error(detail);
     }
-  }
+  });
   return finalRun;
 }
 

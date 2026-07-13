@@ -1,22 +1,8 @@
 import { AgentRunPanel } from "@/components/agents/AgentRunPanel";
-import {
-  extractGenerativeUIFromSteps,
-  GenerativeUIView,
-} from "@/components/agents/GenerativeUI";
-import { useAgentPage } from "./AgentPageContext";
-
-function formatWhen(iso: string): string {
-  try {
-    return new Date(iso).toLocaleString(undefined, {
-      month: "short",
-      day: "numeric",
-      hour: "2-digit",
-      minute: "2-digit",
-    });
-  } catch {
-    return iso;
-  }
-}
+import { GenerativeUIView } from "@/components/agents/GenerativeUI";
+import { extractGenerativeUIFromSteps } from "@/components/agents/generative-ui";
+import { formatDate } from "@/lib/utils";
+import { useAgentPage } from "./agent-page-context";
 
 export function AgentRunDisplay() {
   const {
@@ -92,7 +78,7 @@ export function AgentRunDisplay() {
       {selected && !running && (
         <div className="rounded-vercel-md border border-hairline bg-canvas p-4">
           <div className="text-xs text-mute">
-            {formatWhen(selected.created_at)}
+            {formatDate(selected.created_at)}
           </div>
           <div className="mt-1 text-sm font-medium text-ink">
             {selected.goal}

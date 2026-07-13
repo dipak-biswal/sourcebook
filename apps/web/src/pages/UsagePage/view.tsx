@@ -1,32 +1,12 @@
 import { Activity, Loader2, RefreshCw } from "lucide-react";
-import type { UsageSummary } from "@/api";
 import { AppHeader } from "@/components/layout/AppHeader";
 import { Alert } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { CardSkeleton } from "@/components/ui/skeleton";
+import { formatDateTime } from "@/lib/utils";
 
-export type UsagePageViewProps = {
-  data: UsageSummary | null;
-  error: string | null;
-  loading: boolean;
-  onRefresh: () => void;
-  onLogout: () => void;
-};
-
-function formatWhen(iso: string): string {
-  try {
-    return new Date(iso).toLocaleString(undefined, {
-      month: "short",
-      day: "numeric",
-      hour: "2-digit",
-      minute: "2-digit",
-      second: "2-digit",
-    });
-  } catch {
-    return iso;
-  }
-}
+import type { UsagePageViewProps } from "@/types/page-props";
 
 export function UsagePageView({
   data,
@@ -161,7 +141,7 @@ export function UsagePageView({
                               className="border-b border-hairline last:border-0"
                             >
                               <td className="px-4 py-2.5 text-body whitespace-nowrap">
-                                {formatWhen(row.created_at)}
+                                {formatDateTime(row.created_at)}
                               </td>
                               <td className="px-4 py-2.5 text-ink">
                                 {row.kind}

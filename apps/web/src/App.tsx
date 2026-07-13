@@ -5,6 +5,7 @@ import { ThemeProvider } from "@/components/theme/ThemeProvider";
 import { ToastProvider } from "@/components/ui/toast";
 import { ErrorBoundary } from "@/components/ui/error-boundary";
 import { ConfirmProvider } from "@/components/ui/confirm-dialog";
+import { ProtectedRoute } from "@/components/layout/ProtectedRoute";
 
 const queryClient = new QueryClient({
   defaultOptions: { queries: { retry: 1, staleTime: 30_000 } },
@@ -32,16 +33,18 @@ export default function App() {
           <ErrorBoundary>
             <ConfirmProvider>
               <Routes>
-                <Route path="/" element={<DashboardPage />} />
                 <Route path="/login" element={<LoginPage />} />
-                <Route path="/chat" element={<ChatPage />} />
-                <Route path="/documents" element={<DocumentsPage />} />
-              <Route path="/usage" element={<UsagePage />} />
-              <Route path="/agents" element={<AgentsPage />} />
-              <Route path="/settings" element={<SettingsPage />} />
-              <Route path="/notes" element={<NotesPage />} />
-              <Route path="/notes/:noteId" element={<NotesPage />} />
-              <Route path="*" element={<HomeRedirect />} />
+                <Route element={<ProtectedRoute />}>
+                  <Route path="/" element={<DashboardPage />} />
+                  <Route path="/chat" element={<ChatPage />} />
+                  <Route path="/documents" element={<DocumentsPage />} />
+                  <Route path="/usage" element={<UsagePage />} />
+                  <Route path="/agents" element={<AgentsPage />} />
+                  <Route path="/settings" element={<SettingsPage />} />
+                  <Route path="/notes" element={<NotesPage />} />
+                  <Route path="/notes/:noteId" element={<NotesPage />} />
+                </Route>
+                <Route path="*" element={<HomeRedirect />} />
               </Routes>
             </ConfirmProvider>
           </ErrorBoundary>

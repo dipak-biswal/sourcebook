@@ -76,8 +76,9 @@ export function upsertTraceStep(
 export function makeAgentStreamHandlers(
   cb: AgentLiveCallbacks,
   onDoneExtra?: (run: AgentRun) => void,
+  includeStatus = true,
 ): AgentStreamHandlers {
-  return {
+  const base: AgentStreamHandlers = {
     onLlmStart: () => {
       cb.onLlmStart(createAgentLlmEvent());
     },
@@ -90,38 +91,17 @@ export function makeAgentStreamHandlers(
     onStep: (step) => {
       cb.onStep(step);
     },
-    onStatus: (p) => {
+    onDone: (final) => {
+      onDoneExtra?.(final);
+    },
+    onError: () => {},
+  };
+  if (includeStatus) {
+    base.onStatus = (p) => {
       if (p.token_usage != null) cb.onTokenUsage(p.token_usage);
-    },
-    onDone: (final) => {
-      onDoneExtra?.(final);
-    },
-    onError: () => {},
-  };
-}
-
-export function makeApprovalHandlers(
-  cb: AgentLiveCallbacks,
-  onDoneExtra?: (run: AgentRun) => void,
-): AgentStreamHandlers {
-  return {
-    onLlmStart: () => {
-      cb.onLlmStart(createAgentLlmEvent());
-    },
-    onLlmEnd: (p) => {
-      cb.onLlmEnd(p);
-      if (p.token_usage_so_far != null) {
-        cb.onTokenUsage(p.token_usage_so_far);
-      }
-    },
-    onStep: (step) => {
-      cb.onStep(step);
-    },
-    onDone: (final) => {
-      onDoneExtra?.(final);
-    },
-    onError: () => {},
-  };
+    };
+  }
+  return base;
 }
 
 export { api };

@@ -167,10 +167,6 @@ export function AppHeader({
   const [menuOpen, setMenuOpen] = useState(false);
 
   useEffect(() => {
-    setMenuOpen(false);
-  }, [location.pathname]);
-
-  useEffect(() => {
     if (!menuOpen) return;
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") setMenuOpen(false);
@@ -251,6 +247,7 @@ export function AppHeader({
               <Link
                 key={to}
                 to={to}
+                onClick={() => setMenuOpen(false)}
                 className={cn(navClass(match), "w-full py-2.5")}
               >
                 <Icon className="h-4 w-4 shrink-0" strokeWidth={1.5} />

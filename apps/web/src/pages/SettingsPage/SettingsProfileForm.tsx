@@ -4,7 +4,7 @@ import { Button } from "@/components/ui/button";
 import { FieldError } from "@/components/ui/field-error";
 import { Input } from "@/components/ui/input";
 import { validateEmail } from "@/lib/validation";
-import { useSettingsPage } from "./SettingsPageContext";
+import { useSettingsPage } from "./settings-page-context";
 
 export function SettingsProfileForm() {
   const { email, savingProfile, onEmailChange, onUpdateProfile } = useSettingsPage();

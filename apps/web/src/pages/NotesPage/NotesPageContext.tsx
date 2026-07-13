@@ -1,4 +1,4 @@
-import { createContext, useContext, useState, type ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { useQueryClient } from "@tanstack/react-query";
 import { api, type Note } from "@/api";
@@ -7,24 +7,7 @@ import { useDocumentTitle } from "@/hooks/useDocumentTitle";
 import { confirmAction } from "@/lib/confirm";
 import { formatError } from "@/lib/utils";
 import { useNote, useNotes, useWorkspaces } from "@/hooks/queries";
-
-type NotesPageContextValue = {
-  workspaces: Workspace[];
-  workspaceId: string;
-  notes: Note[];
-  selected: Note | null;
-  error: string | null;
-  saving: boolean;
-  onChangeWorkspace: (id: string) => void;
-  onSelect: (note: Note) => void;
-  onSave: (title: string, body: string) => void;
-  onDelete: (id: string) => void;
-  onLogout: () => void;
-};
-
-type Workspace = { id: string; name: string };
-
-const NotesPageContext = createContext<NotesPageContextValue | null>(null);
+import { NotesPageContext } from "./notes-page-context";
 
 export function NotesPageProvider({ children }: { children: ReactNode }) {
   const navigate = useNavigate();
@@ -99,10 +82,4 @@ export function NotesPageProvider({ children }: { children: ReactNode }) {
       {children}
     </NotesPageContext.Provider>
   );
-}
-
-export function useNotesPage(): NotesPageContextValue {
-  const ctx = useContext(NotesPageContext);
-  if (!ctx) throw new Error("useNotesPage must be used within NotesPageProvider");
-  return ctx;
 }

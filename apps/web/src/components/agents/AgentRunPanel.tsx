@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import {
   Activity,
   Brain,
@@ -16,12 +16,9 @@ import {
   XCircle,
 } from "lucide-react";
 import type { AgentRun, AgentStep } from "@/api";
-import { isGenerativeUI } from "@/components/agents/GenerativeUI";
-import {
-  AgentApprovalCard,
-  AgentStatusBadge,
-  prettyJson,
-} from "@/components/agents/shared";
+import { isGenerativeUI } from "@/components/agents/generative-ui";
+import { AgentApprovalCard, AgentStatusBadge } from "@/components/agents/shared";
+import { prettyJson } from "@/components/agents/agent-utils";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 
@@ -379,10 +376,6 @@ export function AgentRunPanel({
 
   const isLive = !!pending;
   const open = isLive && forceOpenWhilePending ? true : showRun;
-
-  useEffect(() => {
-    if (isLive && forceOpenWhilePending) setShowRun(true);
-  }, [isLive, forceOpenWhilePending]);
 
   function toggle() {
     if (isLive) return;
