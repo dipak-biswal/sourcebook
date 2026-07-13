@@ -27,12 +27,12 @@ type AppHeaderProps = {
 const PRIMARY_NAV = [
   { to: "/chat", label: "Chat", icon: MessageCircle, match: "/chat" },
   { to: "/agents", label: "Agents", icon: Bot, match: "/agents" },
+  { to: "/documents", label: "Documents", icon: Files, match: "/documents" },
+  { to: "/notes", label: "Notes", icon: StickyNote, match: "/notes" },
 ] as const;
 
 const MORE_NAV = [
   { to: "/", label: "Dashboard", icon: LayoutDashboard, match: "/" },
-  { to: "/documents", label: "Documents", icon: Files, match: "/documents" },
-  { to: "/notes", label: "Notes", icon: StickyNote, match: "/notes" },
   { to: "/usage", label: "Usage", icon: Activity, match: "/usage" },
   { to: "/settings", label: "Settings", icon: User, match: "/settings" },
 ] as const;
@@ -241,7 +241,7 @@ function MobileNavMenu({
         </nav>
 
         <p className="mt-4 px-3 pb-1 text-[10px] font-medium uppercase tracking-wide text-mute">
-          Workspace
+          More
         </p>
         <nav className="flex flex-col gap-0.5">
           {MORE_NAV.map((item) => (
@@ -321,11 +321,17 @@ export function AppHeader({
 
         <div className="flex items-center gap-1 sm:gap-1.5">
           {showAuthActions && authed && (
-            <nav className="mr-1 hidden items-center gap-0.5 md:flex">
+            <nav className="mr-1 hidden items-center gap-0.5 md:flex" aria-label="Main">
               {PRIMARY_NAV.map(({ to, label, icon: Icon, match }) => (
-                <Link key={to} to={to} className={navClass(match)}>
+                <Link
+                  key={to}
+                  to={to}
+                  className={navClass(match)}
+                  title={label}
+                  aria-label={label}
+                >
                   <Icon className="h-3.5 w-3.5 shrink-0" strokeWidth={1.5} />
-                  {label}
+                  <span className="hidden lg:inline">{label}</span>
                 </Link>
               ))}
             </nav>

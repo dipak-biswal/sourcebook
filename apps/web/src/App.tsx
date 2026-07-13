@@ -7,6 +7,7 @@ import { ToastProvider } from "@/components/ui/toast";
 import { ErrorBoundary } from "@/components/ui/error-boundary";
 import { ConfirmProvider } from "@/components/ui/confirm-dialog";
 import { ProtectedRoute } from "@/components/layout/ProtectedRoute";
+import { PageLoadingFallback } from "@/components/layout/PageLoadingFallback";
 
 const queryClient = new QueryClient({
   defaultOptions: { queries: { retry: 1, staleTime: 30_000 } },
@@ -34,7 +35,7 @@ export default function App() {
           <SkipLink />
           <ErrorBoundary>
               <ConfirmProvider>
-                <Suspense fallback={null}>
+                <Suspense fallback={<PageLoadingFallback />}>
                   <Routes>
                 <Route path="/login" element={<LoginPage />} />
                 <Route element={<ProtectedRoute />}>
