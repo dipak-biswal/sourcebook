@@ -6,6 +6,7 @@ import { useToast } from "@/components/ui/toast";
 import { useDocumentTitle } from "@/hooks/useDocumentTitle";
 import { useMe, useWorkspaces } from "@/hooks/queries";
 import { confirmAction } from "@/lib/confirm";
+import { readLastWorkspaceId } from "@/lib/last-workspace";
 import { formatError } from "@/lib/utils";
 import type { SettingsPageContextValue } from "@/types/settings";
 import { SettingsPageContext } from "./settings-page-context";
@@ -126,6 +127,13 @@ export function SettingsPageProvider({ children }: { children: ReactNode }) {
     setError(null);
     try {
       await api.deleteWorkspace(id);
+      if (readLastWorkspaceId() === id) {
+        try {
+          localStorage.removeItem("sourcebook_last_workspace_id");
+        } catch {
+          /* ignore */
+        }
+      }
       success("Workspace deleted");
       invalidateWorkspaces();
     } catch (err) {

@@ -1,11 +1,16 @@
 import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, status
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from app.db import get_db
 from app.deps import get_current_user
+from app.logging_config import get_logger
 from app.models import User, Workspace, WorkspaceMember
+from app.workspaces.delete import purge_workspace
+
+logger = get_logger("sourcebook.workspaces")
 from app.schemas import (
     ChangePasswordRequest,
     UpdateProfileRequest,
@@ -136,6 +141,17 @@ def delete_workspace(
     workspace = db.get(Workspace, workspace_id)
     if not workspace:
         raise HTTPException(status_code=404, detail="Workspace not found")
-    db.delete(workspace)
-    db.commit()
+    try:
+        purge_workspace(db, workspace_id)
+        db.commit()
+    except SQLAlchemyError:
+        db.rollback()
+        logger.exception(
+            "workspace_delete_failed",
+            extra={"event": "workspace_delete_failed", "workspace_id": str(workspace_id)},
+        )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Could not delete workspace. Try again or contact support.",
+        ) from None
     return None
