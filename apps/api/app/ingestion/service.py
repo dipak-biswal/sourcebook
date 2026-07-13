@@ -1,3 +1,4 @@
+import uuid
 from pathlib import Path
 
 from sqlalchemy.orm import Session
@@ -22,7 +23,12 @@ def extract_text(doc: Document) -> str:
 
 
 def ingest_document_chunks(
-    db: Session, doc: Document, *, chunk_size: int = 800, chunk_overlap: int = 150
+    db: Session,
+    doc: Document,
+    *,
+    user_id: uuid.UUID | None = None,
+    chunk_size: int = 800,
+    chunk_overlap: int = 150,
 ) -> list[Chunk]:
     text = extract_text(doc)
 
@@ -30,7 +36,18 @@ def ingest_document_chunks(
 
     text_chunks = chunk_text(text, chunk_size=chunk_size, chunk_overlap=chunk_overlap)
 
-    vectors = embed_texts([tc.content for tc in text_chunks])
+    vectors = embed_texts(
+        [tc.content for tc in text_chunks],
+        db=db,
+        user_id=user_id,
+        workspace_id=doc.workspace_id,
+        kind="embedding_ingest",
+        meta={
+            "document_id": str(doc.id),
+            "filename": doc.filename,
+            "chunk_count": len(text_chunks),
+        },
+    )
 
     rows: list[Chunk] = []
     for tc, vector in zip(text_chunks, vectors, strict=True):

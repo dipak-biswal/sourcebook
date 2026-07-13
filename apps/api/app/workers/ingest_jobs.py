@@ -25,7 +25,7 @@ setup_logging(level=settings.log_level, json_logs=settings.log_json)
 logger = get_logger("sourcebook.worker.ingest")
 
 
-def process_document_ingest(document_id: str) -> dict:
+def process_document_ingest(document_id: str, user_id: str | None = None) -> dict:
     """
     Background job: parse → chunk → embed for one document.
 
@@ -56,7 +56,8 @@ def process_document_ingest(document_id: str) -> dict:
         )
 
         try:
-            rows = ingest_document_chunks(db, doc)
+            ingest_user_id = uuid.UUID(user_id) if user_id else None
+            rows = ingest_document_chunks(db, doc, user_id=ingest_user_id)
             logger.info(
                 "ingest_ready",
                 extra=log_extra(

@@ -112,7 +112,8 @@ export function UsagePageView({
             </h1>
           </div>
           <p className="mt-1 text-body-sm text-mute">
-            Token usage logged for your account (chat, stream, agent runs).
+            Token usage logged for your account — chat, agents, suggestions,
+            study guides, and embeddings.
             OpenAI dashboard is the source of truth for billing.
           </p>
         </div>

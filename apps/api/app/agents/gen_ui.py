@@ -14,6 +14,7 @@ from sqlalchemy.orm import Session
 from app.config import settings
 from app.ingestion.retrieve import retrieve_chunks
 from app.models import Chunk, Document
+from app.usage import estimate_tokens, log_usage
 
 
 BlockType = Literal[
@@ -300,6 +301,8 @@ def _hits_for_document(
     document_id: uuid.UUID,
     query: str,
     top_k: int,
+    user_id: uuid.UUID | None = None,
+    usage_meta: dict | None = None,
 ) -> list[tuple[Chunk, float]]:
     """Prefer semantic hits on one doc; fall back to first chunks of that doc."""
     hits = retrieve_chunks(
@@ -308,6 +311,8 @@ def _hits_for_document(
         query=query,
         top_k=min(max(top_k, 3), 12),
         min_score=0.05,
+        user_id=user_id,
+        usage_meta=usage_meta,
     )
     filtered = [(ch, s) for ch, s in hits if ch.document_id == document_id]
     if filtered:
@@ -330,6 +335,7 @@ def build_learning_ui(
     db: Session,
     *,
     workspace_id: uuid.UUID,
+    user_id: uuid.UUID,
     topic: str,
     focus: str = "",
     document_id: str | None = None,
@@ -363,6 +369,8 @@ def build_learning_ui(
     query = f"{topic} {focus}".strip()
     top_k = min(max(top_k, 3), 12)
 
+    retrieve_meta = {"topic": topic, "source": "study_guide"}
+
     if scoped_doc:
         hits = _hits_for_document(
             db,
@@ -370,6 +378,8 @@ def build_learning_ui(
             document_id=scoped_doc.id,
             query=query,
             top_k=top_k,
+            user_id=user_id,
+            usage_meta=retrieve_meta,
         )
         if not hits:
             return {
@@ -385,6 +395,8 @@ def build_learning_ui(
             query=query,
             top_k=top_k,
             min_score=settings.rag_min_score,
+            user_id=user_id,
+            usage_meta=retrieve_meta,
         )
         if not hits:
             ready_docs = (
@@ -409,6 +421,8 @@ def build_learning_ui(
                 query=topic or "overview summary main points",
                 top_k=8,
                 min_score=0.05,
+                user_id=user_id,
+                usage_meta=retrieve_meta,
             )
             if not hits:
                 return {
@@ -503,6 +517,39 @@ EXCERPTS:
             max_tokens=2000,
         )
         raw = (resp.choices[0].message.content or "").strip()
+        usage = resp.usage
+        if usage is not None:
+            log_usage(
+                db,
+                kind="study_guide",
+                model=settings.chat_model,
+                user_id=user_id,
+                workspace_id=workspace_id,
+                prompt_tokens=usage.prompt_tokens,
+                completion_tokens=usage.completion_tokens,
+                total_tokens=usage.total_tokens,
+                meta={
+                    "topic": topic,
+                    "document_id": str(scoped_doc.id) if scoped_doc else None,
+                    "document_filename": scoped_doc.filename if scoped_doc else None,
+                },
+            )
+        else:
+            log_usage(
+                db,
+                kind="study_guide",
+                model=settings.chat_model,
+                user_id=user_id,
+                workspace_id=workspace_id,
+                total_tokens=estimate_tokens(prompt, raw),
+                meta={
+                    "topic": topic,
+                    "document_id": str(scoped_doc.id) if scoped_doc else None,
+                    "document_filename": scoped_doc.filename if scoped_doc else None,
+                    "estimated": True,
+                },
+            )
+        db.commit()
     except Exception as e:
         return {"error": f"Failed to generate learning UI: {e}"}
 

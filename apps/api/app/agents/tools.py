@@ -37,6 +37,8 @@ def build_tools(db: Session, *, workspace_id: uuid.UUID, user_id: uuid.UUID):
             workspace_id=workspace_id,
             query=query,
             top_k=min(top_k, 10),
+            user_id=user_id,
+            usage_meta={"source": "agent_search", "query": query[:200]},
         )
 
         results = []
@@ -73,6 +75,7 @@ def build_tools(db: Session, *, workspace_id: uuid.UUID, user_id: uuid.UUID):
         return build_learning_ui(
             db,
             workspace_id=workspace_id,
+            user_id=user_id,
             topic=topic,
             focus=focus or "",
             document_id=document_id or None,

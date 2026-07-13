@@ -418,6 +418,7 @@ export type UsageEventDetail = {
   user_message: string | null;
   assistant_message: string | null;
   citations: string[];
+  meta: Record<string, unknown> | null;
 };
 
 export type DailyTotal = {

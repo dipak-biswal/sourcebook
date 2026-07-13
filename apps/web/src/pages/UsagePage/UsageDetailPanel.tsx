@@ -51,6 +51,8 @@ export function UsageDetailPanel({
           detail.kind === "chat_stream" ||
           detail.kind === "stream" ? (
           <ChatTrace detail={detail} />
+        ) : detail.meta ? (
+          <MetaTrace kind={detail.kind} meta={detail.meta} />
         ) : (
           <div className="py-10 text-center text-sm text-mute">
             No details available for this event type ({detail.kind}).
@@ -278,6 +280,45 @@ function ChatTrace({ detail }: { detail: UsageEventDetail }) {
               <LeafNode key={i} icon={<span />} label="" detail={c} />
             ))}
           </TreeNode>
+        )}
+      </TreeNode>
+    </div>
+  );
+}
+
+/* ─── Generic meta trace (suggestions, study guide, embeddings) ─── */
+
+function MetaTrace({
+  kind,
+  meta,
+}: {
+  kind: string;
+  meta: Record<string, unknown>;
+}) {
+  const entries = Object.entries(meta).filter(([, v]) => v != null && v !== "");
+
+  return (
+    <div className="space-y-0.5">
+      <TreeNode
+        icon={<span className="text-[11px] font-bold text-violet-500">U</span>}
+        label={kind.replace(/_/g, " ")}
+        defaultOpen
+      >
+        {entries.length === 0 ? (
+          <div className="px-2 py-3 text-[12px] text-mute">No metadata recorded.</div>
+        ) : (
+          entries.map(([key, value]) => (
+            <LeafNode
+              key={key}
+              icon={<span />}
+              label={key.replace(/_/g, " ")}
+              detail={
+                typeof value === "object"
+                  ? JSON.stringify(value, null, 2)
+                  : String(value)
+              }
+            />
+          ))
         )}
       </TreeNode>
     </div>

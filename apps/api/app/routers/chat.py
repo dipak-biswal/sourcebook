@@ -110,7 +110,9 @@ def chat_suggestions(
     _: None = Depends(rate_limit("chat")),
 ):
     _require_member(db, current_user.id, body.workspace_id)
-    questions = generate_suggested_questions(db, workspace_id=body.workspace_id)
+    questions = generate_suggested_questions(
+        db, workspace_id=body.workspace_id, user_id=current_user.id
+    )
     return ChatSuggestionsResponse(questions=questions)
 
 

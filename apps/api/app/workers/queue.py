@@ -18,7 +18,7 @@ def get_ingest_queue() -> Queue:
     return Queue(INGEST_QUEUE_NAME, connection=get_redis())
 
 
-def enqueue_document_ingest(document_id: uuid.UUID):
+def enqueue_document_ingest(document_id: uuid.UUID, user_id: uuid.UUID):
     """
     Enqueue background ingest. Returns RQ Job.
 
@@ -28,6 +28,7 @@ def enqueue_document_ingest(document_id: uuid.UUID):
     return queue.enqueue(
         "app.workers.ingest_jobs.process_document_ingest",
         str(document_id),
+        str(user_id),
         job_timeout=settings.ingest_job_timeout_seconds,
         result_ttl=3600,
         failure_ttl=86400,

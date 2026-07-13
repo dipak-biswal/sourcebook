@@ -79,15 +79,16 @@ def list_usage_events(
 
 @router.get("/summary", response_model=UsageSummaryResponse)
 def usage_summary(
+    recent_limit: int = Query(50, ge=1, le=200),
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    """Aggregate totals + last 20 events for the current user."""
+    """Aggregate totals + recent events for the current user."""
     rows = (
         db.query(UsageEvent)
         .filter(UsageEvent.user_id == current_user.id)
         .order_by(UsageEvent.created_at.desc())
-        .limit(20)
+        .limit(recent_limit)
         .all()
     )
 
@@ -157,6 +158,7 @@ class UsageDetailResponse(BaseModel):
     user_message: str | None = None
     assistant_message: str | None = None
     citations: list[str] = Field(default_factory=list)
+    meta: dict[str, Any] | None = None
 
 
 @router.get("/events/{event_id}", response_model=UsageDetailResponse)
@@ -213,7 +215,7 @@ def get_usage_event_detail(
                 citations=[],
             )
 
-    return UsageDetailResponse(kind=event.kind)
+    return UsageDetailResponse(kind=event.kind, meta=meta if meta else None)
 
 
 @router.delete("/events", status_code=204)

@@ -27,6 +27,9 @@ def retrieve_chunks(
     query: str,
     top_k: int = 5,
     min_score: float = 0.2,
+    user_id: uuid.UUID | None = None,
+    usage_kind: str = "embedding_query",
+    usage_meta: dict | None = None,
 ) -> list[tuple[Chunk, float]]:
     """
     Return top-k chunks with cosine score >= min_score.
@@ -34,7 +37,14 @@ def retrieve_chunks(
     Does NOT fall back to weak matches — off-topic questions should return []
     so the UI shows no sources.
     """
-    q_vec = embed_query(query)
+    q_vec = embed_query(
+        query,
+        db=db,
+        user_id=user_id,
+        workspace_id=workspace_id,
+        kind=usage_kind,
+        meta=usage_meta,
+    )
     chunks = (
         db.query(Chunk)
         .filter(

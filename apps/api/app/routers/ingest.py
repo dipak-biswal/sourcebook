@@ -76,7 +76,7 @@ def ingest_document(
             doc.error = None
             db.commit()
             db.refresh(doc)
-            job = enqueue_document_ingest(doc.id)
+            job = enqueue_document_ingest(doc.id, current_user.id)
             logger.info(
                 "ingest_queued",
                 extra=log_extra(
@@ -104,7 +104,7 @@ def ingest_document(
     doc.error = None
     db.commit()
     db.refresh(doc)
-    background_tasks.add_task(process_document_ingest, str(doc.id))
+    background_tasks.add_task(process_document_ingest, str(doc.id), str(current_user.id))
     logger.info(
         "ingest_scheduled_local",
         extra=log_extra(

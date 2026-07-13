@@ -102,6 +102,8 @@ def run_rag_chat(
         query=user_text,
         top_k=settings.rag_top_k,
         min_score=settings.rag_min_score,
+        user_id=conversation.user_id,
+        usage_meta={"conversation_id": str(conversation.id), "source": "chat"},
     )
 
     if not hits:
@@ -190,6 +192,8 @@ def iter_rag_chat_sse(
         query=user_text,
         top_k=settings.rag_top_k,
         min_score=settings.rag_min_score,
+        user_id=conversation.user_id,
+        usage_meta={"conversation_id": str(conversation.id), "source": "chat_stream"},
     )
 
     yield _sse({"type": "meta", "conversation_id": str(conversation.id)})
@@ -289,7 +293,7 @@ ANSWER:"""
 
 
 def generate_suggested_questions(
-    db: Session, *, workspace_id: uuid.UUID
+    db: Session, *, workspace_id: uuid.UUID, user_id: uuid.UUID
 ) -> list[str]:
     """Suggest 4-6 questions from ready documents in the workspace."""
     docs = (
@@ -345,6 +349,7 @@ Questions (JSON array):"""
     )
 
     raw = (resp.choices[0].message.content or "").strip()
+    usage = resp.usage
     questions: list[str] = []
     try:
         questions = json.loads(raw)
@@ -354,7 +359,33 @@ Questions (JSON array):"""
             if line:
                 questions.append(line)
 
-    return [q for q in questions[:6] if isinstance(q, str) and len(q) > 10]
+    filtered = [q for q in questions[:6] if isinstance(q, str) and len(q) > 10]
+
+    if usage is not None:
+        log_usage(
+            db,
+            kind="chat_suggestions",
+            model=settings.chat_model,
+            user_id=user_id,
+            workspace_id=workspace_id,
+            prompt_tokens=usage.prompt_tokens,
+            completion_tokens=usage.completion_tokens,
+            total_tokens=usage.total_tokens,
+            meta={"question_count": len(filtered)},
+        )
+    else:
+        log_usage(
+            db,
+            kind="chat_suggestions",
+            model=settings.chat_model,
+            user_id=user_id,
+            workspace_id=workspace_id,
+            total_tokens=estimate_tokens(context, raw),
+            meta={"question_count": len(filtered), "estimated": True},
+        )
+    db.commit()
+
+    return filtered
 
 
 def _sse(payload: dict) -> str:
