@@ -1,4 +1,5 @@
 import { ChatNoDocsBanner } from "@/components/chat/ChatNoDocsBanner";
+import { OnboardingChecklist } from "@/components/onboarding/OnboardingChecklist";
 import { ChatSessionsPanel } from "@/components/chat/ChatSessionsPanel";
 import { ModeTip } from "@/components/chat/ModeTip";
 import { AppHeader } from "@/components/layout/AppHeader";
@@ -12,6 +13,7 @@ import { ChatInput } from "./ChatInput";
 function ChatPageInner() {
   const {
     mode,
+    workspaceId,
     sessionsOpen,
     sessionPanelProps,
     onCloseSessions,
@@ -44,6 +46,13 @@ function ChatPageInner() {
         <main id="main-content" tabIndex={-1} className="flex min-h-0 min-w-0 flex-1 flex-col outline-none">
           <ChatPageHeader />
           <ModeTip />
+          {workspaceId && mode === "chat" && (
+            <OnboardingChecklist
+              workspaceId={workspaceId}
+              variant="compact"
+              whenCurrentStep="chat"
+            />
+          )}
           <ChatNoDocsBanner />
           <ChatMessageList />
           <ChatInput />

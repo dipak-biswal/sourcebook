@@ -1,4 +1,5 @@
 import { AppHeader } from "@/components/layout/AppHeader";
+import { OnboardingChecklist } from "@/components/onboarding/OnboardingChecklist";
 import { DashboardPageProvider } from "./DashboardPageContext";
 import { useDashboardPage } from "./dashboard-page-context";
 import { DashboardStats } from "./DashboardStats";
@@ -6,7 +7,7 @@ import { DashboardQuickActions } from "./DashboardQuickActions";
 import { DashboardRecentActivity } from "./DashboardRecentActivity";
 
 function DashboardPageInner() {
-  const { userEmail, onLogout } = useDashboardPage();
+  const { userEmail, workspaceId, onLogout } = useDashboardPage();
 
   return (
     <div className="app-shell">
@@ -22,6 +23,8 @@ function DashboardPageInner() {
           </p>
 
           <div className="mt-8 space-y-8">
+            {workspaceId && <OnboardingChecklist workspaceId={workspaceId} />}
+
             <section>
               <h2 className="mb-3 text-sm font-semibold text-ink">At a glance</h2>
               <DashboardStats />

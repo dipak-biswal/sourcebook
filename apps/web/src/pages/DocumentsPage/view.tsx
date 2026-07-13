@@ -1,6 +1,7 @@
 import { AppHeader } from "@/components/layout/AppHeader";
 import { DocumentsSidebar } from "@/components/layout/DocumentsSidebar";
 import { DocumentsOnboarding } from "@/components/documents/DocumentsOnboarding";
+import { OnboardingChecklist } from "@/components/onboarding/OnboardingChecklist";
 import { Alert } from "@/components/ui/alert";
 
 import type { DocumentsPageViewProps } from "@/types/page-props";
@@ -45,6 +46,13 @@ export function DocumentsPageView({
         </div>
 
         <div className="document-scroll flex min-h-0 min-w-0 flex-1 flex-col overflow-y-auto md:hidden">
+          {workspaceId && (
+            <OnboardingChecklist
+              workspaceId={workspaceId}
+              variant="compact"
+              whenCurrentSteps={["upload", "ingest"]}
+            />
+          )}
           <DocumentsOnboarding compact />
           {error && (
             <div className="px-4 pt-3">
@@ -59,6 +67,13 @@ export function DocumentsPageView({
           tabIndex={-1}
           className="document-scroll hidden min-h-0 min-w-0 flex-1 flex-col overflow-y-auto outline-none md:flex"
         >
+          {workspaceId && (
+            <OnboardingChecklist
+              workspaceId={workspaceId}
+              variant="compact"
+              whenCurrentSteps={["upload", "ingest"]}
+            />
+          )}
           {error && (
             <div className="px-8 pt-6">
               <Alert variant="danger" className="max-w-md text-left">
