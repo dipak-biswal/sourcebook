@@ -5,7 +5,6 @@ import {
   Bot,
   ChevronDown,
   Files,
-  LayoutDashboard,
   LogOut,
   Menu,
   MessageCircle,
@@ -24,7 +23,6 @@ type AppHeaderProps = {
 };
 
 const NAV = [
-  { to: "/", label: "Home", icon: LayoutDashboard, match: "/" },
   { to: "/chat", label: "Chat", icon: MessageCircle, match: "/chat" },
   { to: "/agents", label: "Agents", icon: Bot, match: "/agents" },
 ] as const;
