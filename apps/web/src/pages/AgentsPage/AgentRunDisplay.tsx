@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { Activity, Sparkles } from "lucide-react";
 import { AgentRunPanel } from "@/components/agents/AgentRunPanel";
 import { GenerativeUIView } from "@/components/agents/GenerativeUI";
@@ -57,11 +57,7 @@ export function AgentRunDisplay() {
   const gen = extractGenerativeUIFromSteps(
     liveSteps.length ? liveSteps : steps,
   );
-  const [activeTab, setActiveTab] = useState<TabKey>(gen ? "learning" : "trace");
-
-  useEffect(() => {
-    if (running) setActiveTab("trace");
-  }, [running]);
+  const [activeTab, setActiveTab] = useState<TabKey>(gen && !running ? "learning" : "trace");
 
   if (!selected && !running) {
     return (
