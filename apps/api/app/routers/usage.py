@@ -214,3 +214,32 @@ def get_usage_event_detail(
             )
 
     return UsageDetailResponse(kind=event.kind)
+
+
+@router.delete("/events", status_code=204)
+def delete_all_usage_events(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Delete all usage events for the current user."""
+    db.query(UsageEvent).filter(UsageEvent.user_id == current_user.id).delete()
+    db.commit()
+
+
+@router.delete("/events/{event_id}", status_code=204)
+def delete_usage_event(
+    event_id: uuid.UUID,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Delete a single usage event."""
+    row = (
+        db.query(UsageEvent)
+        .filter(UsageEvent.id == event_id, UsageEvent.user_id == current_user.id)
+        .first()
+    )
+    if not row:
+        from fastapi import HTTPException, status
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Event not found")
+    db.delete(row)
+    db.commit()

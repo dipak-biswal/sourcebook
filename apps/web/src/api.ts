@@ -265,6 +265,12 @@ export const api = {
   usageEventDetail: (eventId: string) =>
     request<UsageEventDetail>(`/usage/events/${eventId}`),
 
+  deleteUsageEvent: (eventId: string) =>
+    request<void>(`/usage/events/${eventId}`, { method: "DELETE" }),
+
+  deleteAllUsageEvents: () =>
+    request<void>("/usage/events", { method: "DELETE" }),
+
   startAgentRun: (workspaceId: string, goal: string, maxSteps = 5) =>
     request<AgentRun>("/agents/runs", {
       method: "POST",
