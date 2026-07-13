@@ -25,10 +25,8 @@ type AppHeaderProps = {
 
 const NAV = [
   { to: "/", label: "Home", icon: LayoutDashboard, match: "/" },
-  { to: "/documents", label: "Documents", icon: Files, match: "/documents" },
   { to: "/chat", label: "Chat", icon: MessageCircle, match: "/chat" },
   { to: "/agents", label: "Agents", icon: Bot, match: "/agents" },
-  { to: "/usage", label: "Usage", icon: Activity, match: "/usage" },
 ] as const;
 
 function initialsFromEmail(email: string): string {
@@ -141,6 +139,15 @@ function UserProfileMenu({ onLogout }: { onLogout?: () => void }) {
             >
               <Activity className="h-3.5 w-3.5" strokeWidth={1.5} />
               Usage
+            </Link>
+            <Link
+              to="/documents"
+              role="menuitem"
+              onClick={() => setOpen(false)}
+              className="flex w-full items-center gap-2 rounded-[6px] px-2.5 py-2 text-[13px] text-body transition-colors hover:bg-canvas-soft-2 hover:text-ink"
+            >
+              <Files className="h-3.5 w-3.5" strokeWidth={1.5} />
+              Documents
             </Link>
             <button
               type="button"
