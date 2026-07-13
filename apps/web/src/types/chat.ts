@@ -1,3 +1,4 @@
+import type { RefObject } from "react";
 import type {
   AgentRun,
   AgentStep,
@@ -58,6 +59,7 @@ export type ChatPageContextValue = {
   showClear: boolean;
   loading: boolean;
   sessionPanelProps: Omit<ChatSessionsPanelProps, "onAfterNavigate"> & { onAfterNavigate: () => void };
+  bottomRef: RefObject<HTMLDivElement | null>;
   onInputChange: (v: string) => void;
   onSend: (e?: React.FormEvent) => void;
   onNewChat: () => void;

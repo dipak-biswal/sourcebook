@@ -1,8 +1,10 @@
 import { Link } from "react-router-dom";
-import { Bot, MessageCircle, Trash2 } from "lucide-react";
-import type { AgentRun, Conversation } from "@/api";
+import { Bot, MessageCircle, Plus, Trash2 } from "lucide-react";
+import type { AgentRun, Conversation, Workspace } from "@/api";
 import { AgentStatusBadge } from "@/components/agents/shared";
+import { Button } from "@/components/ui/button";
 import { ListSkeleton } from "@/components/ui/skeleton";
+import { WorkspaceSelect } from "@/components/workspace/WorkspaceSelect";
 import { cn, formatDate } from "@/lib/utils";
 
 function truncateGoal(goal: string, max = 56): string {
@@ -13,12 +15,18 @@ function truncateGoal(goal: string, max = 56): string {
 
 export type ChatSessionsPanelProps = {
   mode: "chat" | "agent";
+  workspaces: Workspace[];
+  workspaceId: string;
+  onChangeWorkspace: (id: string) => void;
+  onRefreshWorkspaces: () => void;
   /** Chat mode */
   conversations: Conversation[];
   conversationId: string;
+  onNewChat?: () => void;
   /** Agent mode */
   agentRuns?: AgentRun[];
   agentRunId?: string;
+  onNewAgent?: () => void;
   loading: boolean;
   onSelectSession: (id: string) => void;
   onDeleteSession?: (id: string) => void;
@@ -29,10 +37,16 @@ export type ChatSessionsPanelProps = {
 
 export function ChatSessionsPanel({
   mode,
+  workspaces,
+  workspaceId,
+  onChangeWorkspace,
+  onRefreshWorkspaces,
   conversations,
   conversationId,
+  onNewChat,
   agentRuns = [],
   agentRunId = "",
+  onNewAgent,
   loading,
   onSelectSession,
   onDeleteSession,
@@ -44,17 +58,58 @@ export function ChatSessionsPanel({
 
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <div className="shrink-0 border-b border-hairline p-4">
-        <div className="flex items-center gap-2">
+      <div className="shrink-0 space-y-3 border-b border-hairline p-4">
+        <div className="flex items-center justify-between gap-2">
+          <div className="flex min-w-0 items-center gap-2">
+            {isAgent ? (
+              <Bot className="h-4 w-4 shrink-0 text-ink" strokeWidth={1.5} />
+            ) : (
+              <MessageCircle className="h-4 w-4 shrink-0 text-ink" strokeWidth={1.5} />
+            )}
+            <h2 className="truncate text-body-sm font-semibold text-ink">
+              {isAgent ? "Agent sessions" : "Chat sessions"}
+            </h2>
+          </div>
           {isAgent ? (
-            <Bot className="h-4 w-4 text-ink" strokeWidth={1.5} />
+            <Button
+              type="button"
+              variant="secondary"
+              size="sm"
+              className="h-7 shrink-0 px-2 text-xs"
+              disabled={!workspaceId}
+              onClick={() => {
+                onNewAgent?.();
+                onAfterNavigate?.();
+              }}
+            >
+              <Plus className="h-3 w-3" strokeWidth={1.5} />
+              New run
+            </Button>
           ) : (
-            <MessageCircle className="h-4 w-4 text-ink" strokeWidth={1.5} />
+            <Button
+              type="button"
+              variant="secondary"
+              size="sm"
+              className="h-7 shrink-0 px-2 text-xs"
+              disabled={!workspaceId}
+              onClick={() => {
+                onNewChat?.();
+                onAfterNavigate?.();
+              }}
+            >
+              <Plus className="h-3 w-3" strokeWidth={1.5} />
+              New session
+            </Button>
           )}
-          <h2 className="text-body-sm font-semibold text-ink">
-            {isAgent ? "Agent sessions" : "Chat sessions"}
-          </h2>
         </div>
+        {workspaces.length > 0 && (
+          <WorkspaceSelect
+            workspaces={workspaces}
+            workspaceId={workspaceId}
+            onChange={onChangeWorkspace}
+            onRefresh={onRefreshWorkspaces}
+          />
+        )}
       </div>
 
       <div className="document-scroll min-h-0 flex-1 overflow-y-auto p-2">

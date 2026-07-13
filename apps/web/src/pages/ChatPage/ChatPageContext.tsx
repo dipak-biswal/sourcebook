@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type ReactNode, type FormEvent } from "react";
 import { useNavigate } from "react-router-dom";
+import { useQueryClient } from "@tanstack/react-query";
 import { api } from "@/api";
 import { useDocumentTitle } from "@/hooks/useDocumentTitle";
 import { useChatSessions } from "./hooks/useChatSessions";
@@ -23,6 +24,7 @@ function readMode(): ChatMode {
 
 export function ChatPageProvider({ children }: { children: ReactNode }) {
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
   const bottomRef = useRef<HTMLDivElement>(null);
   useDocumentTitle("Chat");
 
@@ -172,16 +174,25 @@ export function ChatPageProvider({ children }: { children: ReactNode }) {
     loading,
     sessionPanelProps: {
       mode,
+      workspaces: sessions.workspaces,
+      workspaceId: sessions.workspaceId,
+      onChangeWorkspace: sessions.setWorkspaceId,
+      onRefreshWorkspaces: () => {
+        void queryClient.invalidateQueries({ queryKey: ["workspaces"] });
+      },
       conversations: sessions.conversations,
       conversationId: sessions.conversationId,
+      onNewChat: () => { void sessions.onNewChat(); },
       agentRuns: sessions.agentRuns,
       agentRunId: sessions.agentRunId,
+      onNewAgent,
       loading: loading,
       onSelectSession: (id) => sessions.onSelectSession(id),
       onDeleteSession,
       onSelectAgentRun,
       onAfterNavigate: () => setSessionsOpen(false),
     },
+    bottomRef,
     onSetMode: setModePersist,
     onChangeWorkspace: sessions.setWorkspaceId,
     onSelectSession: (id) => sessions.onSelectSession(id),

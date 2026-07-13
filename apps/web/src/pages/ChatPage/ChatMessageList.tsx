@@ -238,6 +238,7 @@ export function ChatMessageList() {
     error,
     empty,
     workspaceId,
+    bottomRef,
     onInputChange,
   } = useChatPage();
 
@@ -311,6 +312,7 @@ export function ChatMessageList() {
                 Retrieving & generating…
               </div>
             )}
+            <div ref={bottomRef} aria-hidden className="h-px shrink-0" />
           </div>
         )}
       </div>

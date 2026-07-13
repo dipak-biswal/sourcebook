@@ -2,7 +2,11 @@ import { StickyNote } from "lucide-react";
 import { formatDate } from "@/lib/utils";
 import { useNotesPage } from "./notes-page-context";
 
-export function NotesSidebar() {
+export function NotesSidebar({
+  onAfterNavigate,
+}: {
+  onAfterNavigate?: () => void;
+} = {}) {
   const {
     workspaces,
     workspaceId,
@@ -47,7 +51,10 @@ export function NotesSidebar() {
               <li key={n.id}>
                 <button
                   type="button"
-                  onClick={() => { onSelect(n); }}
+                  onClick={() => {
+                    onSelect(n);
+                    onAfterNavigate?.();
+                  }}
                   className={
                     "w-full rounded-[6px] border px-2 py-2 text-left transition-colors" +
                     (n.id === selected?.id
