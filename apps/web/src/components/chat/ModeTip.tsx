@@ -40,13 +40,20 @@ export function ModeTip() {
             <Bot className="inline h-3 w-3" strokeWidth={1.5} />
             Agent
           </span>{" "}
-          runs tools in this thread (quick). For full run history, trace tabs,
-          and notes, use the{" "}
+          runs search and notes in this thread (quick). For cited learning
+          cards, use{" "}
+          <Link
+            to="/study"
+            className="font-medium text-ink underline-offset-2 hover:underline"
+          >
+            Study Guide
+          </Link>
+          ; for full traces and notes, use{" "}
           <Link
             to="/agents"
             className="font-medium text-ink underline-offset-2 hover:underline"
           >
-            Agents page
+            Agents
           </Link>
           .
         </div>

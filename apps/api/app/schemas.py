@@ -85,7 +85,8 @@ class ChatResponse(BaseModel):
 class AgentRunCreate(BaseModel):
     workspace_id: uuid.UUID
     goal: str
-    max_steps: int = 5
+    max_steps: int | None = None
+    agent_type: str = "general"
 
 
 class AgentStepResponse(BaseModel):
@@ -105,6 +106,7 @@ class AgentRunResponse(BaseModel):
     workspace_id: uuid.UUID
     user_id: uuid.UUID | None = None
     goal: str
+    agent_type: str = "general"
     status: str
     final_answer: str | None
     error: str | None

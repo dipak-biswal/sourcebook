@@ -72,11 +72,38 @@ if settings.dev_mode:
     app.include_router(dev.router)
 
 
+def _ensure_agent_type_column() -> None:
+    """Add agent_runs.agent_type on DBs created before the study-guide agent split."""
+    from sqlalchemy import inspect, text
+
+    insp = inspect(engine)
+    if "agent_runs" not in insp.get_table_names():
+        return
+    cols = {c["name"] for c in insp.get_columns("agent_runs")}
+    if "agent_type" in cols:
+        return
+    with engine.begin() as conn:
+        conn.execute(
+            text(
+                "ALTER TABLE agent_runs "
+                "ADD COLUMN agent_type VARCHAR(32) NOT NULL DEFAULT 'general'"
+            )
+        )
+        conn.execute(
+            text(
+                "CREATE INDEX IF NOT EXISTS ix_agent_runs_agent_type "
+                "ON agent_runs (agent_type)"
+            )
+        )
+    logger.info("db_agent_type_column_added", extra={"event": "db_migrate"})
+
+
 @app.on_event("startup")
 def on_startup() -> None:
     # Fresh cloud DBs need tables; local already has them (create_all is idempotent).
     try:
         Base.metadata.create_all(bind=engine)
+        _ensure_agent_type_column()
         logger.info("db_tables_ready", extra={"event": "db_init"})
     except Exception:
         logger.exception("db_init_failed", extra={"event": "db_init_failed"})

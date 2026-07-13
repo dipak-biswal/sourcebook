@@ -233,6 +233,7 @@ class AgentRun(Base):
         index=True,
     )
     goal: Mapped[str] = mapped_column(Text)
+    agent_type: Mapped[str] = mapped_column(String(32), default="general", index=True)
     status: Mapped[str] = mapped_column(String(50), default="running")
     final_answer: Mapped[str | None] = mapped_column(Text, nullable=True)
     error: Mapped[str | None] = mapped_column(Text, nullable=True)

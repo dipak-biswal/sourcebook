@@ -214,7 +214,9 @@ export function useAgentThread(
           (final) => {
             applyRunToThread(asstId, final);
             setAgentRunId(final.id);
-            void queryClient.invalidateQueries({ queryKey: ["agentRuns", workspaceId] });
+            void queryClient.invalidateQueries({
+              queryKey: ["agentRuns", workspaceId, "general"],
+            });
             if (final.status === "waiting_approval") {
               success("Approval needed", "Review the write action below.");
             } else if (final.status === "completed") {
@@ -222,12 +224,14 @@ export function useAgentThread(
             }
           },
         ),
-        5,
+        { maxSteps: 5, agentType: "general" },
       );
       if (run) {
         applyRunToThread(asstId, run);
         setAgentRunId(run.id);
-        void queryClient.invalidateQueries({ queryKey: ["agentRuns", workspaceId] });
+        void queryClient.invalidateQueries({
+          queryKey: ["agentRuns", workspaceId, "general"],
+        });
       }
       requestAnimationFrame(() => {
         bottomRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -375,7 +379,7 @@ export function useAgentThread(
       bottomRef.current?.scrollIntoView({ behavior: "smooth" });
     });
     try {
-      const run = await api.startAgentRun(workspaceId, goalText, 5);
+      const run = await api.startAgentRun(workspaceId, goalText, { maxSteps: 5 });
       applyRunToThread(asstId, run);
       setAgentRunId(run.id);
       void queryClient.invalidateQueries({ queryKey: ["agentRuns", workspaceId] });

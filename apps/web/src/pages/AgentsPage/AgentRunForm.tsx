@@ -1,12 +1,13 @@
 import { Link } from "react-router-dom";
 import { Loader2, Play } from "lucide-react";
-import { AGENT_EXAMPLE_GOALS } from "@/components/agents/agent-utils";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useAgentPage } from "./agent-page-context";
 
 export function AgentRunForm() {
   const {
+    agentType,
+    exampleGoals,
     goal,
     running,
     workspaceId,
@@ -14,27 +15,47 @@ export function AgentRunForm() {
     onRun,
   } = useAgentPage();
 
+  const isStudy = agentType === "study_guide";
+
   return (
     <form
       onSubmit={onRun}
       className="mb-6 rounded-vercel-md border border-hairline bg-canvas p-4"
     >
-      <h1 className="text-sm font-semibold text-ink">Agents workspace</h1>
+      <h1 className="text-sm font-semibold text-ink">
+        {isStudy ? "Study Guide agent" : "Agents workspace"}
+      </h1>
       <p className="mt-1 text-xs text-mute">
-        Full run history, trace tabs, and notes live here. Read tools run
-        immediately; <strong className="text-ink">create_note</strong> waits for
-        Approve / Reject. For a quick in-thread run, use{" "}
-        <Link
-          to="/chat"
-          className="font-medium text-ink underline-offset-2 hover:underline"
-        >
-          Chat → Agent
-        </Link>
-        .
+        {isStudy ? (
+          <>
+            Dedicated agent for cited learning cards (summary, key points, FAQ,
+            glossary). For search and notes, use{" "}
+            <Link
+              to="/agents"
+              className="font-medium text-ink underline-offset-2 hover:underline"
+            >
+              Agents
+            </Link>
+            .
+          </>
+        ) : (
+          <>
+            Search documents and create notes. Read tools run immediately;{" "}
+            <strong className="text-ink">create_note</strong> waits for Approve /
+            Reject. For structured learning UI, use{" "}
+            <Link
+              to="/study"
+              className="font-medium text-ink underline-offset-2 hover:underline"
+            >
+              Study Guide
+            </Link>
+            .
+          </>
+        )}
       </p>
 
       <div className="mt-3 flex flex-wrap gap-1.5">
-        {AGENT_EXAMPLE_GOALS.map((g) => (
+        {exampleGoals.map((g) => (
           <button
             key={g}
             type="button"
@@ -58,7 +79,11 @@ export function AgentRunForm() {
           value={goal}
           onChange={(e) => onGoalChange(e.target.value)}
           disabled={running || !workspaceId}
-          placeholder="What should the agent do?"
+          placeholder={
+            isStudy
+              ? "What should we explain from your documents?"
+              : "What should the agent do?"
+          }
         />
       </label>
       <Button
@@ -72,8 +97,10 @@ export function AgentRunForm() {
           <Play className="h-4 w-4" strokeWidth={1.5} />
         )}
         {running
-          ? "Streaming trace…"
-          : "Run agent"}
+          ? "Building learning view…"
+          : isStudy
+            ? "Generate study guide"
+            : "Run agent"}
       </Button>
     </form>
   );

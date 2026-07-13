@@ -17,17 +17,51 @@ import { useAgentRuns, useNotes, useWorkspaces } from "@/hooks/queries";
 import { useLastWorkspace } from "@/hooks/useLastWorkspace";
 import type { AgentPageContextValue } from "@/types/agents";
 import { AgentPageContext } from "./agent-page-context";
-import { AGENT_EXAMPLE_GOALS } from "@/components/agents/agent-utils";
+import {
+  AGENT_EXAMPLE_GOALS,
+  STUDY_GUIDE_EXAMPLE_GOALS,
+  type AgentType,
+} from "@/components/agents/agent-utils";
 
-export function AgentPageProvider({ children }: { children: ReactNode }) {
+export type AgentWorkspaceConfig = {
+  agentType: AgentType;
+  documentTitle: string;
+  defaultGoal: string;
+  exampleGoals: string[];
+  maxSteps?: number;
+};
+
+const GENERAL_CONFIG: AgentWorkspaceConfig = {
+  agentType: "general",
+  documentTitle: "Agents",
+  defaultGoal: AGENT_EXAMPLE_GOALS[0],
+  exampleGoals: AGENT_EXAMPLE_GOALS,
+  maxSteps: 5,
+};
+
+export const STUDY_GUIDE_CONFIG: AgentWorkspaceConfig = {
+  agentType: "study_guide",
+  documentTitle: "Study Guide",
+  defaultGoal: STUDY_GUIDE_EXAMPLE_GOALS[0],
+  exampleGoals: STUDY_GUIDE_EXAMPLE_GOALS,
+  maxSteps: 4,
+};
+
+export function AgentPageProvider({
+  children,
+  config = GENERAL_CONFIG,
+}: {
+  children: ReactNode;
+  config?: AgentWorkspaceConfig;
+}) {
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const { success, error: toastError } = useToast();
   const queryClient = useQueryClient();
-  useDocumentTitle("Agents");
+  useDocumentTitle(config.documentTitle);
 
   const [selectedId, setSelectedId] = useState("");
-  const [goal, setGoal] = useState(AGENT_EXAMPLE_GOALS[0]);
+  const [goal, setGoal] = useState(config.defaultGoal);
   const [error, setError] = useState<string | null>(null);
   const [running, setRunning] = useState(false);
   const [approving, setApproving] = useState(false);
@@ -45,7 +79,10 @@ export function AgentPageProvider({ children }: { children: ReactNode }) {
   const { data: workspaces = [], isLoading: loading } = useWorkspaces();
   const { workspaceId: effectiveWorkspaceId, setWorkspaceId: persistWorkspace } =
     useLastWorkspace(workspaces);
-  const { data: runs = [] } = useAgentRuns(effectiveWorkspaceId);
+  const { data: runs = [] } = useAgentRuns(
+    effectiveWorkspaceId,
+    config.agentType,
+  );
   const { data: notes = [] } = useNotes(effectiveWorkspaceId);
   const effectiveSelectedId = selectedId;
 
@@ -173,16 +210,25 @@ export function AgentPageProvider({ children }: { children: ReactNode }) {
             setSelectedId(final.id);
           },
         ),
-        5,
+        {
+          maxSteps: config.maxSteps,
+          agentType: config.agentType,
+        },
       );
       if (run) {
         setSelected(run);
         setSelectedId(run.id);
-        await queryClient.invalidateQueries({ queryKey: ["agentRuns", effectiveWorkspaceId] });
+        await queryClient.invalidateQueries({
+          queryKey: ["agentRuns", effectiveWorkspaceId, config.agentType],
+        });
         if (run.status === "waiting_approval") {
           success("Approval needed", "Review the write action below.");
         } else if (run.status === "completed") {
-          success("Agent finished");
+          success(
+            config.agentType === "study_guide"
+              ? "Study guide ready"
+              : "Agent finished",
+          );
         }
       }
     } catch (err) {
@@ -204,7 +250,9 @@ export function AgentPageProvider({ children }: { children: ReactNode }) {
     try {
       if (!approve) {
         const run = await api.approveAgentRun(selected.id, false);
-        await queryClient.invalidateQueries({ queryKey: ["agentRuns", effectiveWorkspaceId] });
+        await queryClient.invalidateQueries({
+          queryKey: ["agentRuns", effectiveWorkspaceId, config.agentType],
+        });
         setSelected(run);
         success("Action rejected");
         return;
@@ -278,7 +326,9 @@ export function AgentPageProvider({ children }: { children: ReactNode }) {
       );
       if (run) {
         setSelected(run);
-        await queryClient.invalidateQueries({ queryKey: ["agentRuns", effectiveWorkspaceId] });
+        await queryClient.invalidateQueries({
+          queryKey: ["agentRuns", effectiveWorkspaceId, config.agentType],
+        });
         await queryClient.invalidateQueries({ queryKey: ["notes", effectiveWorkspaceId] });
         success("Action approved — agent continued");
       }
@@ -300,8 +350,13 @@ export function AgentPageProvider({ children }: { children: ReactNode }) {
     const goalText =
       `Create a note titled ${JSON.stringify(title)} with body:\n${body}`;
     try {
-      const run = await api.startAgentRun(effectiveWorkspaceId, goalText, 5);
-      await queryClient.invalidateQueries({ queryKey: ["agentRuns", effectiveWorkspaceId] });
+      const run = await api.startAgentRun(effectiveWorkspaceId, goalText, {
+        maxSteps: config.maxSteps,
+        agentType: config.agentType,
+      });
+      await queryClient.invalidateQueries({
+        queryKey: ["agentRuns", effectiveWorkspaceId, config.agentType],
+      });
       setSelected(run);
       if (run.status === "waiting_approval") {
         success("Approve the note", "Review create_note, then Approve.");
@@ -338,7 +393,9 @@ export function AgentPageProvider({ children }: { children: ReactNode }) {
     setSelectedId("");
     try {
       await api.deleteAgentRun(id);
-      await queryClient.invalidateQueries({ queryKey: ["agentRuns", effectiveWorkspaceId] });
+      await queryClient.invalidateQueries({
+        queryKey: ["agentRuns", effectiveWorkspaceId, config.agentType],
+      });
       success("Run deleted");
     } catch (err) {
       const msg = formatError(err);
@@ -348,6 +405,8 @@ export function AgentPageProvider({ children }: { children: ReactNode }) {
   }
 
   const value: AgentPageContextValue = {
+    agentType: config.agentType,
+    exampleGoals: config.exampleGoals,
     workspaces,
     workspaceId: effectiveWorkspaceId,
     runs,
@@ -378,13 +437,17 @@ export function AgentPageProvider({ children }: { children: ReactNode }) {
     onSaveLearningNote,
     onRefresh: () => {
       void queryClient.invalidateQueries({ queryKey: ["workspaces"] });
-      void queryClient.invalidateQueries({ queryKey: ["agentRuns", effectiveWorkspaceId] });
+      void queryClient.invalidateQueries({
+        queryKey: ["agentRuns", effectiveWorkspaceId, config.agentType],
+      });
       void queryClient.invalidateQueries({ queryKey: ["notes", effectiveWorkspaceId] });
     },
     onDismissError: () => setError(null),
     onRetryError: () => {
       setError(null);
-      void queryClient.invalidateQueries({ queryKey: ["agentRuns", effectiveWorkspaceId] });
+      void queryClient.invalidateQueries({
+        queryKey: ["agentRuns", effectiveWorkspaceId, config.agentType],
+      });
       void queryClient.invalidateQueries({ queryKey: ["notes", effectiveWorkspaceId] });
       if (selectedId) void onSelect(selectedId);
     },

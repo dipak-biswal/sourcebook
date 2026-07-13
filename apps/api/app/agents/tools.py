@@ -5,12 +5,20 @@ from langchain_core.tools import tool
 from sqlalchemy.orm import Session
 
 from app.agents.gen_ui import build_learning_ui
+from app.agents.profiles import get_profile
 from app.ingestion.retrieve import retrieve_chunks
 from app.models import Document, Note
 
 
-def build_tools(db: Session, *, workspace_id: uuid.UUID, user_id: uuid.UUID):
-    """Return tool callables bound to this request's db+tenant."""
+def build_tools(
+    db: Session,
+    *,
+    workspace_id: uuid.UUID,
+    user_id: uuid.UUID,
+    agent_type: str = "general",
+):
+    """Return tool callables bound to this request's db+tenant and agent profile."""
+    profile = get_profile(agent_type)
 
     @tool
     def list_documents() -> list[dict[str, Any]]:
@@ -105,9 +113,10 @@ def build_tools(db: Session, *, workspace_id: uuid.UUID, user_id: uuid.UUID):
             "status": "created",
         }
 
-    return [
-        list_documents,
-        search_documents,
-        study_guide,
-        create_note,
-    ]
+    by_name = {
+        "list_documents": list_documents,
+        "search_documents": search_documents,
+        "study_guide": study_guide,
+        "create_note": create_note,
+    }
+    return [by_name[name] for name in by_name if name in profile.tool_names]

@@ -8,6 +8,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session, joinedload
 
+from app.agents.profiles import get_profile, normalize_agent_type
 from app.agents.runner import (
     approve_agent_run,
     run_agent,
@@ -94,13 +95,22 @@ def start_agent_run(
             status_code=status.HTTP_400_BAD_REQUEST, detail="goal is empty"
         )
 
+    agent_type = normalize_agent_type(body.agent_type)
+    profile = get_profile(agent_type)
+    max_steps = (
+        body.max_steps
+        if body.max_steps is not None
+        else profile.default_max_steps
+    )
+
     try:
         run = run_agent(
             db,
             workspace_id=body.workspace_id,
             user_id=current_user.id,
             goal=body.goal.strip(),
-            max_steps=min(max(body.max_steps, 1), 8),
+            max_steps=min(max(max_steps, 1), 8),
+            agent_type=agent_type,
         )
     except Exception as e:
         raise HTTPException(
@@ -134,7 +144,14 @@ def start_agent_run_stream(
     workspace_id = body.workspace_id
     user_id = current_user.id
     goal = body.goal.strip()
-    max_steps = min(max(body.max_steps, 1), 8)
+    agent_type = normalize_agent_type(body.agent_type)
+    profile = get_profile(agent_type)
+    max_steps = (
+        body.max_steps
+        if body.max_steps is not None
+        else profile.default_max_steps
+    )
+    max_steps = min(max(max_steps, 1), 8)
 
     def work(session: Session, on_event) -> None:
         run = run_agent(
@@ -143,6 +160,7 @@ def start_agent_run_stream(
             user_id=user_id,
             goal=goal,
             max_steps=max_steps,
+            agent_type=agent_type,
             on_event=on_event,
         )
         # reload with steps
@@ -257,21 +275,22 @@ def get_agent_run(
 @router.get("/runs", response_model=list[AgentRunResponse])
 def list_agent_runs(
     workspace_id: uuid.UUID,
+    agent_type: str | None = None,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
     _require_member(db, current_user.id, workspace_id)
-    return (
+    q = (
         db.query(AgentRun)
         .options(joinedload(AgentRun.steps))
         .filter(
             AgentRun.workspace_id == workspace_id,
             AgentRun.user_id == current_user.id,
         )
-        .order_by(AgentRun.created_at.desc())
-        .limit(30)
-        .all()
     )
+    if agent_type:
+        q = q.filter(AgentRun.agent_type == normalize_agent_type(agent_type))
+    return q.order_by(AgentRun.created_at.desc()).limit(30).all()
 
 
 @router.delete("/runs/{run_id}", status_code=204)

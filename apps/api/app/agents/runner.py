@@ -15,6 +15,7 @@ from langchain_openai import ChatOpenAI
 from pydantic import SecretStr
 from sqlalchemy.orm import Session
 
+from app.agents.profiles import get_profile
 from app.agents.tools import build_tools
 from app.config import settings
 from app.models import AgentRun, AgentStep
@@ -24,24 +25,6 @@ WRITE_TOOLS = frozenset({"create_note"})
 
 # on_event(event_type, payload) — used for LangSmith-style live traces (SSE)
 EventCallback = Callable[[str, dict[str, Any]], None] | None
-
-SYSTEM_PROMPT = (
-    "You are Sourcebook's workspace agent. "
-    "Use tools to list/search documents, generate easy learning UIs, "
-    "and create notes. Stay inside this workspace. Be concise.\n"
-    "- For 'explain', 'summarize simply', 'teach me', 'overview', "
-    "'key points', or 'make this easy to understand', call "
-    "study_guide with a clear topic (and optional focus).\n"
-    "- If the user names a file, list_documents first if needed, then "
-    "pass document_id or document_filename into study_guide.\n"
-    "- After study_guide succeeds, give a short text answer "
-    "and mention that a structured learning view is shown in the UI.\n"
-    "- create_note requires human approval before it executes. "
-    "After a write is approved and executed, continue helping if useful "
-    "(confirm what was done, suggest next steps) without re-calling the same write unless asked.\n"
-    "When finished, answer clearly without more tool calls."
-)
-
 
 def _llm():
     return ChatOpenAI(
@@ -138,6 +121,7 @@ def run_to_public_dict(run: AgentRun) -> dict[str, Any]:
         "workspace_id": str(run.workspace_id),
         "user_id": str(run.user_id) if run.user_id else None,
         "goal": run.goal,
+        "agent_type": run.agent_type or "general",
         "status": run.status,
         "final_answer": run.final_answer,
         "error": run.error,
@@ -297,7 +281,12 @@ def _run_tool_loop(
     Pauses on first write tool with a checkpoint in pending_tool so approve can resume.
     """
     user_id = run.user_id or uuid.UUID(int=0)
-    tools = build_tools(db, workspace_id=run.workspace_id, user_id=user_id)
+    tools = build_tools(
+        db,
+        workspace_id=run.workspace_id,
+        user_id=user_id,
+        agent_type=run.agent_type,
+    )
     tool_by_name = {t.name: t for t in tools}
     model = _llm().bind_tools(tools)
 
@@ -664,6 +653,7 @@ def run_agent(
     user_id: uuid.UUID,
     goal: str,
     max_steps: int = 5,
+    agent_type: str = "general",
     on_event: EventCallback = None,
 ) -> AgentRun:
     """
@@ -676,10 +666,15 @@ def run_agent(
     if not goal:
         raise ValueError("goal is empty")
 
+    profile = get_profile(agent_type)
+    resolved_type = profile.agent_type
+    cap_steps = max(1, min(max_steps, 12))
+
     run = AgentRun(
         workspace_id=workspace_id,
         user_id=user_id,
         goal=goal,
+        agent_type=resolved_type,
         status="running",
         pending_tool=None,
     )
@@ -687,7 +682,7 @@ def run_agent(
     db.flush()
 
     messages: list[BaseMessage] = [
-        SystemMessage(content=SYSTEM_PROMPT),
+        SystemMessage(content=profile.system_prompt),
         HumanMessage(content=goal),
     ]
     _emit(
@@ -696,13 +691,14 @@ def run_agent(
         run_id=str(run.id),
         goal=goal,
         workspace_id=str(workspace_id),
+        agent_type=resolved_type,
         status="running",
     )
     return _run_tool_loop(
         db,
         run,
         messages=messages,
-        max_steps=max(1, min(max_steps, 12)),
+        max_steps=cap_steps,
         start_step_index=0,
         on_event=on_event,
     )
@@ -759,6 +755,7 @@ def approve_agent_run(
             db,
             workspace_id=run.workspace_id,
             user_id=run.user_id or uuid.UUID(int=0),
+            agent_type=run.agent_type,
         )
     }
     tool = tools.get(name)
@@ -811,8 +808,9 @@ def approve_agent_run(
     messages = _deserialize_messages(checkpoint.get("messages") or [])
     if not messages:
         # Fallback if old runs lack checkpoint
+        profile = get_profile(run.agent_type)
         messages = [
-            SystemMessage(content=SYSTEM_PROMPT),
+            SystemMessage(content=profile.system_prompt),
             HumanMessage(content=run.goal or ""),
             AIMessage(
                 content="",

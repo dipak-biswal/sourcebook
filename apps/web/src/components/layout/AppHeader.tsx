@@ -9,6 +9,7 @@ import {
   LogOut,
   Menu,
   MessageCircle,
+  GraduationCap,
   StickyNote,
   User,
   X,
@@ -26,6 +27,7 @@ type AppHeaderProps = {
 
 const PRIMARY_NAV = [
   { to: "/chat", label: "Chat", icon: MessageCircle, match: "/chat" },
+  { to: "/study", label: "Study", icon: GraduationCap, match: "/study" },
   { to: "/agents", label: "Agents", icon: Bot, match: "/agents" },
   { to: "/documents", label: "Documents", icon: Files, match: "/documents" },
   { to: "/notes", label: "Notes", icon: StickyNote, match: "/notes" },

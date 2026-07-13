@@ -289,13 +289,18 @@ export const api = {
   deleteAllUsageEvents: () =>
     request<void>("/usage/events", { method: "DELETE" }),
 
-  startAgentRun: (workspaceId: string, goal: string, maxSteps = 5) =>
+  startAgentRun: (
+    workspaceId: string,
+    goal: string,
+    options: { maxSteps?: number; agentType?: "general" | "study_guide" } = {},
+  ) =>
     request<AgentRun>("/agents/runs", {
       method: "POST",
       body: JSON.stringify({
         workspace_id: workspaceId,
         goal,
-        max_steps: maxSteps,
+        max_steps: options.maxSteps,
+        agent_type: options.agentType ?? "general",
       }),
     }),
 
@@ -304,11 +309,27 @@ export const api = {
     workspaceId: string,
     goal: string,
     handlers: AgentStreamHandlers = {},
-    maxSteps = 5,
-  ) => streamAgentRun("/agents/runs/stream", { workspace_id: workspaceId, goal, max_steps: maxSteps }, handlers),
+    options: { maxSteps?: number; agentType?: "general" | "study_guide" } = {},
+  ) =>
+    streamAgentRun(
+      "/agents/runs/stream",
+      {
+        workspace_id: workspaceId,
+        goal,
+        max_steps: options.maxSteps,
+        agent_type: options.agentType ?? "general",
+      },
+      handlers,
+    ),
 
-  agentRuns: (workspaceId: string) =>
-    request<AgentRun[]>(`/agents/runs?workspace_id=${workspaceId}`),
+  agentRuns: (
+    workspaceId: string,
+    agentType?: "general" | "study_guide",
+  ) => {
+    const params = new URLSearchParams({ workspace_id: workspaceId });
+    if (agentType) params.set("agent_type", agentType);
+    return request<AgentRun[]>(`/agents/runs?${params.toString()}`);
+  },
 
   agentRun: (runId: string) => request<AgentRun>(`/agents/runs/${runId}`),
 
@@ -463,6 +484,7 @@ export type AgentRun = {
   workspace_id: string;
   user_id: string | null;
   goal: string;
+  agent_type?: "general" | "study_guide";
   status: string;
   final_answer: string | null;
   error: string | null;
