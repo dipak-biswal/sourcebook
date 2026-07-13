@@ -37,7 +37,7 @@ export function useChatSessions() {
     isFetching: loadingMessages,
   } = useMessages(conversationId || undefined);
   const { data: agentRuns = [], isLoading: loadingAgentRuns } = useAgentRuns(workspaceId);
-  const agentRunId = overrideAgentRunId ?? agentRuns[0]?.id ?? "";
+  const agentRunId = overrideAgentRunId ?? "";
 
   useEffect(() => {
     if (!conversationId) {

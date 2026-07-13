@@ -1,3 +1,4 @@
+import { Link } from "react-router-dom";
 import { Loader2, Play } from "lucide-react";
 import { AGENT_EXAMPLE_GOALS } from "@/components/agents/agent-utils";
 import { Button } from "@/components/ui/button";
@@ -18,12 +19,18 @@ export function AgentRunForm() {
       onSubmit={onRun}
       className="mb-6 rounded-vercel-md border border-hairline bg-canvas p-4"
     >
-      <h1 className="text-sm font-semibold text-ink">Start agent run</h1>
+      <h1 className="text-sm font-semibold text-ink">Agents workspace</h1>
       <p className="mt-1 text-xs text-mute">
-        Read tools run immediately.{" "}
-        <strong className="text-ink">create_note</strong> waits for
-        Approve / Reject. You can also run agents from{" "}
-        <strong className="text-ink">Chat → Agent</strong> mode.
+        Full run history, trace tabs, and notes live here. Read tools run
+        immediately; <strong className="text-ink">create_note</strong> waits for
+        Approve / Reject. For a quick in-thread run, use{" "}
+        <Link
+          to="/chat"
+          className="font-medium text-ink underline-offset-2 hover:underline"
+        >
+          Chat → Agent
+        </Link>
+        .
       </p>
 
       <div className="mt-3 flex flex-wrap gap-1.5">

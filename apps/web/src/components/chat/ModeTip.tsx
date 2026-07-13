@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { Link } from "react-router-dom";
 import { Bot, MessageCircle, X } from "lucide-react";
 
 const KEY = "sourcebook_chat_mode_tip_dismissed";
@@ -34,13 +35,20 @@ export function ModeTip() {
             <MessageCircle className="inline h-3 w-3" strokeWidth={1.5} />
             Chat
           </span>{" "}
-          answers from document text with sources.{" "}
+          answers from your documents with citations.{" "}
           <span className="inline-flex items-center gap-1 font-medium text-ink">
             <Bot className="inline h-3 w-3" strokeWidth={1.5} />
             Agent
           </span>{" "}
-          can list/search files, build a simple learning view from your docs,
-          and create notes (with your approval).
+          runs tools in this thread (quick). For full run history, trace tabs,
+          and notes, use the{" "}
+          <Link
+            to="/agents"
+            className="font-medium text-ink underline-offset-2 hover:underline"
+          >
+            Agents page
+          </Link>
+          .
         </div>
         <button
           type="button"

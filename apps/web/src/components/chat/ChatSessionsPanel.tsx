@@ -122,9 +122,17 @@ export function ChatSessionsPanel({
         ) : isAgent ? (
           agentRuns.length === 0 ? (
             <div className="rounded-[6px] border border-dashed border-hairline px-3 py-4 text-center">
-              <p className="text-xs text-mute">No agent runs yet.</p>
+              <p className="text-xs text-mute">No runs in this workspace yet.</p>
               <p className="mt-1 text-xs text-mute">
-                Send a goal in Agent mode — each run appears here.
+                Send a goal below — or browse all runs on the{" "}
+                <Link
+                  to="/agents"
+                  onClick={() => onAfterNavigate?.()}
+                  className="font-medium text-ink underline-offset-2 hover:underline"
+                >
+                  Agents page
+                </Link>
+                .
               </p>
             </div>
           ) : (

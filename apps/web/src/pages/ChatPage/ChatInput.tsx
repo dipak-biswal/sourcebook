@@ -1,3 +1,4 @@
+import { Link } from "react-router-dom";
 import { Bot, Loader2, MessageCircle, Send } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -50,10 +51,21 @@ export function ChatInput() {
               Agent
             </button>
           </div>
-          <span className="hidden text-[11px] text-mute sm:inline">
-            {mode === "chat"
-              ? "Grounded RAG + citations · ⌘/Ctrl+Enter"
-              : "Tools + HITL · ⌘/Ctrl+Enter"}
+          <span className="hidden min-w-0 text-[11px] text-mute sm:inline">
+            {mode === "chat" ? (
+              "Grounded RAG + citations · ⌘/Ctrl+Enter"
+            ) : (
+              <>
+                Quick run here · Full history on{" "}
+                <Link
+                  to="/agents"
+                  className="font-medium text-ink underline-offset-2 hover:underline"
+                >
+                  Agents
+                </Link>{" "}
+                · ⌘/Ctrl+Enter
+              </>
+            )}
           </span>
         </div>
         <div className="flex gap-2">

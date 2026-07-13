@@ -140,7 +140,7 @@ export function ChatPageProvider({ children }: { children: ReactNode }) {
     mode === "agent"
       ? activeAgentRun
         ? `Run · ${formatDate(activeAgentRun.created_at)}`
-        : "Tools: list / search docs, create_note (HITL)"
+        : "Quick tools here · full history on Agents page"
       : active
         ? `Session · ${formatDate(active.created_at)}`
         : "Send a message to start a session";

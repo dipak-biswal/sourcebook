@@ -1,5 +1,5 @@
-import { useState, type ReactNode, type SubmitEvent } from "react";
-import { useNavigate } from "react-router-dom";
+import { useCallback, useEffect, useState, type ReactNode, type SubmitEvent } from "react";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { useQueryClient } from "@tanstack/react-query";
 import { api, type AgentStep, type AgentRun } from "@/api";
 import type { LiveTraceSpan, LlmTraceEvent } from "@/components/agents/AgentRunPanel";
@@ -20,6 +20,7 @@ import { AGENT_EXAMPLE_GOALS } from "@/components/agents/agent-utils";
 
 export function AgentPageProvider({ children }: { children: ReactNode }) {
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
   const { success, error: toastError } = useToast();
   const queryClient = useQueryClient();
   useDocumentTitle("Agents");
@@ -45,9 +46,9 @@ export function AgentPageProvider({ children }: { children: ReactNode }) {
   const effectiveWorkspaceId = workspaceId || workspaces[0]?.id || "";
   const { data: runs = [] } = useAgentRuns(effectiveWorkspaceId);
   const { data: notes = [] } = useNotes(effectiveWorkspaceId);
-  const effectiveSelectedId = selectedId || runs[0]?.id || "";
+  const effectiveSelectedId = selectedId;
 
-  async function onSelect(id: string) {
+  const onSelect = useCallback(async (id: string) => {
     setSelectedId(id);
     setError(null);
     setLiveSteps([]);
@@ -60,7 +61,25 @@ export function AgentPageProvider({ children }: { children: ReactNode }) {
     } catch (err) {
       setError(formatError(err));
     }
-  }
+  }, []);
+
+  useEffect(() => {
+    const runId = searchParams.get("run");
+    if (!runId) return;
+    setSearchParams({}, { replace: true });
+    if (runId === selectedId) return;
+    void (async () => {
+      try {
+        const run = await api.agentRun(runId);
+        if (run.workspace_id && run.workspace_id !== effectiveWorkspaceId) {
+          setWorkspaceId(run.workspace_id);
+        }
+        await onSelect(runId);
+      } catch (err) {
+        setError(formatError(err));
+      }
+    })();
+  }, [searchParams, selectedId, onSelect, setSearchParams, effectiveWorkspaceId]);
 
   function resetLiveTrace(goalText: string) {
     setLiveGoal(goalText);

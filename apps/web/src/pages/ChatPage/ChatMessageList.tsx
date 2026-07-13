@@ -1,4 +1,4 @@
-import { useNavigate } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { AlertCircle, Bot, Loader2, MessageCircle, Sparkles } from "lucide-react";
 import { TypingIndicator } from "@/components/chat/TypingIndicator";
 import { AgentRunPanel } from "@/components/agents/AgentRunPanel";
@@ -128,6 +128,13 @@ function ChatMessageItem({
   );
 }
 
+const TERMINAL_RUN_STATUSES = new Set([
+  "completed",
+  "failed",
+  "cancelled",
+  "waiting_approval",
+]);
+
 function AgentMessageItem({
   item,
 }: {
@@ -135,6 +142,11 @@ function AgentMessageItem({
 }) {
   const { approving, savingNote, onApproveAgent, onSaveLearningNote } = useChatPage();
   const isUser = item.role === "user";
+  const showAgentsLink =
+    !isUser &&
+    !item.pending &&
+    item.run &&
+    TERMINAL_RUN_STATUSES.has(item.run.status);
 
   return (
     <div
@@ -175,6 +187,15 @@ function AgentMessageItem({
             </div>
           ) : null;
         })()}
+
+      {showAgentsLink && (
+        <Link
+          to={`/agents?run=${item.run!.id}`}
+          className="mt-2 text-xs font-medium text-ink underline-offset-2 hover:underline"
+        >
+          Open full trace in Agents →
+        </Link>
+      )}
 
       {!isUser && (item.run || item.pending) && (
         <div className="mt-2 w-full max-w-[min(100%,40rem)]">
@@ -283,16 +304,20 @@ export function ChatMessageList() {
               icon={mode === "agent" ? Bot : MessageCircle}
               title={
                 mode === "agent"
-                  ? "Run tools from chat"
+                  ? "Quick agent run"
                   : "Ask about your documents"
               }
               description={
                 mode === "agent"
-                  ? "List/search docs, generate an easy learning view from your uploads, or create a note (writes need approval)."
+                  ? "Run tools in this thread — list/search docs or create a note (writes need approval). For full history, traces, and notes, use the Agents page."
                   : "Upload PDF, DOCX, or text files, ingest until ready, then ask grounded questions here."
               }
-              actionLabel={mode === "chat" ? "Open documents" : undefined}
-              onAction={mode === "chat" ? () => navigate("/documents") : undefined}
+              actionLabel={mode === "chat" ? "Open documents" : "Open Agents page"}
+              onAction={
+                mode === "chat"
+                  ? () => navigate("/documents")
+                  : () => navigate("/agents")
+              }
             />
             {mode === "chat" && suggestions && suggestions.length > 0 && (
               <>
