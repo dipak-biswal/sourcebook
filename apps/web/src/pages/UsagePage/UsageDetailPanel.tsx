@@ -1,8 +1,8 @@
-import { Loader2, X } from "lucide-react";
+import { ChevronDown, ChevronRight, Loader2, X } from "lucide-react";
 import { useEffect, useState } from "react";
 import { api, type UsageEventDetail } from "@/api";
 import { MarkdownContent } from "@/components/chat/MarkdownContent";
-import { Badge } from "@/components/ui/badge";
+import { cn } from "@/lib/utils";
 
 export function UsageDetailPanel({
   eventId,
@@ -24,9 +24,9 @@ export function UsageDetailPanel({
   }, [eventId]);
 
   return (
-    <div className="rounded-vercel-md border border-hairline bg-canvas">
+    <div className="flex h-full flex-col">
       <div className="flex items-center justify-between border-b border-hairline px-4 py-3">
-        <span className="text-sm font-semibold text-ink">Event details</span>
+        <span className="text-sm font-semibold text-ink">Trace</span>
         <button
           type="button"
           onClick={onClose}
@@ -36,18 +36,24 @@ export function UsageDetailPanel({
         </button>
       </div>
 
-      <div className="divide-y divide-hairline">
+      <div className="flex-1 overflow-y-auto p-3">
         {loading ? (
-          <div className="flex items-center justify-center py-10">
+          <div className="flex items-center justify-center py-20">
             <Loader2 className="h-5 w-5 animate-spin text-mute" />
           </div>
-        ) : detail?.kind === "agent_run" ? (
-          <AgentRunDetail detail={detail} />
-        ) : detail?.kind === "chat" || detail?.kind === "chat_stream" || detail?.kind === "stream" ? (
-          <ChatDetail detail={detail} />
+        ) : !detail ? (
+          <div className="py-10 text-center text-sm text-mute">
+            Failed to load event details.
+          </div>
+        ) : detail.kind === "agent_run" ? (
+          <AgentRunTrace detail={detail} />
+        ) : detail.kind === "chat" ||
+          detail.kind === "chat_stream" ||
+          detail.kind === "stream" ? (
+          <ChatTrace detail={detail} />
         ) : (
-          <div className="px-4 py-6 text-center text-sm text-mute">
-            No details available for this event.
+          <div className="py-10 text-center text-sm text-mute">
+            No details available for this event type ({detail.kind}).
           </div>
         )}
       </div>
@@ -55,132 +61,225 @@ export function UsageDetailPanel({
   );
 }
 
-function AgentRunDetail({ detail }: { detail: UsageEventDetail }) {
+/* ─── Tree node primitives ─── */
+
+function TreeNode({
+  icon,
+  label,
+  meta,
+  defaultOpen = true,
+  children,
+}: {
+  icon: React.ReactNode;
+  label: string;
+  meta?: React.ReactNode;
+  defaultOpen?: boolean;
+  children?: React.ReactNode;
+}) {
+  const [open, setOpen] = useState(defaultOpen);
+  const hasChildren = !!children;
+
   return (
-    <div className="space-y-4 px-4 py-4">
-      <div>
-        <div className="mb-1 text-[11px] font-medium uppercase tracking-wide text-mute">
-          Goal
-        </div>
-        <div className="text-sm text-body">{detail.goal || "—"}</div>
+    <div>
+      <div
+        className={cn(
+          "flex cursor-pointer items-center gap-1.5 rounded-[4px] px-2 py-1.5 text-[13px] transition-colors hover:bg-canvas-soft-2",
+        )}
+        onClick={() => hasChildren && setOpen((v) => !v)}
+      >
+        {hasChildren ? (
+          open ? (
+            <ChevronDown className="h-3.5 w-3.5 shrink-0 text-mute" strokeWidth={1.5} />
+          ) : (
+            <ChevronRight className="h-3.5 w-3.5 shrink-0 text-mute" strokeWidth={1.5} />
+          )
+        ) : (
+          <span className="w-3.5" />
+        )}
+        <span className="shrink-0">{icon}</span>
+        <span className="min-w-0 truncate font-medium text-ink">{label}</span>
+        {meta && <span className="ml-auto shrink-0 text-[11px] text-mute">{meta}</span>}
       </div>
-
-      {detail.final_answer && (
-        <div>
-          <div className="mb-1 text-[11px] font-medium uppercase tracking-wide text-mute">
-            Final answer
-          </div>
-          <div className="rounded-[6px] border border-hairline bg-canvas-soft p-3 text-body-sm text-body">
-            <MarkdownContent content={detail.final_answer} />
-          </div>
-        </div>
-      )}
-
-      {detail.token_usage != null && (
-        <div>
-          <div className="mb-1 text-[11px] font-medium uppercase tracking-wide text-mute">
-            Token usage
-          </div>
-          <div className="text-sm font-medium text-ink">
-            {detail.token_usage.toLocaleString()} total
-          </div>
-        </div>
-      )}
-
-      {detail.steps.length > 0 && (
-        <div>
-          <div className="mb-2 text-[11px] font-medium uppercase tracking-wide text-mute">
-            Steps ({detail.steps.length})
-          </div>
-          <div className="space-y-1.5">
-            {detail.steps.map((s, i) => (
-              <div
-                key={i}
-                className="rounded-[6px] border border-hairline bg-canvas-soft px-3 py-2"
-              >
-                <div className="flex items-center gap-2">
-                  <Badge variant="secondary" className="text-[10px]">
-                    {s.type}
-                  </Badge>
-                  {s.tool_name && (
-                    <span className="text-xs font-medium text-ink">
-                      {s.tool_name}
-                    </span>
-                  )}
-                </div>
-                {s.type === "tool_call" && s.input && (
-                  <pre className="mt-1 overflow-x-auto text-[10px] text-mute">
-                    {(JSON.stringify(s.input as Record<string, unknown>, null, 1) ?? "")}
-                  </pre>
-                )}
-                {s.type === "tool_result" && s.output && (
-                  <pre className="mt-1 overflow-x-auto text-[10px] text-mute">
-                    {typeof s.output === "string"
-                      ? (s.output as string).slice(0, 500)
-                      : (JSON.stringify(s.output, null, 1) ?? "").slice(0, 500)}
-                    {(JSON.stringify(s.output) ?? "").length > 500 ? "…" : ""}
-                  </pre>
-                )}
-                {s.type === "thought" && typeof s.output === "string" && (
-                  <div className="mt-1 text-[11px] text-body">
-                    {(s.output as string).slice(0, 300)}
-                    {(s.output as string).length > 300 ? "…" : ""}
-                  </div>
-                )}
-              </div>
-            ))}
-          </div>
-        </div>
+      {hasChildren && open && (
+        <div className="ml-4 border-l border-hairline pl-2">{children}</div>
       )}
     </div>
   );
 }
 
-function ChatDetail({ detail }: { detail: UsageEventDetail }) {
+function LeafNode({
+  icon,
+  label,
+  detail,
+}: {
+  icon: React.ReactNode;
+  label: string;
+  detail?: string;
+}) {
   return (
-    <div className="space-y-4 px-4 py-4">
-      {detail.user_message && (
-        <div>
-          <div className="mb-1 text-[11px] font-medium uppercase tracking-wide text-mute">
-            User message
-          </div>
-          <div className="rounded-[6px] border border-hairline bg-canvas-soft p-3 text-body-sm text-body">
-            {detail.user_message}
-          </div>
-        </div>
-      )}
+    <div className="flex items-start gap-1.5 rounded-[4px] px-2 py-1.5 text-[13px]">
+      <span className="mt-0.5 shrink-0">{icon}</span>
+      <div className="min-w-0 flex-1">
+        <span className="font-medium text-ink">{label}</span>
+        {detail && (
+          <pre className="mt-1 overflow-x-auto whitespace-pre-wrap text-[11px] text-mute">
+            {detail.length > 300 ? detail.slice(0, 300) + "…" : detail}
+          </pre>
+        )}
+      </div>
+    </div>
+  );
+}
 
-      {detail.assistant_message && (
-        <div>
-          <div className="mb-1 text-[11px] font-medium uppercase tracking-wide text-mute">
-            Assistant response
-          </div>
-          <div className="rounded-[6px] border border-hairline bg-canvas-soft p-3 text-body-sm text-body">
-            <MarkdownContent content={detail.assistant_message} />
-          </div>
-        </div>
-      )}
+/* ─── Agent run trace ─── */
 
-      {detail.citations.length > 0 && (
-        <div>
-          <div className="mb-1 text-[11px] font-medium uppercase tracking-wide text-mute">
-            Citations
-          </div>
-          <div className="flex flex-wrap gap-1">
+function AgentRunTrace({ detail }: { detail: UsageEventDetail }) {
+  return (
+    <div className="space-y-0.5">
+      <TreeNode
+        icon={<span className="text-[11px] font-bold text-indigo-500">A</span>}
+        label="Agent run"
+        meta={
+          detail.token_usage != null
+            ? `${detail.token_usage.toLocaleString()} tok`
+            : undefined
+        }
+        defaultOpen
+      >
+        <TreeNode
+          icon={<span className="text-[11px]">💬</span>}
+          label="Goal"
+          defaultOpen={false}
+        >
+          <LeafNode
+            icon={<span />}
+            label=""
+            detail={detail.goal ?? "—"}
+          />
+        </TreeNode>
+
+        {detail.steps.map((s, i) => {
+          if (s.type === "thought") {
+            return (
+              <TreeNode
+                key={i}
+                icon={<span className="text-[11px]">💭</span>}
+                label="Thought"
+                defaultOpen={false}
+              >
+                <LeafNode
+                  icon={<span />}
+                  label=""
+                  detail={
+                    typeof s.output === "string" ? s.output : JSON.stringify(s.output, null, 1)
+                  }
+                />
+              </TreeNode>
+            );
+          }
+          if (s.type === "tool_call") {
+            return (
+              <TreeNode
+                key={i}
+                icon={<span className="text-[11px]">🔧</span>}
+                label={s.tool_name ?? "Tool call"}
+                defaultOpen={false}
+              >
+                <LeafNode
+                  icon={<span className="text-[11px] text-mute">📥</span>}
+                  label="Input"
+                  detail={
+                    s.input ? JSON.stringify(s.input, null, 1) : "—"
+                  }
+                />
+              </TreeNode>
+            );
+          }
+          if (s.type === "tool_result") {
+            return (
+              <TreeNode
+                key={i}
+                icon={<span className="text-[11px]">📄</span>}
+                label={s.tool_name ? `${s.tool_name} result` : "Tool result"}
+                defaultOpen={false}
+              >
+                <LeafNode
+                  icon={<span className="text-[11px] text-mute">📤</span>}
+                  label="Output"
+                  detail={
+                    s.output
+                      ? typeof s.output === "string"
+                        ? s.output
+                        : JSON.stringify(s.output, null, 1)
+                      : "—"
+                  }
+                />
+              </TreeNode>
+            );
+          }
+          return null;
+        })}
+
+        {detail.final_answer && (
+          <TreeNode
+            icon={<span className="text-[11px]">✅</span>}
+            label="Final answer"
+            defaultOpen
+          >
+            <div className="rounded-[4px] bg-canvas-soft p-2 text-[12px] text-body">
+              <MarkdownContent content={detail.final_answer} />
+            </div>
+          </TreeNode>
+        )}
+      </TreeNode>
+    </div>
+  );
+}
+
+/* ─── Chat trace ─── */
+
+function ChatTrace({ detail }: { detail: UsageEventDetail }) {
+  return (
+    <div className="space-y-0.5">
+      <TreeNode
+        icon={<span className="text-[11px] font-bold text-sky-500">C</span>}
+        label="Chat"
+        defaultOpen
+      >
+        {detail.user_message && (
+          <TreeNode
+            icon={<span className="text-[11px]">💬</span>}
+            label="User"
+            defaultOpen={false}
+          >
+            <LeafNode icon={<span />} label="" detail={detail.user_message} />
+          </TreeNode>
+        )}
+
+        {detail.assistant_message && (
+          <TreeNode
+            icon={<span className="text-[11px]">🤖</span>}
+            label="Assistant"
+            defaultOpen
+          >
+            <div className="rounded-[4px] bg-canvas-soft p-2 text-[12px] text-body">
+              <MarkdownContent content={detail.assistant_message} />
+            </div>
+          </TreeNode>
+        )}
+
+        {detail.citations.length > 0 && (
+          <TreeNode
+            icon={<span className="text-[11px]">📎</span>}
+            label={`Citations (${detail.citations.length})`}
+            defaultOpen={false}
+          >
             {detail.citations.map((c, i) => (
-              <Badge key={i} variant="outline" className="text-[10px]">
-                {c}
-              </Badge>
+              <LeafNode key={i} icon={<span />} label="" detail={c} />
             ))}
-          </div>
-        </div>
-      )}
-
-      {!detail.user_message && !detail.assistant_message && (
-        <div className="py-4 text-center text-sm text-mute">
-          No messages found for this conversation.
-        </div>
-      )}
+          </TreeNode>
+        )}
+      </TreeNode>
     </div>
   );
 }
