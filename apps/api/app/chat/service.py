@@ -34,7 +34,9 @@ DENIAL_MESSAGE = (
 )
 
 
-def _build_answer_from_context(user_text: str, context: str) -> str:
+def _build_answer_from_context(
+    user_text: str, context: str
+) -> tuple[str, object | None]:
     """
     Small local models often over-refuse when the system prompt says
     "if unsure say you don't know". Use an extractive-style prompt instead.
@@ -73,7 +75,9 @@ ANSWER:"""
         temperature=0.1,
         max_tokens=1024,
     )
-    return (resp.choices[0].message.content or "").strip()
+    text = (resp.choices[0].message.content or "").strip()
+    usage = resp.usage
+    return text, usage
 
 
 def run_rag_chat(
@@ -103,6 +107,7 @@ def run_rag_chat(
     if not hits:
         answer = DENIAL_MESSAGE
         citations: list[dict] = []
+        usage = None
     else:
         context_blocks = []
         citations = []
@@ -110,7 +115,7 @@ def run_rag_chat(
             context_blocks.append(f"[{i}] (relevance={score:.3f})\n{ch.content}")
             citations.append(_citation_dict(db, ch, score, i))
         context = "\n\n".join(context_blocks)
-        answer = _build_answer_from_context(user_text, context)
+        answer, usage = _build_answer_from_context(user_text, context)
 
         # If the model still empty-refuses despite good hits, surface a minimal extractive fallback
         if not answer or answer.lower().strip() in {
@@ -137,10 +142,12 @@ def run_rag_chat(
         model=settings.chat_model if hits else None,
         user_id=conversation.user_id,
         workspace_id=conversation.workspace_id,
-        total_tokens=estimate_tokens(user_text, answer),
+        prompt_tokens=usage.prompt_tokens if usage else None,
+        completion_tokens=usage.completion_tokens if usage else None,
+        total_tokens=usage.total_tokens if usage else None,
         meta={
             "conversation_id": str(conversation.id),
-            "estimated": True,
+            "estimated": usage is None,
             "denied": not bool(hits),
             "hit_count": len(hits),
         },
