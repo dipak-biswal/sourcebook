@@ -14,11 +14,8 @@ import {
   makeLlmEndPatch,
 } from "@/hooks/useAgentStream";
 import { useAgentRuns, useNotes, useWorkspaces } from "@/hooks/queries";
-import {
-  AgentPageContext,
-  type AgentPageContextValue,
-  type NoteSummary,
-} from "./agent-page-context";
+import type { AgentPageContextValue } from "@/types/agents";
+import { AgentPageContext } from "./agent-page-context";
 import { AGENT_EXAMPLE_GOALS } from "@/components/agents/agent-utils";
 
 export function AgentPageProvider({ children }: { children: ReactNode }) {

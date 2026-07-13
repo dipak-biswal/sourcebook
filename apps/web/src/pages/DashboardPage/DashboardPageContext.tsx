@@ -1,9 +1,8 @@
 import { type ReactNode } from "react";
 import { useNavigate } from "react-router-dom";
 import { useDocuments, useConversations, useAgentRuns, useNotes, useWorkspaces, useMe } from "@/hooks/queries";
-import { DashboardPageContext, type DashboardPageContextValue } from "./dashboard-page-context";
-
-type Workspace = { id: string; name: string; role: string };
+import type { DashboardPageContextValue } from "@/types/dashboard";
+import { DashboardPageContext } from "./dashboard-page-context";
 
 type RecentItem = {
   id: string;

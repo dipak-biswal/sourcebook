@@ -7,6 +7,7 @@ import { useDocumentTitle } from "@/hooks/useDocumentTitle";
 import { useMe, useWorkspaces } from "@/hooks/queries";
 import { confirmAction } from "@/lib/confirm";
 import { formatError } from "@/lib/utils";
+import type { SettingsPageContextValue } from "@/types/settings";
 import { SettingsPageContext } from "./settings-page-context";
 
 export function SettingsPageProvider({ children }: { children: ReactNode }) {

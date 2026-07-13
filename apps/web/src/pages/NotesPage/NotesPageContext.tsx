@@ -7,6 +7,7 @@ import { useDocumentTitle } from "@/hooks/useDocumentTitle";
 import { confirmAction } from "@/lib/confirm";
 import { formatError } from "@/lib/utils";
 import { useNote, useNotes, useWorkspaces } from "@/hooks/queries";
+import type { NotesPageContextValue } from "@/types/notes";
 import { NotesPageContext } from "./notes-page-context";
 
 export function NotesPageProvider({ children }: { children: ReactNode }) {

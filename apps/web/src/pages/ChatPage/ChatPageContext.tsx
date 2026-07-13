@@ -1,10 +1,11 @@
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode, type FormEvent } from "react";
 import { useNavigate } from "react-router-dom";
 import { api } from "@/api";
 import { useDocumentTitle } from "@/hooks/useDocumentTitle";
 import { useChatSessions } from "./hooks/useChatSessions";
 import { useChatMessages } from "./hooks/useChatMessages";
 import { useAgentThread } from "./hooks/useAgentThread";
+import type { ChatMode, ChatPageContextValue } from "@/types/chat";
 import { formatDate } from "@/lib/utils";
 import { ChatPageContext } from "./chat-page-context";
 
