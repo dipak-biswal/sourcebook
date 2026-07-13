@@ -1,5 +1,5 @@
-import { useState } from "react";
-import { Activity, Sparkles } from "lucide-react";
+import { useEffect, useState } from "react";
+import { Activity, MessageCircle, Sparkles } from "lucide-react";
 import { AgentRunPanel } from "@/components/agents/AgentRunPanel";
 import { GenerativeUIView } from "@/components/agents/GenerativeUI";
 import { extractGenerativeUIFromSteps } from "@/components/agents/generative-ui";
@@ -8,7 +8,7 @@ import { formatDate } from "@/lib/utils";
 import { cn } from "@/lib/utils";
 import { useAgentPage } from "./agent-page-context";
 
-type TabKey = "learning" | "trace";
+type TabKey = "answer" | "learning" | "trace";
 
 function TabButton({
   active,
@@ -57,7 +57,11 @@ export function AgentRunDisplay() {
   const gen = extractGenerativeUIFromSteps(
     liveSteps.length ? liveSteps : steps,
   );
-  const [activeTab, setActiveTab] = useState<TabKey>(gen && !running ? "learning" : "trace");
+  const [activeTab, setActiveTab] = useState<TabKey>(running ? "trace" : "answer");
+
+  useEffect(() => {
+    if (running) setActiveTab("trace");
+  }, [running]);
 
   if (!selected && !running) {
     return (
@@ -96,26 +100,13 @@ export function AgentRunDisplay() {
           </div>
         </div>
 
-        {selected?.final_answer && (
-          <div className="px-4 py-3">
-            <div className="text-[11px] font-semibold uppercase tracking-wide text-mute">
-              {selected.status === "waiting_approval"
-                ? "Status message"
-                : "Final answer"}
-            </div>
-            <div className="mt-1 text-body-sm text-body">
-              <MarkdownContent content={selected.final_answer} />
-            </div>
-          </div>
-        )}
-
-        {running && !selected?.final_answer && (
-          <div className="px-4 py-3 text-sm text-mute">
-            Processing…
-          </div>
-        )}
-
         <div className="flex items-center gap-1 border-t border-hairline bg-canvas-soft/50 px-4 py-2">
+          <TabButton
+            active={activeTab === "answer"}
+            icon={MessageCircle}
+            label={selected?.status === "waiting_approval" ? "Status" : "Answer"}
+            onClick={() => setActiveTab("answer")}
+          />
           {gen && (
             <TabButton
               active={activeTab === "learning"}
@@ -131,6 +122,22 @@ export function AgentRunDisplay() {
             onClick={() => setActiveTab("trace")}
           />
         </div>
+
+        {activeTab === "answer" && (
+          <div className="px-4 py-3">
+            {running && !selected?.final_answer ? (
+              <div className="text-sm text-mute">Processing…</div>
+            ) : selected?.status === "waiting_approval" ? (
+              <div className="text-body-sm text-body">
+                <MarkdownContent content={selected.final_answer!} />
+              </div>
+            ) : selected?.final_answer ? (
+              <div className="text-body-sm text-body">
+                <MarkdownContent content={selected.final_answer} />
+              </div>
+            ) : null}
+          </div>
+        )}
 
         {activeTab === "learning" && gen && (
           <div className="p-4">
