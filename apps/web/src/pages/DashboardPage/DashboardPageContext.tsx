@@ -64,6 +64,7 @@ export function DashboardPageProvider({ children }: { children: ReactNode }) {
     workspaces,
     workspaceId,
     documentsCount: documents.length,
+    readyDocumentsCount: documents.filter((d) => d.status === "ready").length,
     conversationsCount: conversations.length,
     agentRunsCount: agentRuns.length,
     notesCount: notes.length,

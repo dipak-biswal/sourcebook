@@ -2,6 +2,7 @@ export type DashboardPageContextValue = {
   workspaces: Workspace[];
   workspaceId: string;
   documentsCount: number;
+  readyDocumentsCount: number;
   conversationsCount: number;
   agentRunsCount: number;
   notesCount: number;
