@@ -57,8 +57,12 @@ export function AgentRunDisplay() {
 
   if (!selected && !running) {
     return (
-      <div className="py-12 text-center text-sm text-mute">
-        Select a run or start a new one.
+      <div className="rounded-vercel-md border border-dashed border-hairline bg-canvas px-6 py-14 text-center">
+        <div className="text-sm font-medium text-ink">No run selected</div>
+        <p className="mt-1 text-xs text-mute">
+          Choose a run from the sidebar or type a goal above and click Run
+          agent.
+        </p>
       </div>
     );
   }
@@ -126,15 +130,15 @@ export function AgentRunDisplay() {
           />
         </div>
 
-        <div className={cn(activeTab === "learning" ? "border-t border-hairline p-4" : "")}>
-          {activeTab === "learning" && gen && (
+        {activeTab === "learning" && gen && (
+          <div className="p-4">
             <GenerativeUIView
               payload={gen}
               onSaveAsNote={(t, b) => onSaveLearningNote(t, b)}
               savingNote={savingNote}
             />
-          )}
-        </div>
+          </div>
+        )}
 
         {activeTab === "trace" && (
           <AgentRunPanel
@@ -147,6 +151,7 @@ export function AgentRunDisplay() {
             liveTrace={liveTrace}
             approving={approving}
             forceOpenWhilePending
+            embedded
             onApprove={() => onApprove(true)}
             onReject={() => onApprove(false)}
           />

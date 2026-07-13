@@ -14,6 +14,8 @@ function AgentsPageInner() {
     runs,
     error,
     sidebarOpen,
+    selected,
+    running,
     onToggleSidebar,
     onSidebarClose,
     onLogout,
@@ -58,7 +60,7 @@ function AgentsPageInner() {
               </Alert>
             )}
 
-            <AgentRunForm />
+            {!selected && !running && <AgentRunForm />}
             <AgentRunDisplay />
           </div>
         </main>

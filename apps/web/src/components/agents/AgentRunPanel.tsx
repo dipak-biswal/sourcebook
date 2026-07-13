@@ -454,6 +454,8 @@ export function AgentRunPanel({
   className,
   forceOpenWhilePending = true,
   goal,
+  /** Render flush inside a parent card (no outer border/shadow) */
+  embedded,
   /** Live steps streamed in before the final run object exists */
   liveSteps,
   liveTokenUsage,
@@ -469,6 +471,7 @@ export function AgentRunPanel({
   className?: string;
   forceOpenWhilePending?: boolean;
   goal?: string | null;
+  embedded?: boolean;
   liveSteps?: AgentStep[];
   liveTokenUsage?: number | null;
   liveLlmEvents?: LlmTraceEvent[];
@@ -592,8 +595,11 @@ export function AgentRunPanel({
   return (
     <div
       className={cn(
-        "w-full max-w-[min(100%,42rem)] overflow-hidden rounded-vercel-md border border-hairline bg-canvas shadow-[var(--elevation-2)]",
-        isLive && "border-warning-border ring-1 ring-warning-border/40",
+        embedded
+          ? "w-full"
+          : "w-full max-w-[min(100%,42rem)] overflow-hidden rounded-vercel-md border border-hairline bg-canvas shadow-[var(--elevation-2)]",
+        isLive && !embedded && "border-warning-border ring-1 ring-warning-border/40",
+        isLive && embedded && "border-t border-warning-border/40",
         className,
       )}
     >
