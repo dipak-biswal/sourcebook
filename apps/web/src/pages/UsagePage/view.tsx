@@ -35,7 +35,6 @@ export function UsagePageView({
   onRefresh,
   onLogout,
 }: UsagePageViewProps) {
-  const kindEntries = Object.entries(data?.by_kind ?? {});
   const [selectedEventId, setSelectedEventId] = useState<string | null>(null);
   const [search, setSearch] = useState("");
   const [sortCol, setSortCol] = useState<SortCol>("created_at");
@@ -178,24 +177,6 @@ export function UsagePageView({
               </div>
             </div>
           </div>
-
-          {kindEntries.length > 0 && (
-            <div className="mb-6 rounded-vercel-md border border-hairline bg-canvas p-4">
-              <div className="mb-3 text-sm font-semibold text-ink">
-                By kind
-              </div>
-              <div className="flex flex-wrap gap-2">
-                {kindEntries.map(([kind, tokens]) => (
-                  <Badge key={kind} variant="outline" className="gap-1.5">
-                    <span className="font-medium text-ink">{kind}</span>
-                    <span className="text-mute">
-                      {tokens.toLocaleString()} tokens
-                    </span>
-                  </Badge>
-                ))}
-              </div>
-            </div>
-          )}
 
           {data?.daily_totals && data.daily_totals.length > 0 && (
             <div className="mb-6">
