@@ -9,7 +9,7 @@ from sqlalchemy.orm import Session
 
 from app.db import get_db
 from app.deps import get_current_user
-from app.models import UsageEvent, User
+from app.models import AgentRun, AgentStep, Message, UsageEvent, User
 
 router = APIRouter(prefix="/usage", tags=["usage"])
 
@@ -146,3 +146,71 @@ def usage_summary(
         recent=[_to_event_response(r) for r in rows],
         daily_totals=daily_totals,
     )
+
+
+class UsageDetailResponse(BaseModel):
+    kind: str
+    goal: str | None = None
+    steps: list[dict[str, Any]] = Field(default_factory=list)
+    final_answer: str | None = None
+    token_usage: int | None = None
+    user_message: str | None = None
+    assistant_message: str | None = None
+    citations: list[str] = Field(default_factory=list)
+
+
+@router.get("/events/{event_id}", response_model=UsageDetailResponse)
+def get_usage_event_detail(
+    event_id: uuid.UUID,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Fetch source details for a usage event — agent run steps or chat messages."""
+    event = (
+        db.query(UsageEvent)
+        .filter(UsageEvent.id == event_id, UsageEvent.user_id == current_user.id)
+        .first()
+    )
+    if not event:
+        from fastapi import HTTPException, status
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Event not found")
+
+    meta = event.meta or {}
+
+    if event.kind == "agent_run":
+        run_id = meta.get("run_id")
+        if run_id:
+            run = (
+                db.query(AgentRun)
+                .filter(AgentRun.id == run_id, AgentRun.user_id == current_user.id)
+                .first()
+            )
+            if run:
+                steps = sorted(run.steps or [], key=lambda s: s.step_index)
+                return UsageDetailResponse(
+                    kind="agent_run",
+                    goal=run.goal,
+                    steps=[{"type": s.type, "tool_name": s.tool_name, "input": s.input, "output": s.output} for s in steps],
+                    final_answer=run.final_answer,
+                    token_usage=run.token_usage,
+                )
+
+    elif event.kind in ("chat", "stream"):
+        conversation_id = meta.get("conversation_id")
+        if conversation_id:
+            msgs = (
+                db.query(Message)
+                .filter(Message.conversation_id == conversation_id)
+                .order_by(Message.created_at)
+                .all()
+            )
+            user_msg = next((m.content for m in msgs if m.role == "user"), None)
+            asst_msg = next((m.content for m in msgs if m.role == "assistant"), None)
+            return UsageDetailResponse(
+                kind=event.kind,
+                user_message=user_msg,
+                assistant_message=asst_msg,
+                citations=[],
+            )
+
+    return UsageDetailResponse(kind=event.kind)

@@ -1,11 +1,13 @@
-import { Activity, Loader2, RefreshCw } from "lucide-react";
+import { Activity, ChevronRight, Loader2, RefreshCw } from "lucide-react";
+import { useState } from "react";
 import { AppHeader } from "@/components/layout/AppHeader";
 import { Alert } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { CardSkeleton } from "@/components/ui/skeleton";
-import { formatDateTime } from "@/lib/utils";
+import { cn, formatDateTime } from "@/lib/utils";
 import { DailyTrendChart } from "./DailyTrendChart";
+import { UsageDetailPanel } from "./UsageDetailPanel";
 
 import type { UsagePageViewProps } from "@/types/page-props";
 
@@ -17,6 +19,7 @@ export function UsagePageView({
   onLogout,
 }: UsagePageViewProps) {
   const kindEntries = Object.entries(data?.by_kind ?? {});
+  const [selectedEventId, setSelectedEventId] = useState<string | null>(null);
 
   return (
     <div className="app-shell">
@@ -128,6 +131,7 @@ export function UsagePageView({
                           <th className="px-4 py-2 font-medium">Model</th>
                           <th className="px-4 py-2 font-medium">Tokens</th>
                           <th className="px-4 py-2 font-medium">Notes</th>
+                          <th className="w-8" />
                         </tr>
                       </thead>
                       <tbody>
@@ -142,10 +146,17 @@ export function UsagePageView({
                             typeof row.meta === "object" &&
                             "denied" in row.meta &&
                             row.meta.denied === true;
+                          const isOpen = selectedEventId === row.id;
                           return (
                             <tr
                               key={row.id}
-                              className="border-b border-hairline last:border-0"
+                              className={cn(
+                                "cursor-pointer border-b border-hairline transition-colors last:border-0 hover:bg-canvas-soft",
+                                isOpen && "bg-canvas-soft-2",
+                              )}
+                              onClick={() =>
+                                setSelectedEventId(isOpen ? null : row.id)
+                              }
                             >
                               <td className="px-4 py-2.5 text-body whitespace-nowrap">
                                 {formatDateTime(row.created_at)}
@@ -181,6 +192,15 @@ export function UsagePageView({
                                   )}
                                 </div>
                               </td>
+                              <td className="px-2 py-2.5">
+                                <ChevronRight
+                                  className={cn(
+                                    "h-3.5 w-3.5 text-mute transition-transform",
+                                    isOpen && "rotate-90",
+                                  )}
+                                  strokeWidth={1.5}
+                                />
+                              </td>
                             </tr>
                           );
                         })}
@@ -189,6 +209,15 @@ export function UsagePageView({
                   </div>
                 )}
               </div>
+
+              {selectedEventId && (
+                <div className="mt-3">
+                  <UsageDetailPanel
+                    eventId={selectedEventId}
+                    onClose={() => setSelectedEventId(null)}
+                  />
+                </div>
+              )}
             </>
           )}
         </div>

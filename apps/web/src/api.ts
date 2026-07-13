@@ -262,6 +262,9 @@ export const api = {
   usageEvents: (limit = 50) =>
     request<UsageEventRow[]>(`/usage/events?limit=${limit}`),
 
+  usageEventDetail: (eventId: string) =>
+    request<UsageEventDetail>(`/usage/events/${eventId}`),
+
   startAgentRun: (workspaceId: string, goal: string, maxSteps = 5) =>
     request<AgentRun>("/agents/runs", {
       method: "POST",
@@ -398,6 +401,17 @@ export type UsageSummary = {
   by_kind: Record<string, number>;
   recent: UsageEventRow[];
   daily_totals: DailyTotal[];
+};
+
+export type UsageEventDetail = {
+  kind: string;
+  goal: string | null;
+  steps: { type: string; tool_name?: string | null; input?: Record<string, unknown> | string | null; output?: Record<string, unknown> | string | null }[];
+  final_answer: string | null;
+  token_usage: number | null;
+  user_message: string | null;
+  assistant_message: string | null;
+  citations: string[];
 };
 
 export type DailyTotal = {
