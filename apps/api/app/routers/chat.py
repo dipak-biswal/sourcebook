@@ -5,7 +5,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 
-from app.chat.service import run_rag_chat, iter_rag_chat_sse
+from app.chat.service import generate_suggested_questions, run_rag_chat, iter_rag_chat_sse
 from app.db import get_db
 from app.deps import get_current_user
 from app.models import Conversation, Message, User, WorkspaceMember
@@ -13,6 +13,8 @@ from app.rate_limit import rate_limit
 from app.schemas import (
     ChatRequest,
     ChatResponse,
+    ChatSuggestionsRequest,
+    ChatSuggestionsResponse,
     ConversationCreate,
     ConversationResponse,
     MessageResponse,
@@ -98,6 +100,18 @@ def delete_conversation(
     db.delete(conv)
     db.commit()
     return None
+
+
+@router.post("/chat/suggestions", response_model=ChatSuggestionsResponse)
+def chat_suggestions(
+    body: ChatSuggestionsRequest,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+    _: None = Depends(rate_limit("chat")),
+):
+    _require_member(db, current_user.id, body.workspace_id)
+    questions = generate_suggested_questions(db, workspace_id=body.workspace_id)
+    return ChatSuggestionsResponse(questions=questions)
 
 
 @router.get(

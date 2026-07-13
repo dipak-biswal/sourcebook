@@ -140,3 +140,11 @@ class WorkspaceUpdateRequest(BaseModel):
 class NoteUpdateRequest(BaseModel):
     title: str | None = None
     body: str | None = None
+
+
+class ChatSuggestionsRequest(BaseModel):
+    workspace_id: uuid.UUID
+
+
+class ChatSuggestionsResponse(BaseModel):
+    questions: list[str]

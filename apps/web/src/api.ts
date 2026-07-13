@@ -248,6 +248,12 @@ export const api = {
       }),
     }),
 
+  suggestQuestions: (workspaceId: string) =>
+    request<{ questions: string[] }>("/chat/suggestions", {
+      method: "POST",
+      body: JSON.stringify({ workspace_id: workspaceId }),
+    }),
+
   /** Streaming chat (preferred for UI). */
   chatStream: streamChat,
 

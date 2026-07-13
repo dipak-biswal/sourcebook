@@ -1,3 +1,4 @@
+import uuid
 from collections.abc import Generator
 import json
 
@@ -6,7 +7,7 @@ from sqlalchemy.orm import Session
 
 from app.config import settings
 from app.ingestion.retrieve import retrieve_chunks
-from app.models import Conversation, Document, Message
+from app.models import Chunk, Conversation, Document, Message
 from app.usage import estimate_tokens, log_usage
 
 
@@ -278,6 +279,75 @@ ANSWER:"""
 
     yield _sse({"type": "citations", "citations": citations})
     yield _sse({"type": "done"})
+
+
+def generate_suggested_questions(
+    db: Session, *, workspace_id: uuid.UUID
+) -> list[str]:
+    """Suggest 4-6 questions from ready documents in the workspace."""
+    docs = (
+        db.query(Document)
+        .filter(
+            Document.workspace_id == workspace_id,
+            Document.status == "ready",
+        )
+        .limit(10)
+        .all()
+    )
+
+    if not docs:
+        return []
+
+    summaries: list[str] = []
+    for doc in docs:
+        first_chunk = (
+            db.query(Chunk)
+            .filter(
+                Chunk.document_id == doc.id,
+                Chunk.content.isnot(None),
+            )
+            .order_by(Chunk.chunk_index)
+            .first()
+        )
+        snippet = (first_chunk.content or "")[:600] if first_chunk else "(no preview)"
+        summaries.append(f"Document: {doc.filename}\nPreview: {snippet}")
+
+    context = "\n\n".join(summaries)
+
+    prompt = f"""You are Sourcebook. Based on these documents in the user's workspace, suggest 4-6 questions they might ask about them.
+
+Rules:
+- Each question must be answerable from the document content.
+- Cover different documents/topics.
+- Be specific — avoid vague questions.
+- Return ONLY a JSON array of strings, nothing else.
+
+Documents:
+{context}
+
+Questions (JSON array):"""
+
+    resp = _client().chat.completions.create(
+        model=settings.chat_model,
+        messages=[
+            {"role": "system", "content": "You generate suggested questions from document content."},
+            {"role": "user", "content": prompt},
+        ],
+        temperature=0.3,
+        max_tokens=1024,
+    )
+
+    raw = (resp.choices[0].message.content or "").strip()
+    questions: list[str] = []
+    try:
+        questions = json.loads(raw)
+    except json.JSONDecodeError:
+        for line in raw.split("\n"):
+            line = line.strip().lstrip("0123456789.-) ").strip("-\"")
+            if line:
+                questions.append(line)
+
+    return [q for q in questions[:6] if isinstance(q, str) and len(q) > 10]
 
 
 def _sse(payload: dict) -> str:

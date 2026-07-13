@@ -82,6 +82,16 @@ export function useNote(noteId: string | undefined) {
   });
 }
 
+export function useChatSuggestions(workspaceId: string | undefined) {
+  return useQuery<string[]>({
+    queryKey: ["chatSuggestions", workspaceId],
+    queryFn: () => api.suggestQuestions(workspaceId!).then((r) => r.questions),
+    enabled: !!workspaceId,
+    staleTime: 300_000,
+    retry: false,
+  });
+}
+
 export function useUsageSummary() {
   return useQuery<UsageSummary>({
     queryKey: ["usageSummary"],

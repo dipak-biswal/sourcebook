@@ -1,4 +1,4 @@
-import { AlertCircle, Bot, Loader2, MessageCircle } from "lucide-react";
+import { AlertCircle, Bot, Loader2, MessageCircle, Sparkles } from "lucide-react";
 import { AgentRunPanel } from "@/components/agents/AgentRunPanel";
 import { GenerativeUIView } from "@/components/agents/GenerativeUI";
 import { extractGenerativeUIFromSteps } from "@/components/agents/generative-ui";
@@ -11,6 +11,7 @@ import { EmptyState } from "@/components/ui/empty-state";
 import { cn } from "@/lib/utils";
 import type { ChatMessage } from "@/api";
 import type { AgentThreadItem } from "@/types/chat";
+import { useChatSuggestions } from "@/hooks/queries";
 import { useChatPage } from "./chat-page-context";
 
 function ChatBubble({
@@ -197,6 +198,30 @@ function AgentMessageItem({
   );
 }
 
+function SuggestionChips({
+  questions,
+  onSelect,
+}: {
+  questions: string[];
+  onSelect: (q: string) => void;
+}) {
+  return (
+    <div className="mx-auto mt-4 flex max-w-lg flex-wrap justify-center gap-2">
+      {questions.map((q, i) => (
+        <button
+          key={i}
+          type="button"
+          onClick={() => onSelect(q)}
+          className="inline-flex items-center gap-1.5 rounded-full border border-hairline bg-canvas px-3.5 py-1.5 text-xs font-medium text-body transition-colors hover:border-ink hover:bg-canvas-soft hover:text-ink"
+        >
+          <Sparkles className="h-3 w-3 shrink-0 text-mute" strokeWidth={1.5} />
+          <span className="line-clamp-1 max-w-[240px]">{q}</span>
+        </button>
+      ))}
+    </div>
+  );
+}
+
 export function ChatMessageList() {
   const {
     mode,
@@ -205,7 +230,13 @@ export function ChatMessageList() {
     sending,
     error,
     empty,
+    workspaceId,
+    onInputChange,
   } = useChatPage();
+
+  const { data: suggestions, isLoading: loadingSuggestions } = useChatSuggestions(
+    mode === "chat" ? workspaceId : undefined,
+  );
 
   return (
     <>
@@ -217,23 +248,44 @@ export function ChatMessageList() {
 
       <div className="document-scroll min-h-0 flex-1 overflow-y-auto px-4 py-5 sm:px-6 sm:py-6">
         {empty ? (
-          <EmptyState
-            icon={mode === "agent" ? Bot : MessageCircle}
-            title={
-              mode === "agent"
-                ? "Run tools from chat"
-                : "Ask about your documents"
-            }
-            description={
-              mode === "agent"
-                ? "List/search docs, generate an easy learning view from your uploads, or create a note (writes need approval)."
-                : "Upload PDF, DOCX, or text files, ingest until ready, then ask grounded questions here."
-            }
-            actionLabel={mode === "chat" ? "Open documents" : undefined}
-            onAction={
-              mode === "chat" ? () => { window.location.href = "/documents"; } : undefined
-            }
-          />
+          <div className="flex flex-col items-center">
+            <EmptyState
+              icon={mode === "agent" ? Bot : MessageCircle}
+              title={
+                mode === "agent"
+                  ? "Run tools from chat"
+                  : "Ask about your documents"
+              }
+              description={
+                mode === "agent"
+                  ? "List/search docs, generate an easy learning view from your uploads, or create a note (writes need approval)."
+                  : "Upload PDF, DOCX, or text files, ingest until ready, then ask grounded questions here."
+              }
+              actionLabel={mode === "chat" ? "Open documents" : undefined}
+              onAction={
+                mode === "chat" ? () => { window.location.href = "/documents"; } : undefined
+              }
+            />
+            {mode === "chat" && suggestions && suggestions.length > 0 && (
+              <>
+                <p className="mt-6 text-center text-[11px] font-medium uppercase tracking-wide text-mute">
+                  Suggested questions
+                </p>
+                <SuggestionChips
+                  questions={suggestions}
+                  onSelect={(q) => {
+                    onInputChange(q);
+                  }}
+                />
+              </>
+            )}
+            {mode === "chat" && loadingSuggestions && (
+              <div className="mt-6 flex items-center gap-2 text-xs text-mute">
+                <Loader2 className="h-3 w-3 animate-spin" />
+                Generating suggestions…
+              </div>
+            )}
+          </div>
         ) : (
           <div className="mx-auto flex max-w-2xl flex-col gap-4">
             {mode === "chat"
