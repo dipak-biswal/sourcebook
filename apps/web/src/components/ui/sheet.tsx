@@ -11,6 +11,8 @@ type SheetProps = {
   /** left | right */
   side?: "left" | "right";
   className?: string;
+  /** When true (default), hidden from md breakpoint up — use false for tablet overlays */
+  mobileOnly?: boolean;
 };
 
 /**
@@ -25,6 +27,7 @@ export function Sheet({
   children,
   side = "left",
   className,
+  mobileOnly = true,
 }: SheetProps) {
   const panelRef = useRef<HTMLDivElement>(null);
   const prevFocusRef = useRef<HTMLElement | null>(null);
@@ -81,7 +84,11 @@ export function Sheet({
   if (!open) return null;
 
   return (
-    <div className="fixed inset-0 z-50 md:hidden" role="dialog" aria-modal="true">
+    <div
+      className={cn("fixed inset-0 z-50", mobileOnly && "md:hidden")}
+      role="dialog"
+      aria-modal="true"
+    >
       <button
         type="button"
         className="absolute inset-0 bg-black/40 backdrop-blur-[1px]"

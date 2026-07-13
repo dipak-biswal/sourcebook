@@ -16,7 +16,9 @@ import { AppHeader } from "@/components/layout/AppHeader";
 import { Alert } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Sheet } from "@/components/ui/sheet";
 import { CardSkeleton } from "@/components/ui/skeleton";
+import { useMediaQuery } from "@/hooks/useMediaQuery";
 import { cn, formatDateTime } from "@/lib/utils";
 import { DailyTrendChart } from "./DailyTrendChart";
 import { UsageDetailPanel } from "./UsageDetailPanel";
@@ -40,6 +42,7 @@ export function UsagePageView({
   const [sortCol, setSortCol] = useState<SortCol>("created_at");
   const [sortDir, setSortDir] = useState<SortDir>("desc");
   const { success, error: toastError } = useToast();
+  const isDesktop = useMediaQuery("(min-width: 1024px)");
 
   const rows = useMemo(() => {
     let list = data?.recent ?? [];
@@ -331,18 +334,34 @@ export function UsagePageView({
           tabIndex={-1}
           className={cn(
             "document-scroll min-h-0 min-w-0 flex-1 overflow-y-auto px-4 py-6 outline-none sm:px-6 sm:py-8",
-            selectedEventId && "border-r border-hairline",
+            selectedEventId && isDesktop && "border-r border-hairline",
           )}
         >
           <div className="mx-auto max-w-3xl">{content}</div>
         </main>
-        {selectedEventId && (
-          <aside className="document-scroll w-[480px] shrink-0 overflow-y-auto border-l border-hairline bg-canvas">
+        {selectedEventId && isDesktop && (
+          <aside className="document-scroll hidden w-[480px] shrink-0 overflow-y-auto border-l border-hairline bg-canvas lg:block">
             <UsageDetailPanel
               eventId={selectedEventId}
               onClose={() => setSelectedEventId(null)}
             />
           </aside>
+        )}
+        {selectedEventId && !isDesktop && (
+          <Sheet
+            open
+            onClose={() => setSelectedEventId(null)}
+            title="Usage trace"
+            description="Event details"
+            side="right"
+            mobileOnly={false}
+            className="w-full max-w-md"
+          >
+            <UsageDetailPanel
+              eventId={selectedEventId}
+              onClose={() => setSelectedEventId(null)}
+            />
+          </Sheet>
         )}
       </div>
     </div>

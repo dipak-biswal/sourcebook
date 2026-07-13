@@ -1,6 +1,7 @@
-import { ChevronDown, ChevronRight, Loader2, X } from "lucide-react";
-import { useEffect, useState } from "react";
+import { ChevronDown, ChevronRight, Loader2, RefreshCw, X } from "lucide-react";
+import { useCallback, useEffect, useState } from "react";
 import { api, type UsageEventDetail } from "@/api";
+import { Button } from "@/components/ui/button";
 import { MarkdownContent } from "@/components/chat/MarkdownContent";
 import { cn } from "@/lib/utils";
 
@@ -13,15 +14,24 @@ export function UsageDetailPanel({
 }) {
   const [detail, setDetail] = useState<UsageEventDetail | null>(null);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState(false);
+
+  const loadDetail = useCallback(async () => {
+    setLoading(true);
+    setLoadError(false);
+    try {
+      setDetail(await api.usageEventDetail(eventId));
+    } catch {
+      setDetail(null);
+      setLoadError(true);
+    } finally {
+      setLoading(false);
+    }
+  }, [eventId]);
 
   useEffect(() => {
-    setLoading(true);
-    api
-      .usageEventDetail(eventId)
-      .then(setDetail)
-      .catch(() => setDetail(null))
-      .finally(() => setLoading(false));
-  }, [eventId]);
+    void loadDetail();
+  }, [loadDetail]);
 
   return (
     <div className="flex h-full flex-col">
@@ -41,9 +51,13 @@ export function UsageDetailPanel({
           <div className="flex items-center justify-center py-20">
             <Loader2 className="h-5 w-5 animate-spin text-mute" />
           </div>
-        ) : !detail ? (
-          <div className="py-10 text-center text-sm text-mute">
-            Failed to load event details.
+        ) : loadError || !detail ? (
+          <div className="flex flex-col items-center gap-3 py-10 text-center text-sm text-mute">
+            <p>Failed to load event details.</p>
+            <Button type="button" variant="secondary" size="sm" onClick={() => void loadDetail()}>
+              <RefreshCw className="h-3.5 w-3.5" strokeWidth={1.5} />
+              Retry
+            </Button>
           </div>
         ) : detail.kind === "agent_run" ? (
           <AgentRunTrace detail={detail} />

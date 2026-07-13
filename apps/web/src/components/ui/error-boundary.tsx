@@ -1,4 +1,5 @@
 import { Component, type ErrorInfo, type ReactNode } from "react";
+import { Link } from "react-router-dom";
 import { AlertTriangle, RefreshCw } from "lucide-react";
 
 type Props = { children: ReactNode; fallback?: ReactNode };
@@ -26,17 +27,23 @@ export class ErrorBoundary extends Component<Props, State> {
           <p className="mt-2 text-sm text-mute">
             {this.state.error.message || "An unexpected error occurred."}
           </p>
-          <button
-            type="button"
-            onClick={() => {
-              this.setState({ error: null });
-              window.location.href = "/documents";
-            }}
-            className="mt-6 inline-flex items-center gap-1.5 rounded-[6px] bg-ink px-4 py-2 text-sm font-medium text-[var(--canvas)] transition-colors hover:opacity-90"
-          >
-            <RefreshCw className="h-4 w-4" strokeWidth={1.5} />
-            Go to Documents
-          </button>
+          <div className="mt-6 flex flex-wrap items-center justify-center gap-2">
+            <button
+              type="button"
+              onClick={() => this.setState({ error: null })}
+              className="inline-flex items-center gap-1.5 rounded-[6px] border border-hairline bg-canvas px-4 py-2 text-sm font-medium text-ink transition-colors hover:bg-canvas-soft"
+            >
+              <RefreshCw className="h-4 w-4" strokeWidth={1.5} />
+              Try again
+            </button>
+            <Link
+              to="/documents"
+              onClick={() => this.setState({ error: null })}
+              className="inline-flex items-center gap-1.5 rounded-[6px] bg-ink px-4 py-2 text-sm font-medium text-[var(--canvas)] transition-colors hover:opacity-90"
+            >
+              Go to Documents
+            </Link>
+          </div>
         </div>
       </div>
     );

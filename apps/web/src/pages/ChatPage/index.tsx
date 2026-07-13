@@ -1,3 +1,4 @@
+import { ChatNoDocsBanner } from "@/components/chat/ChatNoDocsBanner";
 import { ChatSessionsPanel } from "@/components/chat/ChatSessionsPanel";
 import { ModeTip } from "@/components/chat/ModeTip";
 import { AppHeader } from "@/components/layout/AppHeader";
@@ -43,6 +44,7 @@ function ChatPageInner() {
         <main id="main-content" tabIndex={-1} className="flex min-h-0 min-w-0 flex-1 flex-col outline-none">
           <ChatPageHeader />
           <ModeTip />
+          <ChatNoDocsBanner />
           <ChatMessageList />
           <ChatInput />
         </main>

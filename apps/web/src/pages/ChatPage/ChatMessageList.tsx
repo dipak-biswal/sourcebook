@@ -1,3 +1,4 @@
+import { useNavigate } from "react-router-dom";
 import { AlertCircle, Bot, Loader2, MessageCircle, Sparkles } from "lucide-react";
 import { AgentRunPanel } from "@/components/agents/AgentRunPanel";
 import { GenerativeUIView } from "@/components/agents/GenerativeUI";
@@ -41,6 +42,8 @@ function DenialBubble({
 }: {
   content: string;
 }) {
+  const navigate = useNavigate();
+
   return (
     <div className="max-w-[90%] rounded-vercel-md border border-warning-border bg-warning-soft px-3.5 py-3 text-body-sm text-warning-text">
       <div className="mb-1.5 flex items-center gap-1.5 font-medium">
@@ -56,7 +59,7 @@ function DenialBubble({
       <button
         type="button"
         className="mt-3 text-xs font-medium text-ink underline-offset-2 hover:underline"
-        onClick={() => { window.location.href = "/documents"; }}
+        onClick={() => navigate("/documents")}
       >
         Go to Documents → ingest
       </button>
@@ -230,6 +233,7 @@ function SuggestionChips({
 }
 
 export function ChatMessageList() {
+  const navigate = useNavigate();
   const {
     mode,
     messages,
@@ -270,9 +274,7 @@ export function ChatMessageList() {
                   : "Upload PDF, DOCX, or text files, ingest until ready, then ask grounded questions here."
               }
               actionLabel={mode === "chat" ? "Open documents" : undefined}
-              onAction={
-                mode === "chat" ? () => { window.location.href = "/documents"; } : undefined
-              }
+              onAction={mode === "chat" ? () => navigate("/documents") : undefined}
             />
             {mode === "chat" && suggestions && suggestions.length > 0 && (
               <>
