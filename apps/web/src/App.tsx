@@ -1,3 +1,4 @@
+import { lazy, Suspense } from "react";
 import { BrowserRouter, Link, Navigate, Route, Routes } from "react-router-dom";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { getToken } from "@/api";
@@ -10,14 +11,15 @@ import { ProtectedRoute } from "@/components/layout/ProtectedRoute";
 const queryClient = new QueryClient({
   defaultOptions: { queries: { retry: 1, staleTime: 30_000 } },
 });
-import { DashboardPage } from "@/pages/DashboardPage";
-import { DocumentsPage } from "@/pages/DocumentsPage";
-import { LoginPage } from "@/pages/LoginPage";
-import { ChatPage } from "@/pages/ChatPage";
-import { UsagePage } from "@/pages/UsagePage";
-import { AgentsPage } from "@/pages/AgentsPage";
-import { SettingsPage } from "@/pages/SettingsPage";
-import { NotesPage } from "@/pages/NotesPage";
+
+const DashboardPage = lazy(() => import("@/pages/DashboardPage").then((m) => ({ default: m.DashboardPage })));
+const DocumentsPage = lazy(() => import("@/pages/DocumentsPage").then((m) => ({ default: m.DocumentsPage })));
+const LoginPage = lazy(() => import("@/pages/LoginPage").then((m) => ({ default: m.LoginPage })));
+const ChatPage = lazy(() => import("@/pages/ChatPage").then((m) => ({ default: m.ChatPage })));
+const UsagePage = lazy(() => import("@/pages/UsagePage").then((m) => ({ default: m.UsagePage })));
+const AgentsPage = lazy(() => import("@/pages/AgentsPage").then((m) => ({ default: m.AgentsPage })));
+const SettingsPage = lazy(() => import("@/pages/SettingsPage").then((m) => ({ default: m.SettingsPage })));
+const NotesPage = lazy(() => import("@/pages/NotesPage").then((m) => ({ default: m.NotesPage })));
 
 function HomeRedirect() {
   return <Navigate to={getToken() ? "/" : "/login"} replace />;
@@ -31,8 +33,9 @@ export default function App() {
         <BrowserRouter>
           <SkipLink />
           <ErrorBoundary>
-            <ConfirmProvider>
-              <Routes>
+              <ConfirmProvider>
+                <Suspense fallback={null}>
+                  <Routes>
                 <Route path="/login" element={<LoginPage />} />
                 <Route element={<ProtectedRoute />}>
                   <Route path="/" element={<DashboardPage />} />
@@ -46,6 +49,7 @@ export default function App() {
                 </Route>
                 <Route path="*" element={<HomeRedirect />} />
               </Routes>
+                </Suspense>
             </ConfirmProvider>
           </ErrorBoundary>
         </BrowserRouter>
