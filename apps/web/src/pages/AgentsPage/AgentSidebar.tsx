@@ -29,9 +29,6 @@ export function AgentSidebar() {
           <Bot className="h-4 w-4 text-ink" strokeWidth={1.5} />
           <h2 className="text-body-sm font-semibold text-ink">Agents</h2>
         </div>
-        <p className="mt-0.5 text-xs text-mute">
-          Tools + HITL · also in Chat → Agent mode
-        </p>
 
         {workspaces.length > 0 && (
           <label className="mt-3 block">
