@@ -397,6 +397,15 @@ export type UsageSummary = {
   total_tokens: number;
   by_kind: Record<string, number>;
   recent: UsageEventRow[];
+  daily_totals: DailyTotal[];
+};
+
+export type DailyTotal = {
+  date: string;
+  total_tokens: number;
+  prompt_tokens: number;
+  completion_tokens: number;
+  event_count: number;
 };
 
 export type AgentStep = {

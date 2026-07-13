@@ -1,10 +1,10 @@
 import uuid
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel, Field
-from sqlalchemy import func
+from sqlalchemy import Date, cast, func
 from sqlalchemy.orm import Session
 
 from app.db import get_db
@@ -12,6 +12,14 @@ from app.deps import get_current_user
 from app.models import UsageEvent, User
 
 router = APIRouter(prefix="/usage", tags=["usage"])
+
+
+class DailyTotal(BaseModel):
+    date: str
+    total_tokens: int
+    prompt_tokens: int
+    completion_tokens: int
+    event_count: int
 
 
 class UsageEventResponse(BaseModel):
@@ -32,6 +40,7 @@ class UsageSummaryResponse(BaseModel):
     total_tokens: int
     by_kind: dict[str, int] = Field(default_factory=dict)
     recent: list[UsageEventResponse] = Field(default_factory=list)
+    daily_totals: list[DailyTotal] = Field(default_factory=list)
 
 
 def _to_event_response(row: UsageEvent) -> UsageEventResponse:
@@ -104,9 +113,36 @@ def usage_summary(
     )
     by_kind = {str(kind): int(tokens or 0) for kind, tokens in kind_rows}
 
+    thirty_days_ago = datetime.now(timezone.utc) - timedelta(days=30)
+    daily_rows = (
+        db.query(
+            cast(UsageEvent.created_at, Date).label("day"),
+            func.coalesce(func.sum(UsageEvent.total_tokens), 0),
+            func.coalesce(func.sum(UsageEvent.prompt_tokens), 0),
+            func.coalesce(func.sum(UsageEvent.completion_tokens), 0),
+            func.count(UsageEvent.id),
+        )
+        .filter(UsageEvent.user_id == current_user.id)
+        .filter(UsageEvent.created_at >= thirty_days_ago)
+        .group_by(cast(UsageEvent.created_at, Date))
+        .order_by(cast(UsageEvent.created_at, Date))
+        .all()
+    )
+    daily_totals = [
+        DailyTotal(
+            date=str(row[0]),
+            total_tokens=int(row[1] or 0),
+            prompt_tokens=int(row[2] or 0),
+            completion_tokens=int(row[3] or 0),
+            event_count=int(row[4] or 0),
+        )
+        for row in daily_rows
+    ]
+
     return UsageSummaryResponse(
         event_count=int(count or 0),
         total_tokens=int(total or 0),
         by_kind=by_kind,
         recent=[_to_event_response(r) for r in rows],
+        daily_totals=daily_totals,
     )

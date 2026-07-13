@@ -5,6 +5,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { CardSkeleton } from "@/components/ui/skeleton";
 import { formatDateTime } from "@/lib/utils";
+import { DailyTrendChart } from "./DailyTrendChart";
 
 import type { UsagePageViewProps } from "@/types/page-props";
 
@@ -99,6 +100,12 @@ export function UsagePageView({
                       </Badge>
                     ))}
                   </div>
+                </div>
+              )}
+
+              {data?.daily_totals && data.daily_totals.length > 0 && (
+                <div className="mb-6">
+                  <DailyTrendChart data={data.daily_totals} />
                 </div>
               )}
 

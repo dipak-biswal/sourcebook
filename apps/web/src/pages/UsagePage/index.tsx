@@ -5,6 +5,7 @@ import { formatError } from "@/lib/utils";
 import { UsagePageView } from "./view";
 
 export { UsagePageView } from "./view";
+export { DailyTrendChart } from "./DailyTrendChart";
 
 export function UsagePage() {
   const navigate = useNavigate();
