@@ -319,7 +319,6 @@ def _run_tool_loop(
             t0 = time.perf_counter()
             ai: AIMessage = model.invoke(messages)  # type: ignore[assignment]
             llm_ms = (time.perf_counter() - t0) * 1000
-            messages.append(ai)
 
             p, c, t = _tokens_from_ai_message(ai)
             prompt_tokens_total += p
@@ -331,13 +330,45 @@ def _run_tool_loop(
                 run_id=str(run.id),
                 name="ChatOpenAI",
                 duration_ms=round(llm_ms, 1),
-                # Full model call: system + tool schemas + history + user, not just the goal string
                 prompt_tokens=p,
                 completion_tokens=c,
                 total_tokens=t if t else (p + c),
                 has_tool_calls=bool(ai.tool_calls),
                 token_usage_so_far=total_tokens_acc,
             )
+
+            # Duplicate detection — check BEFORE appending ai so we don't
+            # orphan tool_calls without ToolMessage responses.
+            if ai.tool_calls:
+                seen_calls: set[str] = getattr(_run_tool_loop, "_seen_calls", set())
+                warn_about_loop = False
+                for tc in ai.tool_calls:
+                    h = _hash_args(tc.get("name") or "", tc.get("args") or {})
+                    if h in seen_calls:
+                        warn_about_loop = True
+                    seen_calls.add(h)
+                _run_tool_loop._seen_calls = seen_calls  # type: ignore[attr-defined]
+
+                if warn_about_loop:
+                    _emit(
+                        on_event,
+                        "loop_warning",
+                        run_id=str(run.id),
+                        message="Agent is repeating the same tool call — breaking loop",
+                    )
+                    # Inject nudge — DO NOT append ai (would orphan tool_calls)
+                    messages.append(
+                        HumanMessage(
+                            content=(
+                                "[System] You are calling the same tool with the same "
+                                "arguments repeatedly. If you are stuck, try a different "
+                                "approach or conclude your answer without more tool calls."
+                            )
+                        )
+                    )
+                    continue
+
+            messages.append(ai)
 
             if ai.tool_calls:
                 for tc in ai.tool_calls:
@@ -503,37 +534,6 @@ def _run_tool_loop(
                     final_answer=run.final_answer,
                 )
                 return run
-
-            # Duplicate detection
-            seen_calls: set[str] = getattr(_run_tool_loop, "_seen_calls", set())
-            # Carry seen calls across resume so we don't restart counting
-            warn_about_loop = False
-            for tc in ai.tool_calls:
-                h = _hash_args(tc.get("name") or "", tc.get("args") or {})
-                if h in seen_calls:
-                    warn_about_loop = True
-                seen_calls.add(h)
-            _run_tool_loop._seen_calls = seen_calls  # type: ignore[attr-defined]
-
-            if warn_about_loop:
-                _emit(
-                    on_event,
-                    "loop_warning",
-                    run_id=str(run.id),
-                    message="Agent is repeating the same tool call — breaking loop",
-                )
-                # Inject a system nudge to break the cycle
-                messages.append(
-                    HumanMessage(
-                        content=(
-                            "[System] You are calling the same tool with the same "
-                            "arguments repeatedly. If you are stuck, try a different "
-                            "approach or conclude your answer without more tool calls."
-                        )
-                    )
-                )
-                # Skip the rest of the current turn — let LLM reconsider
-                continue
 
             # Emit tool_start events for every tool call in this turn
             for tc in ai.tool_calls:
