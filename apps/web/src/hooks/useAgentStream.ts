@@ -21,6 +21,12 @@ type AgentLiveCallbacks = {
   }) => void;
   onStep: (step: AgentStep) => void;
   onTokenUsage: (usage: number) => void;
+  onToolStart?: (p: {
+    tool_name: string;
+    tool_args?: Record<string, unknown>;
+    call_id?: string;
+  }) => void;
+  onLoopWarning?: (p: { message: string }) => void;
 };
 
 export function createAgentLlmEvent(): LlmTraceEvent {
@@ -90,6 +96,12 @@ export function makeAgentStreamHandlers(
     },
     onStep: (step) => {
       cb.onStep(step);
+    },
+    onToolStart: (p) => {
+      cb.onToolStart?.(p);
+    },
+    onLoopWarning: (p) => {
+      cb.onLoopWarning?.(p);
     },
     onDone: (final) => {
       onDoneExtra?.(final);

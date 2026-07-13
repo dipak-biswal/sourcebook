@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import concurrent.futures
+import hashlib
 import json
 import time
 import uuid
@@ -56,6 +58,12 @@ def _content_str(content: Any) -> str:
     if isinstance(content, str):
         return content
     return str(content)
+
+
+def _hash_args(name: str, args: dict[str, Any]) -> str:
+    """Deterministic hash of a (tool_name, args) pair for duplicate detection."""
+    raw = json.dumps([name, args], sort_keys=True, default=str)
+    return hashlib.sha256(raw.encode()).hexdigest()
 
 
 def _tokens_from_ai_message(ai: AIMessage) -> tuple[int, int, int]:
@@ -387,40 +395,66 @@ def _run_tool_loop(
             ]
             if write_calls:
                 tc = write_calls[0]
-                # Execute non-write tools from the same turn first (if any)
-                for rtc in ai.tool_calls:
-                    rname = rtc.get("name") or ""
-                    if rname in WRITE_TOOLS:
-                        continue
-                    rargs = rtc.get("args") or {}
-                    rid = rtc.get("id") or str(uuid.uuid4())
-                    rtool = tool_by_name.get(rname)
-                    try:
-                        rresult: Any = (
-                            rtool.invoke(rargs)
-                            if rtool
-                            else {"error": f"Unknown tool: {rname}"}
-                        )
-                    except Exception as e:
-                        rresult = {"error": str(e)}
-                    step_index += 1
-                    _append_step(
-                        db,
-                        run,
-                        step_index=step_index,
-                        type="tool_result",
-                        tool_name=rname,
-                        input=rargs,
-                        output=rresult,
-                        on_event=on_event,
+                # Execute non-write tools from the same turn in parallel first
+                read_before_write = [
+                    rtc for rtc in ai.tool_calls if rtc.get("name") not in WRITE_TOOLS
+                ]
+                if read_before_write:
+                    _emit(
+                        on_event,
+                        "parallel_group",
+                        run_id=str(run.id),
+                        tool_names=[rtc.get("name") for rtc in read_before_write],
+                        count=len(read_before_write),
                     )
-                    messages.append(
-                        ToolMessage(
-                            content=json.dumps(rresult, default=str),
-                            tool_call_id=rid,
-                            name=rname,
+                    for rtc in read_before_write:
+                        _emit(
+                            on_event,
+                            "tool_start",
+                            run_id=str(run.id),
+                            tool_name=rtc.get("name"),
+                            tool_args=rtc.get("args"),
+                            call_id=rtc.get("id"),
                         )
-                    )
+
+                    def _run_read(tc: dict) -> dict[str, Any]:
+                        name = tc.get("name") or ""
+                        args = tc.get("args") or {}
+                        call_id = tc.get("id") or str(uuid.uuid4())
+                        tool = tool_by_name.get(name)
+                        t0 = time.perf_counter()
+                        try:
+                            result: Any = (
+                                tool.invoke(args) if tool else {"error": f"Unknown tool: {name}"}
+                            )
+                        except Exception as e:
+                            result = {"error": str(e)}
+                        ms = (time.perf_counter() - t0) * 1000
+                        return {"call_id": call_id, "name": name, "args": args, "result": result, "ms": ms}
+
+                    with concurrent.futures.ThreadPoolExecutor(max_workers=4) as pool:
+                        read_results = list(pool.map(_run_read, read_before_write))
+
+                    for rr in read_results:
+                        step_index += 1
+                        _append_step(
+                            db,
+                            run,
+                            step_index=step_index,
+                            type="tool_result",
+                            tool_name=rr["name"],
+                            input=rr["args"],
+                            output=rr["result"],
+                            on_event=on_event,
+                            duration_ms=round(rr["ms"], 1),
+                        )
+                        messages.append(
+                            ToolMessage(
+                                content=json.dumps(rr["result"], default=str),
+                                tool_call_id=rr["call_id"],
+                                name=rr["name"],
+                            )
+                        )
 
                 run.status = "waiting_approval"
                 run.pending_tool = {
@@ -470,38 +504,101 @@ def _run_tool_loop(
                 )
                 return run
 
-            # Execute read tools only
+            # Duplicate detection
+            seen_calls: set[str] = getattr(_run_tool_loop, "_seen_calls", set())
+            # Carry seen calls across resume so we don't restart counting
+            warn_about_loop = False
             for tc in ai.tool_calls:
-                name = tc.get("name") or ""
-                args = tc.get("args") or {}
-                call_id = tc.get("id") or str(uuid.uuid4())
-                tool = tool_by_name.get(name)
-                if not tool:
-                    result: Any = {"error": f"Unknown tool: {name}"}
-                else:
-                    try:
-                        result = tool.invoke(args)
-                    except Exception as e:
-                        result = {"error": str(e)}
+                h = _hash_args(tc.get("name") or "", tc.get("args") or {})
+                if h in seen_calls:
+                    warn_about_loop = True
+                seen_calls.add(h)
+            _run_tool_loop._seen_calls = seen_calls  # type: ignore[attr-defined]
 
-                step_index += 1
-                _append_step(
-                    db,
-                    run,
-                    step_index=step_index,
-                    type="tool_result",
-                    tool_name=name,
-                    input=args,
-                    output=result,
-                    on_event=on_event,
+            if warn_about_loop:
+                _emit(
+                    on_event,
+                    "loop_warning",
+                    run_id=str(run.id),
+                    message="Agent is repeating the same tool call — breaking loop",
                 )
+                # Inject a system nudge to break the cycle
                 messages.append(
-                    ToolMessage(
-                        content=json.dumps(result, default=str),
-                        tool_call_id=call_id,
-                        name=name,
+                    HumanMessage(
+                        content=(
+                            "[System] You are calling the same tool with the same "
+                            "arguments repeatedly. If you are stuck, try a different "
+                            "approach or conclude your answer without more tool calls."
+                        )
                     )
                 )
+                # Skip the rest of the current turn — let LLM reconsider
+                continue
+
+            # Emit tool_start events for every tool call in this turn
+            for tc in ai.tool_calls:
+                _emit(
+                    on_event,
+                    "tool_start",
+                    run_id=str(run.id),
+                    tool_name=tc.get("name"),
+                    tool_args=tc.get("args"),
+                    call_id=tc.get("id"),
+                )
+
+            # Execute read tools in parallel
+            read_calls = [
+                tc for tc in ai.tool_calls if tc.get("name") not in WRITE_TOOLS
+            ]
+
+            if read_calls:
+                _emit(
+                    on_event,
+                    "parallel_group",
+                    run_id=str(run.id),
+                    tool_names=[tc.get("name") for tc in read_calls],
+                    count=len(read_calls),
+                )
+
+                def _run_one(tc: dict) -> dict[str, Any]:
+                    name = tc.get("name") or ""
+                    args = tc.get("args") or {}
+                    call_id = tc.get("id") or str(uuid.uuid4())
+                    tool = tool_by_name.get(name)
+                    t0 = time.perf_counter()
+                    if not tool:
+                        result: Any = {"error": f"Unknown tool: {name}"}
+                    else:
+                        try:
+                            result = tool.invoke(args)
+                        except Exception as e:
+                            result = {"error": str(e)}
+                    ms = (time.perf_counter() - t0) * 1000
+                    return {"call_id": call_id, "name": name, "args": args, "result": result, "ms": ms}
+
+                with concurrent.futures.ThreadPoolExecutor(max_workers=4) as pool:
+                    results = list(pool.map(_run_one, read_calls))
+
+                for r in results:
+                    step_index += 1
+                    _append_step(
+                        db,
+                        run,
+                        step_index=step_index,
+                        type="tool_result",
+                        tool_name=r["name"],
+                        input=r["args"],
+                        output=r["result"],
+                        on_event=on_event,
+                        duration_ms=round(r["ms"], 1),
+                    )
+                    messages.append(
+                        ToolMessage(
+                            content=json.dumps(r["result"], default=str),
+                            tool_call_id=r["call_id"],
+                            name=r["name"],
+                        )
+                    )
 
         run.status = "completed"
         run.final_answer = (

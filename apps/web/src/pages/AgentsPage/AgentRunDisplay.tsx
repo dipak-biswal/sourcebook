@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Activity, MessageCircle, Sparkles } from "lucide-react";
+import { Activity, AlertTriangle, Loader2, MessageCircle, Sparkles } from "lucide-react";
 import { AgentRunPanel } from "@/components/agents/AgentRunPanel";
 import { GenerativeUIView } from "@/components/agents/GenerativeUI";
 import { extractGenerativeUIFromSteps } from "@/components/agents/generative-ui";
@@ -47,6 +47,8 @@ export function AgentRunDisplay() {
     liveTokenUsage,
     liveLlmEvents,
     liveTrace,
+    activeToolCalls,
+    loopWarning,
     approving,
     onApprove,
     onSaveLearningNote,
@@ -74,11 +76,6 @@ export function AgentRunDisplay() {
       </div>
     );
   }
-
-
-
-
-
   return (
     <div className="space-y-4">
       <div
@@ -99,6 +96,30 @@ export function AgentRunDisplay() {
             </div>
           </div>
         </div>
+
+        {running && (
+          <div className="flex flex-wrap items-center gap-2 border-t border-hairline px-4 py-2">
+            {activeToolCalls.length > 0 && (
+              <div className="flex flex-wrap items-center gap-1.5">
+                {activeToolCalls.map((t, i) => (
+                  <span
+                    key={`${t.tool_name}-${i}`}
+                    className="inline-flex items-center gap-1 rounded-[4px] bg-warning-bg/20 px-1.5 py-0.5 text-[10px] font-medium text-warning"
+                  >
+                    <Loader2 className="h-2.5 w-2.5 animate-spin" />
+                    {t.tool_name}
+                  </span>
+                ))}
+              </div>
+            )}
+            {loopWarning && (
+              <span className="inline-flex items-center gap-1 text-[10px] font-medium text-red-500">
+                <AlertTriangle className="h-3 w-3" strokeWidth={1.5} />
+                {loopWarning}
+              </span>
+            )}
+          </div>
+        )}
 
         <div className="flex items-center gap-1 border-t border-hairline bg-canvas-soft/50 px-4 py-2">
           <TabButton

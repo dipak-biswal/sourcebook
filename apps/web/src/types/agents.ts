@@ -20,6 +20,8 @@ export type AgentPageContextValue = {
   liveTokenUsage: number | null;
   liveLlmEvents: LlmTraceEvent[];
   liveTrace: LiveTraceSpan[];
+  activeToolCalls: { tool_name: string; startTime: number }[];
+  loopWarning: string | null;
   onChangeWorkspace: (id: string) => void;
   onSelectRun: (id: string) => void;
   onGoalChange: (v: string) => void;

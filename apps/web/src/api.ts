@@ -449,6 +449,12 @@ export type AgentStreamHandlers = {
   }) => void;
   onDone?: (run: AgentRun) => void;
   onError?: (detail: string) => void;
+  onToolStart?: (payload: {
+    tool_name: string;
+    tool_args?: Record<string, unknown>;
+    call_id?: string;
+  }) => void;
+  onLoopWarning?: (payload: { message: string }) => void;
 };
 
 async function streamAgentRun(
@@ -478,6 +484,14 @@ async function streamAgentRun(
       });
     } else if (type === "step" && payload.step) {
       handlers.onStep?.(payload.step as AgentStep);
+    } else if (type === "tool_start") {
+      handlers.onToolStart?.({
+        tool_name: payload.tool_name as string,
+        tool_args: payload.tool_args as Record<string, unknown> | undefined,
+        call_id: payload.call_id as string | undefined,
+      });
+    } else if (type === "loop_warning") {
+      handlers.onLoopWarning?.({ message: payload.message as string });
     } else if (type === "status") {
       handlers.onStatus?.({
         status: payload.status as string | undefined,

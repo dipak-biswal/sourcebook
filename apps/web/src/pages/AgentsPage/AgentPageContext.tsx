@@ -38,6 +38,8 @@ export function AgentPageProvider({ children }: { children: ReactNode }) {
   const [liveLlmEvents, setLiveLlmEvents] = useState<LlmTraceEvent[]>([]);
   const [liveTrace, setLiveTrace] = useState<LiveTraceSpan[]>([]);
   const [selected, setSelected] = useState<AgentRun | null>(null);
+  const [activeToolCalls, setActiveToolCalls] = useState<{ tool_name: string; startTime: number }[]>([]);
+  const [loopWarning, setLoopWarning] = useState<string | null>(null);
 
   const { data: workspaces = [], isLoading: loading } = useWorkspaces();
   const effectiveWorkspaceId = workspaceId || workspaces[0]?.id || "";
@@ -66,6 +68,8 @@ export function AgentPageProvider({ children }: { children: ReactNode }) {
     setLiveTokenUsage(null);
     setLiveLlmEvents([]);
     setLiveTrace([]);
+    setActiveToolCalls([]);
+    setLoopWarning(null);
   }
 
   async function onRun(e: SubmitEvent<HTMLFormElement>) {
@@ -113,8 +117,22 @@ export function AgentPageProvider({ children }: { children: ReactNode }) {
             onStep: (step) => {
               setLiveSteps((prev) => upsertSteps(prev, step));
               setLiveTrace((prev) => upsertTraceStep(prev, step));
+              if (step.type === "tool_result") {
+                setActiveToolCalls((prev) =>
+                  prev.filter((t) => t.tool_name !== step.tool_name),
+                );
+              }
             },
             onTokenUsage: (usage) => setLiveTokenUsage(usage),
+            onToolStart: (p) => {
+              setActiveToolCalls((prev) => [
+                ...prev,
+                { tool_name: p.tool_name, startTime: Date.now() },
+              ]);
+            },
+            onLoopWarning: (p) => {
+              setLoopWarning(p.message);
+            },
           },
           (final) => {
             setSelected(final);
@@ -201,8 +219,22 @@ export function AgentPageProvider({ children }: { children: ReactNode }) {
             onStep: (step) => {
               setLiveSteps((prev) => upsertSteps(prev, step));
               setLiveTrace((prev) => upsertTraceStep(prev, step));
+              if (step.type === "tool_result") {
+                setActiveToolCalls((prev) =>
+                  prev.filter((t) => t.tool_name !== step.tool_name),
+                );
+              }
             },
             onTokenUsage: (usage) => setLiveTokenUsage(usage),
+            onToolStart: (p) => {
+              setActiveToolCalls((prev) => [
+                ...prev,
+                { tool_name: p.tool_name, startTime: Date.now() },
+              ]);
+            },
+            onLoopWarning: (p) => {
+              setLoopWarning(p.message);
+            },
           },
           (final) => {
             setSelected(final);
@@ -284,6 +316,8 @@ export function AgentPageProvider({ children }: { children: ReactNode }) {
     liveTokenUsage,
     liveLlmEvents,
     liveTrace,
+    activeToolCalls,
+    loopWarning,
     onChangeWorkspace: setWorkspaceId,
     onSelectRun: onSelect,
     onGoalChange: setGoal,
