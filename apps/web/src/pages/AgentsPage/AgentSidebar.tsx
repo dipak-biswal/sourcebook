@@ -13,13 +13,13 @@ export function AgentSidebar() {
     workspaceId,
     runs,
     notes,
-    selectedId,
     loading,
     onChangeWorkspace,
     onSelectRun,
     onSidebarClose,
     onRefresh,
     onDeleteNote,
+    onDeleteRun,
   } = useAgentPage();
 
   return (
@@ -73,32 +73,39 @@ export function AgentSidebar() {
         ) : (
           <ul className="space-y-1">
             {runs.map((r) => (
-              <li key={r.id}>
-                <button
-                  type="button"
-                  onClick={() => {
-                    onSelectRun(r.id);
-                    onSidebarClose();
-                  }}
-                  className={
-                    "w-full rounded-[6px] border px-2 py-2 text-left transition-colors" +
-                    (r.id === selectedId
-                      ? " border-hairline bg-canvas-soft-2"
-                      : " border-transparent hover:bg-canvas-soft-2")
-                  }
-                >
-                  <div className="line-clamp-2 text-sm font-medium text-ink">
-                    {r.goal}
+              <li key={r.id} className="group rounded-[6px] border border-transparent hover:border-hairline hover:bg-canvas-soft-2">
+                <div className="flex items-start gap-1 px-2 py-2">
+                  <div className="min-w-0 flex-1">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        onSelectRun(r.id);
+                        onSidebarClose();
+                      }}
+                      className="w-full text-left"
+                    >
+                      <div className="line-clamp-2 text-sm font-medium text-ink">
+                        {r.goal}
+                      </div>
+                      <div className="mt-1 flex items-center gap-2">
+                        <Badge variant={agentStatusVariant(r.status)}>
+                          {r.status}
+                        </Badge>
+                        <span className="text-[11px] text-mute">
+                          {formatDate(r.created_at)}
+                        </span>
+                      </div>
+                    </button>
                   </div>
-                  <div className="mt-1 flex items-center gap-2">
-                    <Badge variant={agentStatusVariant(r.status)}>
-                      {r.status}
-                    </Badge>
-                    <span className="text-[11px] text-mute">
-                      {formatDate(r.created_at)}
-                    </span>
-                  </div>
-                </button>
+                  <button
+                    type="button"
+                    title="Delete run"
+                    className="mt-0.5 shrink-0 rounded p-1 opacity-0 text-mute transition-opacity hover:bg-canvas-soft-2 hover:text-ink group-hover:opacity-100"
+                    onClick={() => onDeleteRun(r.id)}
+                  >
+                    <Trash2 className="h-3.5 w-3.5" strokeWidth={1.5} />
+                  </button>
+                </div>
               </li>
             ))}
           </ul>

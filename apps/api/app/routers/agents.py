@@ -272,3 +272,18 @@ def list_agent_runs(
         .limit(30)
         .all()
     )
+
+
+@router.delete("/runs/{run_id}", status_code=204)
+def delete_agent_run(
+    run_id: uuid.UUID,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    run = _load_run(db, run_id, current_user.id)
+    if not run:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Run not found"
+        )
+    db.delete(run)
+    db.commit()

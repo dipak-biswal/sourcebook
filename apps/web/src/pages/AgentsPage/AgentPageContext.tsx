@@ -297,6 +297,22 @@ export function AgentPageProvider({ children }: { children: ReactNode }) {
     }
   }
 
+  async function onDeleteRun(id: string) {
+    if (!(await confirmAction("Delete this run?", "This cannot be undone."))) return;
+    setError(null);
+    setSelected(null);
+    setSelectedId("");
+    try {
+      await api.deleteAgentRun(id);
+      await queryClient.invalidateQueries({ queryKey: ["agentRuns", effectiveWorkspaceId] });
+      success("Run deleted");
+    } catch (err) {
+      const msg = formatError(err);
+      setError(msg);
+      toastError("Delete failed", msg);
+    }
+  }
+
   const value: AgentPageContextValue = {
     workspaces,
     workspaceId: effectiveWorkspaceId,
@@ -324,6 +340,7 @@ export function AgentPageProvider({ children }: { children: ReactNode }) {
     onRun,
     onApprove,
     onDeleteNote,
+    onDeleteRun,
     onSaveLearningNote,
     onRefresh: () => {
       queryClient.invalidateQueries({ queryKey: ["agentRuns", effectiveWorkspaceId] });

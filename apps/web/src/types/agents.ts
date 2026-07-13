@@ -28,6 +28,7 @@ export type AgentPageContextValue = {
   onRun: (e: React.SubmitEvent<HTMLFormElement>) => void;
   onApprove: (approve: boolean) => void;
   onDeleteNote: (id: string) => void;
+  onDeleteRun: (id: string) => void;
   onSaveLearningNote: (title: string, body: string) => void;
   onRefresh: () => void;
   onToggleSidebar: () => void;
