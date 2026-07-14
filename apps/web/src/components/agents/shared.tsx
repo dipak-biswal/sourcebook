@@ -138,8 +138,8 @@ export function AgentApprovalCard({
       </div>
       {presentation ? (
         <p className="mt-1 text-xs text-body">
-          The agent finished with a text answer. Generate a structured learning
-          view with sections, chips, and tables—or keep the text-only answer.
+          The agent finished with a text answer. Generate a structured view
+          with sections, chips, and tables—or keep the text-only answer.
         </p>
       ) : (
         <>

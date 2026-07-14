@@ -144,7 +144,7 @@ export function GenerativeUIView({
               disabled={savingNote}
               onClick={() =>
                 onSaveAsNote(
-                  payload.title.slice(0, 120) || "Learning notes",
+                  payload.title.slice(0, 120) || "Structured summary",
                   generativeUIToNoteBody(payload),
                 )
               }

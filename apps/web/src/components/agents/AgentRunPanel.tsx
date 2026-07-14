@@ -176,7 +176,7 @@ function TraceNode({
                 {step.type === "tool_call"
                   ? prettyJson(step.input).slice(0, 120)
                   : gen
-                    ? `Learning view · ${(step.output as { title?: string }).title ?? "ready"}`
+                    ? `Structured view · ${(step.output as { title?: string }).title ?? "ready"}`
                     : prettyJson(step.output).slice(0, 120)}
               </p>
             )}
@@ -202,9 +202,9 @@ function TraceNode({
                 </div>
                 {gen ? (
                   <p className="text-xs leading-relaxed text-body">
-                    Structured learning UI produced — rendered in the{" "}
-                    <strong className="text-ink">Learning view</strong> (product
-                    surface), not as raw JSON here.
+                    Structured UI produced — rendered in the{" "}
+                    <strong className="text-ink">Structured view</strong> tab,
+                    not as raw JSON here.
                   </p>
                 ) : (
                   <pre className="max-h-56 overflow-auto rounded-[6px] border border-hairline bg-canvas p-2.5 font-mono text-[11px] leading-relaxed text-body">
@@ -840,7 +840,7 @@ export function AgentRunPanel({
 
       {!open && !run?.pending_tool && (
         <p className="px-3 py-2 text-[11px] text-mute">
-          Details hidden. Learning view (if any) stays above — toggle to inspect
+          Details hidden. Structured view (if any) stays above — toggle to inspect
           the full LangSmith-style trace.
         </p>
       )}
