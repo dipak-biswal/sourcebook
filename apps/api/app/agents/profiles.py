@@ -13,6 +13,8 @@ GENERAL_SYSTEM_PROMPT = (
     "Use tools to list and search documents and create notes. "
     "Stay inside this workspace. Be concise.\n"
     "- Use search_documents for questions about uploaded content.\n"
+    "- Search at most 1–2 times, then reply with a complete final answer in plain text.\n"
+    "- Always include a written answer when you stop calling tools — never end on tool calls alone.\n"
     "- Give clear, structured final answers for explain/summarize/compare goals.\n"
     "- create_note requires human approval before it executes.\n"
     "When finished, answer clearly without more tool calls."

@@ -245,6 +245,108 @@ def _deserialize_messages(raw: list[Any]) -> list[BaseMessage]:
     return messages
 
 
+def _weak_final_answer(answer: str | None) -> bool:
+    a = (answer or "").strip()
+    if not a or a == "(no final answer)":
+        return True
+    if a.startswith("Stopped after max_steps"):
+        return True
+    return len(a) < 40
+
+
+def _tool_context_for_synthesis(messages: list[BaseMessage]) -> str:
+    """Flatten list/search tool results into text for a wrap-up LLM call."""
+    parts: list[str] = []
+    for msg in messages:
+        if not isinstance(msg, ToolMessage):
+            continue
+        try:
+            data = json.loads(
+                msg.content if isinstance(msg.content, str) else str(msg.content)
+            )
+        except Exception:
+            continue
+        if isinstance(data, list):
+            for item in data:
+                if not isinstance(item, dict):
+                    continue
+                if item.get("snippet"):
+                    fn = item.get("filename") or "document"
+                    parts.append(f"[{fn}] {item['snippet']}")
+                elif item.get("filename") and item.get("status"):
+                    parts.append(
+                        f"Document: {item['filename']} (status: {item['status']})"
+                    )
+        elif isinstance(data, dict) and data.get("error"):
+            parts.append(f"Tool error: {data['error']}")
+    return "\n".join(parts[:24])
+
+
+def _synthesize_final_answer(
+    db: Session,
+    run: AgentRun,
+    messages: list[BaseMessage],
+) -> str | None:
+    """One no-tools LLM turn when the agent stopped without a written answer."""
+    context = _tool_context_for_synthesis(messages)
+    goal = (run.goal or "").strip()
+    if not goal:
+        return None
+
+    if not context.strip():
+        docs = (
+            db.query(Document.filename, Document.status)
+            .filter(Document.workspace_id == run.workspace_id)
+            .order_by(Document.created_at.desc())
+            .limit(10)
+            .all()
+        )
+        if docs:
+            doc_lines = ", ".join(f"{n} ({s})" for n, s in docs)
+            return (
+                f"I found documents in this workspace ({doc_lines}) but could not "
+                "retrieve searchable text yet. Ensure files are fully ingested "
+                "(status: ready), then try again."
+            )
+        return (
+            "No documents are available in this workspace yet. Upload your resume "
+            "or other files under Documents and wait until status is ready."
+        )
+
+    prompt = (
+        "The workspace agent gathered tool results but did not produce a final "
+        "written answer. Using ONLY the evidence below, answer the user's goal.\n\n"
+        f"GOAL:\n{goal}\n\n"
+        f"TOOL RESULTS:\n{context[:12000]}\n\n"
+        "Write a clear, structured final answer (use bullets when helpful). "
+        "Do not mention tools, steps, or that you are synthesizing."
+    )
+    try:
+        ai: AIMessage = _llm().invoke(  # type: ignore[assignment]
+            [
+                SystemMessage(
+                    content=(
+                        "You produce concise, accurate answers grounded in the "
+                        "provided excerpts. No tools."
+                    )
+                ),
+                HumanMessage(content=prompt),
+            ]
+        )
+        p, c, t = _tokens_from_ai_message(ai)
+        _log_agent_usage(
+            db,
+            run,
+            prompt_tokens=p,
+            completion_tokens=c,
+            total_tokens=t if t else (p + c),
+        )
+        text = _content_str(ai.content).strip()
+        return text or None
+    except Exception:
+        return None
+
+
 def _prefer_gen_ui_summary(messages: list[BaseMessage], fallback: str) -> str:
     if fallback and fallback not in ("(no final answer)",):
         if len(fallback.strip()) > 20:
@@ -276,7 +378,21 @@ def _finalize_completed_run(
     on_event: EventCallback = None,
 ) -> int:
     """Set final answer and attach auto-generated presentation when appropriate."""
-    run.final_answer = _prefer_gen_ui_summary(messages, fallback_answer)
+    answer = _prefer_gen_ui_summary(messages, fallback_answer)
+    if _weak_final_answer(answer):
+        synthesized = _synthesize_final_answer(db, run, messages)
+        if synthesized:
+            answer = synthesized
+            step_index += 1
+            _append_step(
+                db,
+                run,
+                step_index=step_index,
+                type="synthesis",
+                output=answer,
+                on_event=on_event,
+            )
+    run.final_answer = answer
     return _attach_presentation_if_needed(
         db,
         run,
@@ -379,6 +495,7 @@ def _run_tool_loop(
         if start_step_index is not None
         else max(0, _next_step_index(db, run.id) - 1)
     )
+    seen_calls: set[str] = set()
 
     try:
         for _ in range(max(1, max_steps)):
@@ -413,16 +530,19 @@ def _run_tool_loop(
             # Duplicate detection — check BEFORE appending ai so we don't
             # orphan tool_calls without ToolMessage responses.
             if ai.tool_calls:
-                seen_calls: set[str] = getattr(_run_tool_loop, "_seen_calls", set())
                 warn_about_loop = False
                 for tc in ai.tool_calls:
                     h = _hash_args(tc.get("name") or "", tc.get("args") or {})
                     if h in seen_calls:
                         warn_about_loop = True
                     seen_calls.add(h)
-                _run_tool_loop._seen_calls = seen_calls  # type: ignore[attr-defined]
 
-                if warn_about_loop:
+                tool_result_count = sum(
+                    1 for m in messages if isinstance(m, ToolMessage)
+                )
+                # Never abort before at least one tool round — avoids false positives
+                # from duplicate hashes across runs/threads or twin calls in one turn.
+                if warn_about_loop and tool_result_count > 0:
                     _emit(
                         on_event,
                         "loop_warning",
