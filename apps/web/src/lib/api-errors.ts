@@ -42,3 +42,19 @@ export function isSessionExpiredMessage(message: string): boolean {
 export function shouldRedirectToLogin(): boolean {
   return !window.location.pathname.startsWith("/login");
 }
+
+export function isStreamAbortError(err: unknown): boolean {
+  if (err instanceof DOMException && err.name === "AbortError") return true;
+  if (err instanceof Error) {
+    if (err.name === "AbortError") return true;
+    if (/aborted|BodyStreamBuffer/i.test(err.message)) return true;
+  }
+  return false;
+}
+
+export function formatStreamAbortMessage(reason?: string): string {
+  if (reason === "max_duration") {
+    return "Agent run timed out. Try again with a shorter goal.";
+  }
+  return "Connection timed out while waiting for the agent. Try again.";
+}

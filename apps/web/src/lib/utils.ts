@@ -32,9 +32,21 @@ export function formatDateTime(iso: string): string {
   }
 }
 
-import { ApiError, parseApiErrorBody } from "@/lib/api-errors";
+import {
+  ApiError,
+  formatStreamAbortMessage,
+  isStreamAbortError,
+  parseApiErrorBody,
+} from "@/lib/api-errors";
 
 export function formatError(err: unknown): string {
+  if (isStreamAbortError(err)) {
+    const reason =
+      err instanceof Error
+        ? (err as Error & { abortReason?: string }).abortReason
+        : undefined;
+    return formatStreamAbortMessage(reason);
+  }
   if (err instanceof ApiError) return err.message;
   if (err instanceof Error) {
     try {

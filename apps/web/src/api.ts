@@ -128,13 +128,67 @@ export type StreamChatHandlers = {
   onError?: (detail: string) => void;
 };
 
-const SSE_TIMEOUT_MS = 30_000;
+const CHAT_SSE_IDLE_MS = 90_000;
+const AGENT_SSE_IDLE_MS = 180_000;
+const AGENT_SSE_MAX_MS = 600_000;
 
-async function consumeSSE(url: string, body: Record<string, unknown>, onEvent: (payload: Record<string, unknown>) => void): Promise<void> {
+type StreamAbortReason = "idle" | "max_duration";
+
+type ConsumeSSEOptions = {
+  /** Abort when no stream bytes arrive for this long (timer resets on each chunk). */
+  idleTimeoutMs?: number;
+  /** Optional hard cap on total stream duration. */
+  maxDurationMs?: number;
+};
+
+function abortStream(
+  controller: AbortController,
+  reason: StreamAbortReason,
+): void {
+  const err = new DOMException(
+    reason === "max_duration"
+      ? "Agent stream exceeded maximum duration"
+      : "Stream idle timeout",
+    "AbortError",
+  );
+  (err as DOMException & { abortReason?: StreamAbortReason }).abortReason = reason;
+  controller.abort(err);
+}
+
+async function consumeSSE(
+  url: string,
+  body: Record<string, unknown>,
+  onEvent: (payload: Record<string, unknown>) => void,
+  options: ConsumeSSEOptions = {},
+): Promise<void> {
+  const idleTimeoutMs = options.idleTimeoutMs ?? CHAT_SSE_IDLE_MS;
+  const maxDurationMs = options.maxDurationMs;
   const token = getToken();
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), SSE_TIMEOUT_MS);
+  let idleTimer: ReturnType<typeof setTimeout> | undefined;
+  let maxTimer: ReturnType<typeof setTimeout> | undefined;
+
+  const clearTimers = () => {
+    if (idleTimer) clearTimeout(idleTimer);
+    if (maxTimer) clearTimeout(maxTimer);
+    idleTimer = undefined;
+    maxTimer = undefined;
+  };
+
+  const bumpIdle = () => {
+    if (idleTimer) clearTimeout(idleTimer);
+    idleTimer = setTimeout(() => abortStream(controller, "idle"), idleTimeoutMs);
+  };
+
   try {
+    bumpIdle();
+    if (maxDurationMs) {
+      maxTimer = setTimeout(
+        () => abortStream(controller, "max_duration"),
+        maxDurationMs,
+      );
+    }
+
     const res = await fetch(`${API_URL}${url}`, {
       method: "POST",
       headers: {
@@ -157,6 +211,7 @@ async function consumeSSE(url: string, body: Record<string, unknown>, onEvent: (
     while (true) {
       const { done, value } = await reader.read();
       if (done) break;
+      bumpIdle();
       buffer += decoder.decode(value, { stream: true });
 
       const parts = buffer.split("\n\n");
@@ -177,11 +232,26 @@ async function consumeSSE(url: string, body: Record<string, unknown>, onEvent: (
         } catch {
           continue;
         }
+        bumpIdle();
         onEvent(payload);
       }
     }
+  } catch (err) {
+    if (err instanceof DOMException && err.name === "AbortError") {
+      const reason = (err as DOMException & { abortReason?: StreamAbortReason })
+        .abortReason;
+      const wrapped = new Error(
+        reason === "max_duration"
+          ? "Agent run timed out. Try again with a shorter goal."
+          : "Connection timed out while waiting for the agent. Try again.",
+      );
+      wrapped.name = "AbortError";
+      (wrapped as Error & { abortReason?: StreamAbortReason }).abortReason = reason;
+      throw wrapped;
+    }
+    throw err;
   } finally {
-    clearTimeout(timer);
+    clearTimers();
   }
 }
 
@@ -550,7 +620,10 @@ async function streamAgentRun(
   handlers: AgentStreamHandlers,
 ): Promise<AgentRun | null> {
   let finalRun: AgentRun | null = null;
-  await consumeSSE(path, body, (payload) => {
+  await consumeSSE(
+    path,
+    body,
+    (payload) => {
     const type = String(payload.type || "");
     if (type === "run_start") {
       handlers.onRunStart?.({
@@ -602,7 +675,12 @@ async function streamAgentRun(
       handlers.onError?.(detail);
       throw new Error(detail);
     }
-  });
+    },
+    {
+      idleTimeoutMs: AGENT_SSE_IDLE_MS,
+      maxDurationMs: AGENT_SSE_MAX_MS,
+    },
+  );
   return finalRun;
 }
 
