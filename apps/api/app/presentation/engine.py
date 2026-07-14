@@ -20,6 +20,7 @@ from app.config import settings
 from app.ingestion.retrieve import retrieve_chunks
 from app.models import Document
 from app.presentation.context import PresentationContext
+from app.presentation.evidence import format_agent_evidence
 from app.presentation.layout import format_layout_requirements, layout_components_from_goal
 from app.usage import estimate_tokens, log_usage
 
@@ -334,10 +335,21 @@ def build_presentation(
         context_parts.append(f"[{i}] ({name}, score={score:.3f})\n{ch.content}")
 
     context = "\n\n".join(context_parts) if context_parts else "(no document excerpts)"
+    agent_evidence_text = format_agent_evidence(ctx.agent_evidence)
+    grounding_context = (
+        f"{agent_evidence_text}\n\n{context}".strip()
+        if agent_evidence_text
+        else context
+    )
     max_idx = len(sources)
     ws_lines = _workspace_context_lines(ctx)
     layout_components = layout_components_from_goal(goal)
     layout_section = format_layout_requirements(layout_components)
+    agent_evidence_section = (
+        f"\n{agent_evidence_text}\n"
+        if agent_evidence_text
+        else "\n(No agent tool evidence captured — use AGENT TEXT ANSWER and EXCERPTS only.)\n"
+    )
 
     prompt = f"""You are the VISUAL SUMMARY layout engine. The agent already wrote a text answer for the Answer tab.
 Your job: turn that answer (+ excerpts) into structured UI blocks. Do NOT repeat the answer as plain prose only.
@@ -351,14 +363,15 @@ USER GOAL (layout intent — which components to build):
 {layout_section}
 
 AGENT TEXT ANSWER (facts only — source material for blocks, NOT layout instructions):
-{answer[:6000]}
-
+{answer[:8000]}
+{agent_evidence_section}
 REGISTERED COMPONENTS (type field): {", ".join(_BLOCK_TYPES)}
 
 GROUNDING RULES (MANDATORY):
 - NEVER invent employers, job titles with fake companies, dates, projects, scores, or metrics.
 - NEVER use placeholder names (XYZ Corp, ABC Inc, DEF Ltd, GHI Co, Acme, Example Company, etc.).
-- timeline: ONLY if AGENT TEXT ANSWER or EXCERPTS list explicit roles/dates/employers. If unclear, OMIT timeline entirely.
+- Prefer facts from AGENT TOOL EVIDENCE and AGENT TEXT ANSWER; use EXCERPTS as supplemental workspace context.
+- timeline: ONLY if AGENT TEXT ANSWER, AGENT TOOL EVIDENCE, or EXCERPTS list explicit roles/dates/employers. If unclear, OMIT timeline entirely.
 - progress/chart: use qualitative levels (Strong, Growing, Foundational, Gap, Moderate) — NEVER invent numeric percentages unless the answer explicitly states that number for that skill.
 - If the user requests a component but grounded data is missing, SKIP that block — do not fabricate filler.
 - Rephrase and structure existing facts; do not hallucinate new ones.
@@ -421,7 +434,7 @@ EXCERPTS:
                 {"role": "user", "content": prompt},
             ],
             temperature=0.1,
-            max_tokens=3200,
+            max_tokens=4000,
         )
         raw = (resp.choices[0].message.content or "").strip()
         usage = resp.usage
@@ -506,7 +519,7 @@ EXCERPTS:
     blocks = _sanitize_blocks_for_grounding(
         blocks,
         answer=answer,
-        context=context,
+        context=grounding_context,
     )
 
     if not blocks:

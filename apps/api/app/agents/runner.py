@@ -21,6 +21,7 @@ from app.config import settings
 from app.models import AgentRun, AgentStep, Document, Workspace
 from app.presentation.context import PresentationContext
 from app.presentation.engine import build_presentation
+from app.presentation.evidence import collect_evidence_from_steps
 from app.presentation.planner import should_offer_presentation
 from app.usage import estimate_tokens, log_usage
 
@@ -499,6 +500,9 @@ def _build_and_attach_presentation(
     raw_tags = ws.tags if ws and isinstance(ws.tags, list) else []
     tags = [str(t).strip() for t in raw_tags if t and str(t).strip()]
 
+    steps = sorted(run.steps or [], key=lambda s: s.step_index)
+    agent_evidence = collect_evidence_from_steps(steps)
+
     ctx = PresentationContext(
         workspace_id=run.workspace_id,
         user_id=run.user_id or uuid.UUID(int=0),
@@ -508,6 +512,7 @@ def _build_and_attach_presentation(
         workspace_description=(ws.description or "") if ws else "",
         workspace_tags=tags,
         document_filenames=filenames,
+        agent_evidence=agent_evidence,
     )
     spec = build_presentation(db, ctx)
     if not isinstance(spec, dict) or spec.get("error"):
