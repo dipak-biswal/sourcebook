@@ -4,12 +4,13 @@ import type {
   AgentStep,
   ChatMessage,
   Conversation,
+  ExecutionTrace,
   Workspace,
 } from "@/api";
 import type {
   LiveTraceSpan,
   LlmTraceEvent,
-} from "@/components/agents/AgentRunPanel";
+} from "@/components/agents/trace-types";
 import type { ChatSessionsPanelProps } from "@/components/chat/ChatSessionsPanel";
 
 export type ChatMode = "chat" | "agent";
@@ -25,6 +26,7 @@ export type AgentThreadItem = {
   liveTokenUsage?: number | null;
   liveLlmEvents?: LlmTraceEvent[];
   liveTrace?: LiveTraceSpan[];
+  liveExecutionTrace?: ExecutionTrace | null;
 };
 
 export type ThreadItem =

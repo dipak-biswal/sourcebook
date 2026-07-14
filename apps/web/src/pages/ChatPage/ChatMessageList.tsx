@@ -1,7 +1,7 @@
-import { Link, useNavigate } from "react-router-dom";
+import { useNavigate } from "react-router-dom";
 import { AlertCircle, Bot, Loader2 } from "lucide-react";
 import { TypingIndicator } from "@/components/chat/TypingIndicator";
-import { AgentRunPanel } from "@/components/agents/AgentRunPanel";
+import { AgentTraceTree } from "@/components/agents/AgentTraceTree";
 
 import { CitationList } from "@/components/chat/CitationList";
 import { isDenialMessage, shouldShowSources } from "@/components/chat/citations";
@@ -125,13 +125,6 @@ function ChatMessageItem({
   );
 }
 
-const TERMINAL_RUN_STATUSES = new Set([
-  "completed",
-  "failed",
-  "cancelled",
-  "waiting_approval",
-]);
-
 function AgentMessageItem({
   item,
 }: {
@@ -139,11 +132,9 @@ function AgentMessageItem({
 }) {
   const { approving, onApproveAgent } = useChatPage();
   const isUser = item.role === "user";
-  const showAgentsLink =
+  const showTrace =
     !isUser &&
-    !item.pending &&
-    item.run &&
-    TERMINAL_RUN_STATUSES.has(item.run.status);
+    (item.pending || item.run || item.liveExecutionTrace);
 
   return (
     <div
@@ -167,45 +158,30 @@ function AgentMessageItem({
         </div>
       )}
 
-      {showAgentsLink && (
-        <Link
-          to={`/agents?run=${item.run!.id}`}
-          className="mt-2 text-xs font-medium text-ink underline-offset-2 hover:underline"
+      {showTrace && (
+        <div
+          className={cn(
+            "mt-2 w-full max-w-[min(100%,40rem)] overflow-hidden rounded-vercel-md border bg-canvas",
+            item.pending
+              ? "border-warning-border ring-1 ring-warning-border/40"
+              : "border-hairline",
+          )}
         >
-          Open full trace in Agents →
-        </Link>
-      )}
-
-      {!isUser && (item.run || item.pending) && (
-        <div className="mt-2 w-full max-w-[min(100%,40rem)]">
-          <AgentRunPanel
+          <AgentTraceTree
             run={item.run}
-            pending={!!item.pending}
-            goal={item.goal || item.run?.goal}
-            liveSteps={item.liveSteps}
-            liveTokenUsage={item.liveTokenUsage}
-            liveLlmEvents={item.liveLlmEvents}
-            liveTrace={item.liveTrace}
+            executionTrace={
+              item.liveExecutionTrace ?? item.run?.execution_trace
+            }
+            running={!!item.pending}
             approving={approving}
-            forceOpenWhilePending
             onApprove={
               item.run
-                ? () =>
-                    onApproveAgent(
-                      item.id,
-                      item.run!.id,
-                      true,
-                    )
+                ? () => onApproveAgent(item.id, item.run!.id, true)
                 : undefined
             }
             onReject={
               item.run
-                ? () =>
-                    onApproveAgent(
-                      item.id,
-                      item.run!.id,
-                      false,
-                    )
+                ? () => onApproveAgent(item.id, item.run!.id, false)
                 : undefined
             }
           />

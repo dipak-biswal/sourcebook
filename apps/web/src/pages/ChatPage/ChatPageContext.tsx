@@ -99,7 +99,10 @@ export function ChatPageProvider({ children }: { children: ReactNode }) {
     sessions.setError(null);
     try {
       const run = sessions.agentRuns.find((r) => r.id === id);
-      const detail = (run?.steps?.length ? run : await api.agentRun(id)) ?? run;
+      const detail =
+        run?.execution_trace != null
+          ? run
+          : (await api.agentRun(id)) ?? run;
       if (detail) {
         agent.setAgentThread(agent.threadFromRun(detail));
       }

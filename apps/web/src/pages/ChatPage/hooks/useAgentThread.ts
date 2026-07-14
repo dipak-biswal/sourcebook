@@ -1,10 +1,10 @@
 import { useState, type RefObject } from "react";
 import { useQueryClient } from "@tanstack/react-query";
-import { api, type AgentRun } from "@/api";
+import { api, type AgentRun, type ExecutionTrace } from "@/api";
 import type {
   LiveTraceSpan,
   LlmTraceEvent,
-} from "@/components/agents/AgentRunPanel";
+} from "@/components/agents/trace-types";
 import { useToast } from "@/components/ui/toast";
 import { formatError } from "@/lib/utils";
 import {
@@ -60,6 +60,7 @@ export function useAgentThread(
           kind: "step" as const,
           step,
         })),
+        liveExecutionTrace: run.execution_trace ?? null,
       },
     ];
   }
@@ -89,10 +90,16 @@ export function useAgentThread(
                   ? item.liveTrace
                   : run.steps.map((step) => ({ kind: "step" as const, step })),
               liveLlmEvents: [],
+              liveExecutionTrace:
+                run.execution_trace ?? item.liveExecutionTrace ?? null,
             }
           : item,
       ),
     );
+  }
+
+  function patchExecutionTrace(asstId: string, trace: ExecutionTrace) {
+    patchLive(asstId, { liveExecutionTrace: trace });
   }
 
   function appendTrace(asstId: string, span: LiveTraceSpan) {
@@ -158,6 +165,9 @@ export function useAgentThread(
         text,
         makeAgentStreamHandlers(
           {
+            onTrace: (trace) => {
+              patchExecutionTrace(asstId, trace);
+            },
             onLlmStart: (event) => {
               appendTrace(asstId, { kind: "llm", event });
               setAgentThread((prev) =>
@@ -296,6 +306,9 @@ export function useAgentThread(
         true,
         makeAgentStreamHandlers(
           {
+            onTrace: (trace) => {
+              patchExecutionTrace(asstId, trace);
+            },
             onLlmStart: (event) => {
               appendTrace(asstId, { kind: "llm", event });
               setAgentThread((prev) =>
