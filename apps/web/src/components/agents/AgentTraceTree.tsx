@@ -299,6 +299,20 @@ function turnStatusLabel(turn: TraceAgentTurn): string | undefined {
   return undefined;
 }
 
+/** LLM text for the response row — skips pre-tool planning when tools ran first. */
+function turnResponseContent(turn: TraceAgentTurn): string {
+  if (turn.thoughtStep?.type === "final") {
+    return stepText(turn.thoughtStep);
+  }
+  if (turn.tools.length === 0) {
+    return turn.llm?.streamContent || stepText(turn.thoughtStep) || "";
+  }
+  if (turn.thoughtStep?.type === "thought") {
+    return turn.llm?.streamContent || "";
+  }
+  return turn.llm?.streamContent || stepText(turn.thoughtStep) || "";
+}
+
 type FlatRow =
   | { id: string; kind: "goal"; isLast: boolean; goal: string }
   | { id: string; kind: "turn"; isLast: boolean; turnNumber: number; turn: TraceAgentTurn }
@@ -319,12 +333,23 @@ function filterRowsForLive(rows: FlatRow[]): FlatRow[] {
   for (const row of rows) {
     if (row.kind === "tool") {
       if (row.tool.state === "pending" && !row.tool.callStep) break;
+      visible.push(row);
+      if (row.tool.state !== "done") break;
+      continue;
+    }
+
+    if (row.kind === "turn") {
+      const tools = row.turn.tools;
+      const toolsReady =
+        tools.length === 0 || tools.every((t) => t.state === "done");
+      if (!toolsReady) break;
+      visible.push(row);
+      if (row.turn.state !== "done") break;
+      continue;
     }
 
     visible.push(row);
 
-    if (row.kind === "tool" && row.tool.state !== "done") break;
-    if (row.kind === "turn" && row.turn.state !== "done") break;
     if (row.kind === "hitl" && row.hitl.pending && !row.hitl.building) break;
     if (row.kind === "presentation" && row.presentation.state === "pending") break;
     if (row.kind === "presentation" && row.presentation.state !== "done") break;
@@ -348,6 +373,9 @@ function buildFlatRows(tree: TraceTreeItem[]): FlatRow[] {
     }
     if (item.kind === "turn") {
       turnCount += 1;
+      for (const tool of item.turn.tools) {
+        flat.push({ id: tool.id, kind: "tool", tool, nested: true, isLast: false });
+      }
       flat.push({
         id: item.id,
         kind: "turn",
@@ -355,9 +383,6 @@ function buildFlatRows(tree: TraceTreeItem[]): FlatRow[] {
         turn: item.turn,
         isLast: false,
       });
-      for (const tool of item.turn.tools) {
-        flat.push({ id: tool.id, kind: "tool", tool, nested: true, isLast: false });
-      }
       continue;
     }
     if (item.kind === "hitl") {
@@ -669,9 +694,12 @@ export function AgentTraceTree({
             if (row.kind === "turn" && row.turn) {
               const turn = row.turn;
               const turnActive = activeId === row.id || turn.state === "running";
-              const llmContent =
-                turn.llm?.streamContent || stepText(turn.thoughtStep) || "";
+              const hasTools = turn.tools.length > 0;
+              const llmContent = turnResponseContent(turn);
               const status = turnStatusLabel(turn);
+              const turnLabel = hasTools
+                ? `Agent · turn ${row.turnNumber} · response`
+                : `Agent · turn ${row.turnNumber}`;
 
               return (
                 <ExpandableTraceRow
@@ -681,17 +709,24 @@ export function AgentTraceTree({
                   active={turnActive}
                   defaultOpen={runComplete || turnActive}
                   icon={Brain}
-                  label={`Agent · turn ${row.turnNumber}`}
+                  label={turnLabel}
                   state={turn.state}
                   isLast={row.isLast}
                 >
                   {status && (
                     <p className="mb-2 text-[11px] text-mute">{status}</p>
                   )}
-                  <LlmStreamBody
-                    content={llmContent}
-                    running={turn.llm?.status === "running"}
-                  />
+                  <div>
+                    {hasTools && (
+                      <div className="mb-1 text-[10px] font-bold uppercase tracking-wide text-mute">
+                        LLM response
+                      </div>
+                    )}
+                    <LlmStreamBody
+                      content={llmContent}
+                      running={turn.llm?.status === "running"}
+                    />
+                  </div>
                 </ExpandableTraceRow>
               );
             }

@@ -144,7 +144,19 @@ function buildTurnsFromSteps(
       current!.tools = attachToolResult(current!.tools, step);
       continue;
     }
-    if (step.type === "thought" || step.type === "final") {
+    if (step.type === "thought") {
+      if (!current) startTurn();
+      const awaitingToolResults = current!.tools.some((t) => !t.resultStep);
+      if (awaitingToolResults) {
+        current = { ...current!, thoughtStep: step };
+        continue;
+      }
+      current = finishTurn(current!, step, true);
+      turns.push(current);
+      current = null;
+      continue;
+    }
+    if (step.type === "final") {
       if (!current) startTurn();
       current = finishTurn(current!, step, true);
       turns.push(current);
