@@ -31,6 +31,10 @@ _BLOCK_TYPES = (
     "steps",
     "chips",
     "table",
+    "metrics",
+    "timeline",
+    "quote",
+    "comparison",
 )
 
 
@@ -114,37 +118,50 @@ def build_presentation(
     max_idx = len(sources)
     ws_lines = _workspace_context_lines(ctx)
 
-    prompt = f"""You design a structured UI to help the user understand an agent's answer.
+    prompt = f"""You design a visual UI spec from an agent answer. Pick components by CONTEXT — not a fixed card layout.
 
-WORKSPACE CONTEXT (hints only — do not restrict features):
+WORKSPACE CONTEXT:
 {ws_lines}
 
 USER GOAL:
 {goal}
 
-AGENT TEXT ANSWER (primary content to visualize):
+AGENT TEXT ANSWER:
 {answer[:4000]}
 
-RULES:
-- Ground factual blocks in EXCERPTS when available; you may reorganize the agent answer for clarity.
-- Pick block types freely from: {", ".join(_BLOCK_TYPES)}.
-  - chips: short tags/labels (use items as strings)
-  - table: use items as rows encoded "Column1 | Column2 | Column3" when comparing
-  - summary, key_points, key_terms, faq, callout, steps: as documented below
-- Write for the workspace context (resume → scannable highlights; tutorial → concepts; legal → caveats) WITHOUT being told a fixed profile name.
-- For EVERY block, set source_indices to 1-based excerpt numbers when excerpts support it (1..{max_idx}). If no excerpts, use [].
+REGISTERED COMPONENTS (type field): {", ".join(_BLOCK_TYPES)}
+
+CONTEXT → COMPONENT MAP (use at least 3 DIFFERENT types; avoid summary+key_points+chips only):
+- Resume / profile / skills → metrics (Label | Value items) + chips + table (Skill | Level | Notes rows)
+- Career / history / milestones → timeline (Period | Role | Detail per item) + callout for standout insight
+- Compare / gap analysis / vs → comparison (Aspect | Option A | Option B) OR table with header row
+- Teach / explain concepts → key_terms + faq + steps (ordered items)
+- Risks / caveats / important → callout (body required; use title like "Watch out")
+- Memorable insight / testimonial line → quote (body=quote text, title=attribution or topic)
+- Quick scan / themes → chips + metrics
+- Process / how-to → steps (ordered items) — not bullets in key_points
+- Narrative only → at most ONE summary block; pair with specialized types above
+
+FIELD SHAPES:
+- items: string list. Pipe-encoded rows for table/timeline/comparison/metrics:
+  - table/comparison: "Col1 | Col2 | Col3" (first row may be headers)
+  - metrics: "Label | Value" per item
+  - timeline: "Period | Title | Detail" per item
+- key_terms: [{{"term":"","definition":""}}]
+- faq: [{{"question":"","answer":""}}]
+- callout/quote/summary: body text; title optional
+- source_indices: 1-based excerpt refs (1..{max_idx}) or []
+
+STRICT RULES:
+- NEVER return 3+ blocks that are all summary, key_points, or chips — diversify.
+- Include 4–7 blocks with substantive content.
 - Return ONLY valid JSON (no markdown fences):
 {{
   "title": "short title",
   "plain_summary": "2-4 sentence overview",
-  "presentation_profile": "free-form label for this layout style",
-  "blocks": [
-    {{"type": "summary", "title": "Overview", "body": "paragraph", "source_indices": [1]}},
-    {{"type": "chips", "title": "Highlights", "items": ["chip one", "chip two"], "source_indices": []}},
-    {{"type": "key_points", "title": "Key points", "items": ["point"], "source_indices": [1]}}
-  ]
+  "presentation_profile": "e.g. resume_dashboard, comparison_matrix, concept_guide",
+  "blocks": [...]
 }}
-- Include 3–6 blocks with real content. Never return title-only empty blocks.
 
 EXCERPTS:
 {context}
@@ -158,7 +175,8 @@ EXCERPTS:
                     "role": "system",
                     "content": (
                         "You output only JSON for a generative UI spec. "
-                        "Choose layout components that fit the goal and workspace context."
+                        "Pick diverse visual components based on goal context — "
+                        "never default to generic summary+bullets+chips."
                     ),
                 },
                 {"role": "user", "content": prompt},

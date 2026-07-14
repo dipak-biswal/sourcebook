@@ -26,6 +26,10 @@ BlockType = Literal[
     "steps",
     "chips",
     "table",
+    "metrics",
+    "timeline",
+    "quote",
+    "comparison",
 ]
 
 
@@ -160,9 +164,33 @@ def _normalize_block_dict(raw: Any) -> dict[str, Any] | None:
         "note": "callout",
         "tip": "callout",
         "important": "callout",
+        "stats": "metrics",
+        "stat": "metrics",
+        "kpis": "metrics",
+        "kpi": "metrics",
+        "history": "timeline",
+        "career": "timeline",
+        "milestones": "timeline",
+        "pull_quote": "quote",
+        "highlight": "quote",
+        "compare": "comparison",
+        "versus": "comparison",
+        "vs": "comparison",
+        "matrix": "table",
     }
     b["type"] = type_map.get(t, t if t in {
-        "summary", "key_points", "key_terms", "faq", "callout", "steps", "chips", "table"
+        "summary",
+        "key_points",
+        "key_terms",
+        "faq",
+        "callout",
+        "steps",
+        "chips",
+        "table",
+        "metrics",
+        "timeline",
+        "quote",
+        "comparison",
     } else "summary")
 
     # title

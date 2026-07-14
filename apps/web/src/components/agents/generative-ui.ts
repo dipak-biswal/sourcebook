@@ -112,7 +112,10 @@ export function normalizeGenerativeUI(raw: GenerativeUIPayload): GenerativeUIPay
         (b.terms && b.terms.length) ||
         (b.faqs && b.faqs.length) ||
         b.type === "chips" ||
-        b.type === "table"
+        b.type === "table" ||
+        b.type === "metrics" ||
+        b.type === "timeline" ||
+        b.type === "comparison"
       ),
   );
 
@@ -185,6 +188,9 @@ export function generativeUIToNoteBody(payload: GenerativeUIPayload): string {
     }
     for (const f of b.faqs ?? []) {
       lines.push(`**Q: ${f.question}**`, `A: ${f.answer}`);
+    }
+    if (b.type === "quote" && b.body) {
+      lines.push(`> ${b.body}`);
     }
   }
   return lines.join("\n").trim();
