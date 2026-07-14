@@ -571,6 +571,9 @@ EXCERPTS:
         build_meta["completion_tokens"] = usage.completion_tokens
         build_meta["total_tokens"] = usage.total_tokens
     else:
-        estimated = estimate_tokens(prompt, raw)
-        build_meta["total_tokens"] = estimated
+        prompt_est = estimate_tokens(prompt)
+        completion_est = estimate_tokens(raw)
+        build_meta["prompt_tokens"] = prompt_est
+        build_meta["completion_tokens"] = completion_est
+        build_meta["total_tokens"] = prompt_est + completion_est
     return out, build_meta

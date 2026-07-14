@@ -245,11 +245,15 @@ function TokenUsageLine({
   return (
     <div className="flex flex-wrap items-center gap-2 text-[10px] text-mute">
       <Coins className="h-3 w-3" strokeWidth={1.5} />
-      {promptTokens != null && <span>Input: {promptTokens.toLocaleString()} tok</span>}
-      {completionTokens != null && (
+      {promptTokens != null && promptTokens > 0 && (
+        <span>Input: {promptTokens.toLocaleString()} tok</span>
+      )}
+      {completionTokens != null && completionTokens > 0 && (
         <span>Output: {completionTokens.toLocaleString()} tok</span>
       )}
-      {totalTokens != null && <span>Total: {totalTokens.toLocaleString()} tok</span>}
+      {totalTokens != null && totalTokens > 0 && (
+        <span>Total: {totalTokens.toLocaleString()} tok</span>
+      )}
     </div>
   );
 }

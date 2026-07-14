@@ -42,6 +42,7 @@ def _llm():
         api_key=SecretStr(settings.openai_api_key),
         base_url=settings.openai_base_url,
         temperature=0.1,
+        stream_usage=True,
     )
 
 
@@ -117,12 +118,36 @@ def _tokens_from_ai_message(ai: AIMessage) -> tuple[int, int, int]:
         if total > 0:
             return prompt, completion, total
 
-    parts: list[str] = [_content_str(ai.content)]
+    return _estimate_turn_tokens([], ai)
+
+
+def _estimate_turn_tokens(
+    messages: list[BaseMessage],
+    ai: AIMessage,
+) -> tuple[int, int, int]:
+    """Split token estimate into prompt vs completion when provider omits usage."""
+    prompt_est = estimate_tokens(
+        json.dumps(_serialize_messages(messages), default=str),
+    )
+    completion_parts = [_content_str(ai.content)]
     for tc in ai.tool_calls or []:
-        parts.append(str(tc.get("name") or ""))
-        parts.append(json.dumps(tc.get("args") or {}, default=str))
-    est = estimate_tokens(*parts)
-    return 0, 0, est
+        completion_parts.append(str(tc.get("name") or ""))
+        completion_parts.append(json.dumps(tc.get("args") or {}, default=str))
+    completion_est = estimate_tokens(*completion_parts)
+    total = prompt_est + completion_est
+    return prompt_est, completion_est, max(total, 1)
+
+
+def _tokens_for_turn(
+    messages: list[BaseMessage],
+    ai: AIMessage,
+) -> tuple[int, int, int]:
+    p, c, t = _tokens_from_ai_message(ai)
+    if p > 0 or c > 0:
+        return p, c, t if t > 0 else p + c
+    if t > 0:
+        return _estimate_turn_tokens(messages, ai)
+    return _estimate_turn_tokens(messages, ai)
 
 
 def _log_agent_usage(
@@ -410,7 +435,7 @@ def _synthesize_final_answer(
     ]
     try:
         ai: AIMessage = _llm().invoke(synthesis_messages)  # type: ignore[assignment]
-        p, c, t = _tokens_from_ai_message(ai)
+        p, c, t = _tokens_for_turn(synthesis_messages, ai)
         _log_agent_usage(
             db,
             run,
@@ -695,7 +720,7 @@ def _run_tool_loop(
                 on_trace=refresh_trace,
             )
 
-            p, c, t = _tokens_from_ai_message(ai)
+            p, c, t = _tokens_for_turn(messages, ai)
             prompt_tokens_total += p
             completion_tokens_total += c
             total_tokens_acc += t if t else (p + c)
@@ -776,6 +801,7 @@ def _run_tool_loop(
                     )
                     return run
 
+            prompt_messages = _serialize_messages(messages)
             messages.append(ai)
 
             if ai.tool_calls:
@@ -799,7 +825,7 @@ def _run_tool_loop(
                     step_index=step_index,
                     type="thought" if ai.tool_calls else "final",
                     input={
-                        "messages": _serialize_messages(messages),
+                        "messages": prompt_messages,
                         "prompt_tokens": p,
                         "completion_tokens": c,
                         "total_tokens": t if t else (p + c),

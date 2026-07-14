@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass, field
 from typing import Any, Literal
 
 from app.models import AgentRun, AgentStep
+from app.usage import estimate_tokens
 
 TraceState = Literal["pending", "running", "done"]
 
@@ -35,15 +37,48 @@ def _step_output_status(step: AgentStep | dict[str, Any]) -> str | None:
     return str(status) if status is not None else None
 
 
+def _normalize_token_counts(
+    tokens: dict[str, int],
+    *,
+    step: AgentStep | None = None,
+) -> dict[str, int]:
+    p = int(tokens.get("prompt_tokens") or 0)
+    c = int(tokens.get("completion_tokens") or 0)
+    t = int(tokens.get("total_tokens") or 0)
+
+    if step and p == 0 and c == 0 and t > 0:
+        inp = step.input if isinstance(step.input, dict) else {}
+        messages = inp.get("messages")
+        prompt_est = (
+            estimate_tokens(json.dumps(messages, default=str))
+            if messages
+            else 0
+        )
+        output_est = estimate_tokens(_step_text(step))
+        if prompt_est + output_est > 0:
+            p, c, t = prompt_est, output_est, prompt_est + output_est
+
+    out: dict[str, int] = {}
+    if p > 0:
+        out["prompt_tokens"] = p
+    if c > 0:
+        out["completion_tokens"] = c
+    if t > 0:
+        out["total_tokens"] = t
+    elif p > 0 or c > 0:
+        out["total_tokens"] = p + c
+    return out
+
+
 def _tokens_from_step_input(step: AgentStep | None) -> dict[str, int]:
     if not step or not step.input or not isinstance(step.input, dict):
         return {}
-    out: dict[str, int] = {}
+    raw: dict[str, int] = {}
     for key in ("prompt_tokens", "completion_tokens", "total_tokens"):
         value = step.input.get(key)
         if isinstance(value, int) and value >= 0:
-            out[key] = value
-    return out
+            raw[key] = value
+    return _normalize_token_counts(raw, step=step)
 
 
 def _tokens_from_live(
@@ -52,7 +87,8 @@ def _tokens_from_live(
 ) -> dict[str, int]:
     if not live or not turn_id:
         return {}
-    return dict(live.tokens_by_turn.get(turn_id) or {})
+    raw = dict(live.tokens_by_turn.get(turn_id) or {})
+    return _normalize_token_counts(raw)
 
 
 def _apply_tokens(node: dict[str, Any], tokens: dict[str, int]) -> dict[str, Any]:

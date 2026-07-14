@@ -131,6 +131,35 @@ def test_agent_turn_shows_decision_before_tools_and_response():
     assert labels == ["Decision", "Web search", "Response"]
 
 
+def test_token_counts_normalize_zero_split_from_total():
+    run = _run_with_steps(
+        "Hello",
+        [
+            {
+                "type": "final",
+                "input": {
+                    "messages": [{"role": "human", "content": "Hello world"}],
+                    "prompt_tokens": 0,
+                    "completion_tokens": 0,
+                    "total_tokens": 55,
+                },
+                "output": "Hi there.",
+            },
+        ],
+    )
+    trace = build_execution_trace(run)
+    llm = next(
+        c
+        for p in trace["phases"]
+        if p["type"] == "agent_turn"
+        for c in p["children"]
+        if c["type"] == "llm_response"
+    )
+    assert llm["prompt_tokens"] > 0
+    assert llm["completion_tokens"] > 0
+    assert llm["total_tokens"] == llm["prompt_tokens"] + llm["completion_tokens"]
+
+
 def test_hitl_before_presentation():
     run = _run_with_steps(
         "Summarize docs",
