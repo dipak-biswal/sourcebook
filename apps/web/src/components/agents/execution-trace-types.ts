@@ -128,9 +128,16 @@ export type TracePhase =
   | TracePresentationPhase
   | TraceSynthesisPhase;
 
+export type TraceTokenSummary = {
+  prompt_tokens?: number | null;
+  completion_tokens?: number | null;
+  total_tokens?: number | null;
+};
+
 export type ExecutionTrace = {
   goal: string;
   phases: TracePhase[];
   active_phase_id: string | null;
   is_complete: boolean;
+  token_usage?: TraceTokenSummary | null;
 };

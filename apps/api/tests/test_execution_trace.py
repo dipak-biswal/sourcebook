@@ -185,6 +185,61 @@ def test_llm_response_includes_model():
     assert llm["model"] == "gpt-4o-mini"
 
 
+def test_execution_trace_token_usage_sums_all_llm_calls():
+    run = _run_with_steps(
+        "Summarize",
+        [
+            {
+                "type": "thought",
+                "input": {
+                    "messages": [{"role": "human", "content": "go"}],
+                    "prompt_tokens": 100,
+                    "completion_tokens": 20,
+                    "total_tokens": 120,
+                },
+                "output": "search",
+            },
+            {"type": "tool_call", "tool_name": "web_search", "input": {"query": "x"}},
+            {"type": "tool_result", "tool_name": "web_search", "output": {"results": []}},
+            {
+                "type": "final",
+                "input": {
+                    "messages": [{"role": "human", "content": "go"}],
+                    "prompt_tokens": 200,
+                    "completion_tokens": 50,
+                    "total_tokens": 250,
+                },
+                "output": "done",
+            },
+            {
+                "type": "synthesis",
+                "input": {
+                    "messages": [{"role": "human", "content": "synth"}],
+                    "prompt_tokens": 30,
+                    "completion_tokens": 10,
+                    "total_tokens": 40,
+                },
+                "output": "synthesized",
+            },
+            {
+                "type": "presentation",
+                "tool_name": "generative_ui",
+                "input": {
+                    "prompt_tokens": 500,
+                    "completion_tokens": 150,
+                    "total_tokens": 650,
+                },
+                "output": {"type": "generative_ui", "title": "Summary", "blocks": []},
+            },
+        ],
+    )
+    trace = build_execution_trace(run)
+    usage = trace["token_usage"]
+    assert usage["prompt_tokens"] == 830
+    assert usage["completion_tokens"] == 230
+    assert usage["total_tokens"] == 1060
+
+
 def test_hitl_before_presentation():
     run = _run_with_steps(
         "Summarize docs",

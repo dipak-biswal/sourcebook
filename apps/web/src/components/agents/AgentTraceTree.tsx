@@ -621,7 +621,14 @@ export function AgentTraceTree({
   const phases = trace?.phases ?? [];
   const isLive = running || approving || (trace != null && !trace.is_complete);
   const progress = trace ? traceProgress(trace) : 0;
-  const tokens = run?.token_usage ?? null;
+  const tokenSummary = trace?.token_usage;
+  const totalTokens =
+    tokenSummary?.total_tokens ??
+    (tokenSummary?.prompt_tokens != null && tokenSummary?.completion_tokens != null
+      ? tokenSummary.prompt_tokens + tokenSummary.completion_tokens
+      : null) ??
+    run?.token_usage ??
+    null;
   const presTitle = trace ? presentationTitle(trace, run) : undefined;
   const activeId = trace?.active_phase_id ?? null;
 
@@ -773,10 +780,17 @@ export function AgentTraceTree({
               </Badge>
             )}
           </div>
-          {tokens != null && (
-            <span className="inline-flex items-center gap-1 font-mono text-[10px] text-mute">
+          {totalTokens != null && totalTokens > 0 && (
+            <span
+              className="inline-flex items-center gap-1 font-mono text-[10px] text-mute"
+              title={
+                tokenSummary?.prompt_tokens != null && tokenSummary?.completion_tokens != null
+                  ? `Input ${tokenSummary.prompt_tokens.toLocaleString()} · Output ${tokenSummary.completion_tokens.toLocaleString()}`
+                  : undefined
+              }
+            >
               <Coins className="h-3 w-3" />
-              {tokens.toLocaleString()} tok
+              {totalTokens.toLocaleString()} tok
             </span>
           )}
         </div>

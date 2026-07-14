@@ -798,6 +798,57 @@ def _trim_phases(phases: list[dict[str, Any]], live: bool) -> list[dict[str, Any
     return visible
 
 
+def _token_fields_from_node(node: dict[str, Any]) -> tuple[int, int, int]:
+    p = int(node.get("prompt_tokens") or 0)
+    c = int(node.get("completion_tokens") or 0)
+    t = int(node.get("total_tokens") or 0)
+    if t <= 0 and (p > 0 or c > 0):
+        t = p + c
+    return p, c, t
+
+
+def _sum_trace_tokens(phases: list[dict[str, Any]]) -> dict[str, int]:
+    """Sum tokens across every LLM call in the execution (agent, synthesis, visual)."""
+    prompt_total = 0
+    completion_total = 0
+    total = 0
+    seen: set[str] = set()
+
+    def consume(node: dict[str, Any]) -> None:
+        nonlocal prompt_total, completion_total, total
+        node_id = str(node.get("id") or "")
+        if not node_id or node_id in seen:
+            return
+        p, c, t = _token_fields_from_node(node)
+        if p == 0 and c == 0 and t == 0:
+            return
+        seen.add(node_id)
+        prompt_total += p
+        completion_total += c
+        total += t
+
+    for phase in phases:
+        ptype = phase.get("type")
+        if ptype == "agent_turn":
+            for child in phase.get("children") or []:
+                if child.get("type") == "llm_response":
+                    consume(child)
+        elif ptype in ("synthesis", "presentation"):
+            consume(phase)
+
+    if total <= 0 and (prompt_total > 0 or completion_total > 0):
+        total = prompt_total + completion_total
+
+    summary: dict[str, int] = {}
+    if prompt_total > 0:
+        summary["prompt_tokens"] = prompt_total
+    if completion_total > 0:
+        summary["completion_tokens"] = completion_total
+    if total > 0:
+        summary["total_tokens"] = total
+    return summary
+
+
 def _active_phase_id(phases: list[dict[str, Any]]) -> str | None:
     for phase in phases:
         if not _phase_done(phase):
@@ -849,6 +900,9 @@ def build_execution_trace(
         run.status in ("running", "waiting_approval")
         or (live is not None and (live.llm_running or live.approving))
     )
+    token_usage = _sum_trace_tokens(phases)
+    if not token_usage and run.token_usage:
+        token_usage = {"total_tokens": int(run.token_usage)}
     visible = _trim_phases(phases, live=live_mode)
 
     return {
@@ -856,6 +910,7 @@ def build_execution_trace(
         "phases": visible,
         "active_phase_id": _active_phase_id(visible),
         "is_complete": is_complete,
+        "token_usage": token_usage or None,
     }
 
 
