@@ -71,26 +71,17 @@ function TraceIcon({
   );
 }
 
-/** Horizontal arm linking icon column to the content block on the right. */
+/** Horizontal line linking icon to the content block on the right. */
 function TraceArm({ active, nested }: { active?: boolean; nested?: boolean }) {
   return (
     <div
-      className={cn(
-        "relative flex shrink-0 items-center",
-        nested ? "w-5" : "w-7",
-      )}
+      className="flex shrink-0 items-center self-center"
       style={{ width: nested ? 20 : ARM_W }}
     >
       <div
         className={cn(
-          "h-px w-full",
-          active ? "animate-trace-arm bg-warning-border" : "bg-ink/25",
-        )}
-      />
-      <div
-        className={cn(
-          "absolute right-0 top-1/2 h-2 w-2 -translate-y-1/2 rotate-45 border-r border-t",
-          active ? "border-warning-border" : "border-ink/25",
+          "h-px w-full rounded-full",
+          active ? "bg-warning-border/70" : "bg-hairline",
         )}
       />
     </div>
@@ -712,14 +703,9 @@ export function AgentTraceTree({
           0% { background-position: 100% 0; }
           100% { background-position: -100% 0; }
         }
-        @keyframes trace-arm {
-          0%, 100% { opacity: 0.55; }
-          50% { opacity: 1; }
-        }
         .animate-trace-flow { animation: trace-flow 1.6s ease-in-out infinite; }
         .animate-trace-pulse { animation: trace-pulse 1.8s ease-in-out infinite; }
         .animate-trace-progress { animation: trace-progress 2s linear infinite; }
-        .animate-trace-arm { animation: trace-arm 1.4s ease-in-out infinite; }
       `}</style>
     </div>
   );
