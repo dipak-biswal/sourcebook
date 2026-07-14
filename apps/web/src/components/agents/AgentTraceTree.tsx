@@ -2,8 +2,6 @@ import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import {
   Brain,
   CheckCircle2,
-  ChevronDown,
-  ChevronRight,
   Coins,
   GitBranch,
   Loader2,
@@ -35,8 +33,8 @@ import type {
 } from "@/components/agents/trace-types";
 import { cn } from "@/lib/utils";
 
-const ICON_COL = 40;
-const ARM_W = 28;
+/** Center of icons on the main vertical spine (px from rail left). */
+const SPINE_CENTER = 18;
 
 function TraceIcon({
   icon: Icon,
@@ -71,24 +69,11 @@ function TraceIcon({
   );
 }
 
-/** Horizontal line linking icon to the content block on the right. */
-function TraceArm({ active, nested }: { active?: boolean; nested?: boolean }) {
-  return (
-    <div
-      className="flex shrink-0 items-center self-center"
-      style={{ width: nested ? 20 : ARM_W }}
-    >
-      <div
-        className={cn(
-          "h-px w-full rounded-full",
-          active ? "bg-warning-border/70" : "bg-hairline",
-        )}
-      />
-    </div>
-  );
-}
-
-function TraceRow({
+/**
+ * One step on the trace: icon sits ON the vertical spine; the panel grows
+ * directly to the right from that icon (no separate connector).
+ */
+function TraceNode({
   icon,
   title,
   subtitle,
@@ -113,107 +98,90 @@ function TraceRow({
   activeRef?: React.RefObject<HTMLDivElement | null>;
   nested?: boolean;
 }) {
+  const panelInset = nested ? "ml-8" : "ml-10";
+
   return (
     <div
       ref={active ? activeRef : undefined}
       data-trace-id={nodeId}
       className={cn(
-        "relative flex min-w-0 items-start",
-        nested ? "pb-2" : "pb-0",
+        "relative min-w-0",
+        nested ? "py-1" : "py-1.5",
         active && "scroll-mt-4",
       )}
     >
-      {/* Icon sits on the spine */}
       <div
-        className="flex shrink-0 justify-center"
-        style={{ width: nested ? 32 : ICON_COL }}
+        className={cn(
+          "absolute z-10 flex items-center justify-center",
+          nested ? "left-0 top-1.5" : "left-0 top-2",
+        )}
+        style={{ width: nested ? 28 : 36 }}
       >
         <TraceIcon icon={icon} state={state} active={active} nested={nested} />
       </div>
 
-      <TraceArm active={active && state === "running"} nested={nested} />
-
-      {/* Block expands to the right */}
       <div
         className={cn(
-          "mb-3 min-w-0 flex-1 transition-all duration-300 ease-out",
-          open && "max-w-none",
+          "mb-2 min-w-0 overflow-hidden rounded-[8px] border bg-canvas transition-shadow",
+          panelInset,
+          active && state === "running"
+            ? "border-warning-border/80 ring-1 ring-warning-border/20"
+            : "border-hairline",
+          open && "shadow-[var(--elevation-1)]",
         )}
       >
-        <div
-          className={cn(
-            "overflow-hidden rounded-[8px] border bg-canvas transition-shadow",
-            active && state === "running"
-              ? "border-warning-border/80 ring-1 ring-warning-border/25 shadow-[0_2px_12px_rgba(0,0,0,0.04)]"
-              : "border-hairline",
-            open && "shadow-[var(--elevation-1)]",
-          )}
+        <button
+          type="button"
+          onClick={onToggle}
+          className="flex w-full items-start justify-between gap-3 px-3 py-2.5 text-left hover:bg-canvas-soft"
         >
-          <button
-            type="button"
-            onClick={onToggle}
-            className="flex w-full items-start gap-2 px-3 py-2.5 text-left hover:bg-canvas-soft"
-          >
-            <span className="mt-0.5 shrink-0 text-mute">
-              {open ? (
-                <ChevronDown className="h-3.5 w-3.5" />
-              ) : (
-                <ChevronRight className="h-3.5 w-3.5" />
+          <div className="min-w-0 flex-1">
+            <div className="flex flex-wrap items-center gap-1.5">
+              <span
+                className={cn(
+                  "font-semibold text-ink",
+                  nested ? "text-[11px]" : "text-xs",
+                )}
+              >
+                {title}
+              </span>
+              {state === "running" && (
+                <Badge variant="warning" className="gap-1 text-[10px]">
+                  <span className="relative flex h-1.5 w-1.5">
+                    <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-warning opacity-60" />
+                    <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-warning" />
+                  </span>
+                  live
+                </Badge>
               )}
-            </span>
-            <div className="min-w-0 flex-1">
-              <div className="flex flex-wrap items-center gap-1.5">
-                <span
-                  className={cn(
-                    "font-semibold text-ink",
-                    nested ? "text-[11px]" : "text-xs",
-                  )}
-                >
-                  {title}
-                </span>
-                {state === "running" && (
-                  <Badge variant="warning" className="gap-1 text-[10px]">
-                    <span className="relative flex h-1.5 w-1.5">
-                      <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-warning opacity-60" />
-                      <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-warning" />
-                    </span>
-                    live
-                  </Badge>
-                )}
-                {state === "done" && (
-                  <Badge variant="success" className="text-[10px]">
-                    done
-                  </Badge>
-                )}
-              </div>
-              {subtitle && (
-                <p className="mt-0.5 line-clamp-2 text-[11px] text-mute">
-                  {subtitle}
-                </p>
+              {state === "done" && (
+                <Badge variant="success" className="text-[10px]">
+                  done
+                </Badge>
               )}
             </div>
-          </button>
-
-          <div
-            className={cn(
-              "grid transition-[grid-template-rows] duration-300 ease-out",
-              open && children ? "grid-rows-[1fr]" : "grid-rows-[0fr]",
+            {subtitle && (
+              <p className="mt-0.5 line-clamp-2 text-[11px] text-mute">
+                {subtitle}
+              </p>
             )}
-          >
-            <div className="overflow-hidden">
-              {children && (
-                <div className="border-t border-hairline bg-canvas-soft/50 px-3 py-2.5">
-                  {children}
-                </div>
-              )}
-            </div>
           </div>
-        </div>
+          <span className="shrink-0 pt-0.5 text-[10px] font-medium text-mute">
+            {open ? "Collapse" : "Expand"}
+          </span>
+        </button>
+
+        {open && children != null && (
+          <div className="border-t border-hairline bg-canvas-soft/50 px-3 py-2.5">
+            {children}
+          </div>
+        )}
       </div>
     </div>
   );
 }
 
+/** Vertical spine + stacked nodes; panels branch from each icon on the line. */
 function TraceRail({
   children,
   className,
@@ -223,16 +191,15 @@ function TraceRail({
   className?: string;
   nested?: boolean;
 }) {
-  const spineLeft = nested ? 15 : 19;
+  const spine = nested ? 14 : SPINE_CENTER;
   return (
     <div className={cn("relative min-w-0", className)}>
       <div
-        className="pointer-events-none absolute w-px bg-ink/18"
-        style={{
-          left: spineLeft,
-          top: nested ? 10 : 14,
-          bottom: nested ? 4 : 12,
-        }}
+        className={cn(
+          "pointer-events-none absolute w-0.5 -translate-x-1/2 bg-ink/20",
+          nested ? "top-2 bottom-2" : "top-4 bottom-4",
+        )}
+        style={{ left: spine }}
       />
       {children}
     </div>
@@ -257,7 +224,7 @@ function ToolTraceNode({
       : null;
 
   return (
-    <TraceRow
+    <TraceNode
       nodeId={tool.id}
       activeRef={activeRef}
       active={active}
@@ -307,7 +274,7 @@ function ToolTraceNode({
           </div>
         )}
       </div>
-    </TraceRow>
+    </TraceNode>
   );
 }
 
@@ -481,8 +448,7 @@ export function AgentTraceTree({
           />
         </div>
         <p className="mt-1.5 text-[10px] text-mute">
-          Icons link to blocks on the right — expand any step for inputs, outputs,
-          and streaming LLM text.
+          Follow the vertical line — each icon is a step; panels open to the right.
         </p>
       </div>
 
@@ -496,7 +462,7 @@ export function AgentTraceTree({
 
             if (item.kind === "goal") {
               return (
-                <TraceRow
+                <TraceNode
                   key={item.id}
                   nodeId={item.id}
                   icon={Target}
@@ -507,7 +473,7 @@ export function AgentTraceTree({
                   onToggle={() => setGoalOpen((v) => !v)}
                 >
                   <p className="text-xs leading-relaxed text-body">{item.goal}</p>
-                </TraceRow>
+                </TraceNode>
               );
             }
 
@@ -522,7 +488,7 @@ export function AgentTraceTree({
               );
 
               return (
-                <TraceRow
+                <TraceNode
                   key={item.id}
                   nodeId={item.id}
                   activeRef={turnActive ? activeRef : undefined}
@@ -557,7 +523,7 @@ export function AgentTraceTree({
                         <div className="mb-2 text-[10px] font-bold uppercase tracking-wide text-mute">
                           Tool calls
                         </div>
-                        <TraceRail nested className="ml-1 pl-0.5">
+                        <TraceRail nested className="mt-2">
                           {turn.tools.map((tool, ti) => (
                             <ToolTraceNode
                               key={tool.id}
@@ -578,14 +544,14 @@ export function AgentTraceTree({
                       </div>
                     )}
                   </div>
-                </TraceRow>
+                </TraceNode>
               );
             }
 
             if (item.kind === "hitl") {
               const hitlActive = item.state === "running" || activeId === item.id;
               return (
-                <TraceRow
+                <TraceNode
                   key={item.id}
                   nodeId={item.id}
                   activeRef={hitlActive ? activeRef : undefined}
@@ -623,14 +589,14 @@ export function AgentTraceTree({
                       {prettyJson(item.step.input)}
                     </pre>
                   ) : null}
-                </TraceRow>
+                </TraceNode>
               );
             }
 
             if (item.kind === "presentation") {
               const presActive = item.state === "running";
               return (
-                <TraceRow
+                <TraceNode
                   key={item.id}
                   nodeId={item.id}
                   activeRef={presActive ? activeRef : undefined}
@@ -663,13 +629,13 @@ export function AgentTraceTree({
                       Runs after you approve View in UI.
                     </p>
                   )}
-                </TraceRow>
+                </TraceNode>
               );
             }
 
             if (item.kind === "synthesis") {
               return (
-                <TraceRow
+                <TraceNode
                   key={item.id}
                   nodeId={item.id}
                   icon={CheckCircle2}
@@ -680,7 +646,7 @@ export function AgentTraceTree({
                   onToggle={() => toggle(item.id)}
                 >
                   <MarkdownContent content={stepText(item.step)} />
-                </TraceRow>
+                </TraceNode>
               );
             }
 
