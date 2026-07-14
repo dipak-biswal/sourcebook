@@ -15,7 +15,7 @@ import {
   appendLlmStream,
   patchRunningLlmWithDelta,
 } from "@/hooks/useAgentStream";
-import { useAgentRuns, useDocuments, useNotes, useWorkspaces } from "@/hooks/queries";
+import { useAgentRuns, useDocuments, useWorkspaces } from "@/hooks/queries";
 import { useLastWorkspace } from "@/hooks/useLastWorkspace";
 import type { AgentPageContextValue } from "@/types/agents";
 import { AgentPageContext } from "./agent-page-context";
@@ -59,7 +59,6 @@ export function AgentPageProvider({
   const { workspaceId: effectiveWorkspaceId, setWorkspaceId: persistWorkspace } =
     useLastWorkspace(workspaces);
   const { data: runs = [] } = useAgentRuns(effectiveWorkspaceId);
-  const { data: notes = [] } = useNotes(effectiveWorkspaceId);
   const { data: documents = [] } = useDocuments(effectiveWorkspaceId);
   const effectiveSelectedId = selectedId;
   const selectedWorkspace = useMemo(
@@ -500,20 +499,6 @@ export function AgentPageProvider({
     }
   }
 
-  async function onDeleteNote(id: string) {
-    if (!(await confirmAction("Delete this note?", "This cannot be undone."))) return;
-    setError(null);
-    try {
-      await api.deleteNote(id);
-      await queryClient.invalidateQueries({ queryKey: ["notes", effectiveWorkspaceId] });
-      success("Note deleted");
-    } catch (err) {
-      const msg = formatError(err);
-      setError(msg);
-      toastError("Delete failed", msg);
-    }
-  }
-
   async function onDeleteRun(id: string) {
     if (!(await confirmAction("Delete this run?", "This cannot be undone."))) return;
     setError(null);
@@ -538,7 +523,6 @@ export function AgentPageProvider({
     workspaces,
     workspaceId: effectiveWorkspaceId,
     runs,
-    notes,
     selected,
     selectedId: effectiveSelectedId,
     goal,
@@ -561,7 +545,6 @@ export function AgentPageProvider({
     onGoalChange: setGoal,
     onRun,
     onApprove,
-    onDeleteNote,
     onDeleteRun,
     onSaveLearningNote,
     onRefresh: () => {

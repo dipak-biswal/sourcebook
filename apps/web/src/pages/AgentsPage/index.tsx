@@ -33,7 +33,7 @@ function AgentsPageInner() {
         <Sheet
           open={sidebarOpen}
           onClose={onSidebarClose}
-          title="Runs & notes"
+          title="Runs"
           description="Agent history in this workspace"
           side="left"
         >
@@ -50,7 +50,7 @@ function AgentsPageInner() {
                 onClick={onToggleSidebar}
               >
                 <PanelLeft className="h-3.5 w-3.5" strokeWidth={1.5} />
-                Runs & notes ({runs.length})
+                Runs ({runs.length})
               </Button>
             </div>
 

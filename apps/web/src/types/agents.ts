@@ -8,7 +8,6 @@ export type AgentPageContextValue = {
   workspaces: Workspace[];
   workspaceId: string;
   runs: AgentRun[];
-  notes: NoteSummary[];
   selected: AgentRun | null;
   selectedId: string;
   goal: string;
@@ -31,7 +30,6 @@ export type AgentPageContextValue = {
   onGoalChange: (v: string) => void;
   onRun: (e: React.SubmitEvent<HTMLFormElement>) => void;
   onApprove: (approve: boolean) => void;
-  onDeleteNote: (id: string) => void;
   onDeleteRun: (id: string) => void;
   onSaveLearningNote: (title: string, body: string) => void;
   onRefresh: () => void;
@@ -43,4 +41,3 @@ export type AgentPageContextValue = {
 };
 
 type Workspace = { id: string; name: string; role: string };
-export type NoteSummary = { id: string; title: string; body: string | null; created_at: string };

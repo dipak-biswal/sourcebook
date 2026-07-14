@@ -1,8 +1,7 @@
 import { createContext, useContext } from "react";
-import type { AgentPageContextValue, NoteSummary } from "@/types/agents";
+import type { AgentPageContextValue } from "@/types/agents";
 
 export const AgentPageContext = createContext<AgentPageContextValue | null>(null);
-export type { NoteSummary };
 
 export function useAgentPage(): AgentPageContextValue {
   const ctx = useContext(AgentPageContext);
