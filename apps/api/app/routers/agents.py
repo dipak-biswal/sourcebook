@@ -39,6 +39,10 @@ def _require_member(db: Session, user_id: uuid.UUID, workspace_id: uuid.UUID) ->
         )
 
 
+def _as_run_response(run: AgentRun) -> AgentRunResponse:
+    return AgentRunResponse.model_validate(run_to_public_dict(run))
+
+
 def _load_run(db: Session, run_id: uuid.UUID, user_id: uuid.UUID) -> AgentRun | None:
     return (
         db.query(AgentRun)
@@ -120,7 +124,7 @@ def start_agent_run(
     loaded = _load_run(db, run.id, current_user.id)
     if not loaded:
         raise HTTPException(status_code=500, detail="Run missing after create")
-    return loaded
+    return _as_run_response(loaded)
 
 
 @router.post("/runs/stream")
@@ -208,7 +212,7 @@ def approve_run(
     loaded = _load_run(db, run_id, current_user.id)
     if not loaded:
         raise HTTPException(status_code=500, detail="Run missing after approve")
-    return loaded
+    return _as_run_response(loaded)
 
 
 @router.post("/runs/{run_id}/approve/stream")
@@ -269,7 +273,7 @@ def get_agent_run(
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Run not found"
         )
-    return run
+    return _as_run_response(run)
 
 
 @router.get("/runs", response_model=list[AgentRunResponse])
@@ -290,7 +294,8 @@ def list_agent_runs(
     )
     if agent_type:
         q = q.filter(AgentRun.agent_type == normalize_agent_type(agent_type))
-    return q.order_by(AgentRun.created_at.desc()).limit(30).all()
+    runs = q.order_by(AgentRun.created_at.desc()).limit(30).all()
+    return [_as_run_response(r) for r in runs]
 
 
 @router.delete("/runs/{run_id}", status_code=204)

@@ -484,6 +484,9 @@ export type AgentStep = {
   duration_ms?: number | null;
 };
 
+import type { ExecutionTrace } from "@/components/agents/execution-trace-types";
+export type { ExecutionTrace };
+
 export type AgentRun = {
   id: string;
   workspace_id: string;
@@ -503,6 +506,7 @@ export type AgentRun = {
   } | null;
   created_at: string;
   steps: AgentStep[];
+  execution_trace?: ExecutionTrace | null;
 };
 
 export type AgentStreamHandlers = {
@@ -528,6 +532,7 @@ export type AgentStreamHandlers = {
     final_answer?: string | null;
     pending_tool?: AgentRun["pending_tool"];
   }) => void;
+  onTrace?: (trace: ExecutionTrace) => void;
   onDone?: (run: AgentRun) => void;
   onError?: (detail: string) => void;
   onToolStart?: (payload: {
@@ -578,6 +583,8 @@ async function streamAgentRun(
       });
     } else if (type === "loop_warning") {
       handlers.onLoopWarning?.({ message: payload.message as string });
+    } else if (type === "trace" && payload.execution_trace) {
+      handlers.onTrace?.(payload.execution_trace as ExecutionTrace);
     } else if (type === "status") {
       handlers.onStatus?.({
         status: payload.status as string | undefined,

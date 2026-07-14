@@ -4,12 +4,14 @@ import {
   type AgentStep,
   type AgentStreamHandlers,
 } from "@/api";
+import type { ExecutionTrace } from "@/api";
 import type {
   LiveTraceSpan,
   LlmTraceEvent,
 } from "@/components/agents/trace-types";
 
 type AgentLiveCallbacks = {
+  onTrace?: (trace: ExecutionTrace) => void;
   onLlmStart: (event: LlmTraceEvent) => void;
   onLlmDelta?: (p: { turn_id?: string; delta: string }) => void;
   onLlmEnd: (p: {
@@ -118,6 +120,9 @@ export function makeAgentStreamHandlers(
   includeStatus = true,
 ): AgentStreamHandlers {
   const base: AgentStreamHandlers = {
+    onTrace: (trace) => {
+      cb.onTrace?.(trace);
+    },
     onLlmStart: (payload) => {
       cb.onLlmStart(createAgentLlmEvent(payload));
     },

@@ -48,9 +48,8 @@ export function AgentRunDisplay() {
     selected,
     running,
     liveGoal,
+    liveExecutionTrace,
     liveSteps,
-    liveTokenUsage,
-    liveTrace,
     activeToolCalls,
     loopWarning,
     approving,
@@ -193,12 +192,8 @@ export function AgentRunDisplay() {
         {activeTab === "trace" && (
           <AgentTraceTree
             run={selected}
+            executionTrace={liveExecutionTrace ?? selected?.execution_trace}
             running={running || approving}
-            goal={liveGoal || selected?.goal}
-            liveSteps={liveSteps}
-            liveTrace={running ? liveTrace : undefined}
-            liveTokenUsage={liveTokenUsage}
-            activeToolCalls={activeToolCalls}
             approving={approving}
             onApprove={() => onApprove(true)}
             onReject={() => onApprove(false)}

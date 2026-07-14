@@ -12,30 +12,20 @@ import {
   Target,
   Wrench,
 } from "lucide-react";
-import type { AgentRun, AgentStep } from "@/api";
-import {
-  isPresentationPending,
-  parseWebSearchOutput,
-  prettyJson,
-  toolDisplayName,
-} from "@/components/agents/agent-utils";
+import type { AgentRun } from "@/api";
+import { parseWebSearchOutput, prettyJson } from "@/components/agents/agent-utils";
+import type {
+  ExecutionTrace,
+  TraceAgentTurnPhase,
+  TraceChild,
+  TracePhase,
+  TraceState,
+} from "@/components/agents/execution-trace-types";
 import { isGenerativeUI } from "@/components/agents/generative-ui";
 import { AgentApprovalCard } from "@/components/agents/shared";
 import { WebSearchResults } from "@/components/agents/WebSearchResults";
 import { MarkdownContent } from "@/components/chat/MarkdownContent";
 import { Badge } from "@/components/ui/badge";
-import {
-  buildAgentTraceTree,
-  findActiveTraceId,
-  traceProgress,
-} from "@/components/agents/trace-tree";
-import type {
-  ActiveToolCall,
-  LiveTraceSpan,
-  TraceAgentTurn,
-  TraceTreeItem,
-  TraceToolNode,
-} from "@/components/agents/trace-types";
 import { cn } from "@/lib/utils";
 
 const MAIN_ICON_COL = 36;
@@ -50,7 +40,7 @@ function TraceIcon({
   nested,
 }: {
   icon: typeof Brain;
-  state: "pending" | "running" | "done";
+  state: TraceState;
   active?: boolean;
   nested?: boolean;
 }) {
@@ -76,7 +66,6 @@ function TraceIcon({
   );
 }
 
-/** Timeline row with chevron expand/collapse for step details. */
 function ExpandableTraceRow({
   icon,
   label,
@@ -91,7 +80,7 @@ function ExpandableTraceRow({
 }: {
   icon: typeof Brain;
   label: string;
-  state: "pending" | "running" | "done";
+  state: TraceState;
   active?: boolean;
   nodeId: string;
   activeRef?: React.RefObject<HTMLDivElement | null>;
@@ -116,11 +105,7 @@ function ExpandableTraceRow({
     <div
       ref={active ? activeRef : undefined}
       data-trace-id={nodeId}
-      className={cn(
-        "relative min-w-0",
-        nested ? "pb-1" : "pb-1.5",
-        active && "scroll-mt-4",
-      )}
+      className={cn("relative min-w-0", nested ? "pb-1" : "pb-1.5", active && "scroll-mt-4")}
     >
       <div className="relative flex min-w-0">
         <div
@@ -162,53 +147,15 @@ function ExpandableTraceRow({
                   )}
                 </span>
                 <span className="min-w-0 flex-1">
-                  <span className="flex flex-wrap items-center gap-1.5">
-                    <span
-                      className={cn(
-                        "font-medium text-ink",
-                        nested ? "text-[11px]" : "text-xs",
-                        active && state === "running" && "text-warning-text",
-                      )}
-                    >
-                      {label}
-                    </span>
-                    {state === "running" && (
-                      <Badge variant="warning" className="gap-1 text-[10px]">
-                        <span className="relative flex h-1.5 w-1.5">
-                          <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-warning opacity-60" />
-                          <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-warning" />
-                        </span>
-                        live
-                      </Badge>
-                    )}
-                    {state === "done" && !nested && (
-                      <Badge variant="success" className="text-[10px]">
-                        done
-                      </Badge>
-                    )}
-                  </span>
+                  <PhaseLabel label={label} state={state} active={active} nested={nested} />
                   {open && (
-                    <div className="mt-2 text-xs leading-relaxed text-body">
-                      {children}
-                    </div>
+                    <div className="mt-2 text-xs leading-relaxed text-body">{children}</div>
                   )}
                 </span>
               </button>
             ) : (
-              <div className="flex flex-wrap items-center gap-1.5 px-1 py-0.5">
-                <span
-                  className={cn(
-                    "font-medium text-ink",
-                    nested ? "text-[11px]" : "text-xs",
-                  )}
-                >
-                  {label}
-                </span>
-                {state === "done" && !nested && (
-                  <Badge variant="success" className="text-[10px]">
-                    done
-                  </Badge>
-                )}
+              <div className="px-1 py-0.5">
+                <PhaseLabel label={label} state={state} nested={nested} />
               </div>
             )}
           </div>
@@ -218,65 +165,75 @@ function ExpandableTraceRow({
   );
 }
 
-function LlmStreamBody({
-  content,
-  running,
+function PhaseLabel({
+  label,
+  state,
+  active,
+  nested,
 }: {
-  content: string;
-  running?: boolean;
+  label: string;
+  state: TraceState;
+  active?: boolean;
+  nested?: boolean;
 }) {
-  if (!content && !running) {
-    return (
-      <p className="text-[11px] italic text-mute">
-        Model chose tool calls without prose.
-      </p>
-    );
-  }
   return (
-    <div className="rounded-[6px] border border-hairline bg-canvas p-2.5">
-      <div className="prose prose-sm max-w-none text-xs text-body">
-        <MarkdownContent content={content || (running ? " " : "")} />
-      </div>
-      {running && (
-        <span className="mt-1 inline-block h-3 w-0.5 animate-pulse bg-ink" />
+    <span className="flex flex-wrap items-center gap-1.5">
+      <span
+        className={cn(
+          "font-medium text-ink",
+          nested ? "text-[11px]" : "text-xs",
+          active && state === "running" && "text-warning-text",
+        )}
+      >
+        {label}
+      </span>
+      {state === "running" && (
+        <Badge variant="warning" className="gap-1 text-[10px]">
+          <span className="relative flex h-1.5 w-1.5">
+            <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-warning opacity-60" />
+            <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-warning" />
+          </span>
+          live
+        </Badge>
       )}
-    </div>
+      {state === "done" && !nested && (
+        <Badge variant="success" className="text-[10px]">
+          done
+        </Badge>
+      )}
+    </span>
   );
 }
 
-function ToolTraceBody({ tool }: { tool: TraceToolNode }) {
+function ToolChildBody({ child }: { child: Extract<TraceChild, { type: "tool" }> }) {
   const web =
-    tool.toolName === "web_search" && tool.resultStep
-      ? parseWebSearchOutput(tool.resultStep.output)
+    child.tool_name === "web_search" && child.output
+      ? parseWebSearchOutput(child.output)
       : null;
 
   return (
     <div className="space-y-2">
-      {(tool.callStep?.input != null || tool.resultStep?.input != null) && (
+      {child.input != null && (
         <div>
-          <div className="mb-1 text-[10px] font-bold uppercase tracking-wide text-mute">
-            Input
-          </div>
+          <div className="mb-1 text-[10px] font-bold uppercase tracking-wide text-mute">Input</div>
           <pre className="max-h-36 overflow-auto rounded-[6px] border border-hairline bg-canvas p-2 font-mono text-[11px] text-body">
-            {prettyJson(tool.callStep?.input ?? tool.resultStep?.input)}
+            {prettyJson(child.input)}
           </pre>
         </div>
       )}
-      {tool.resultStep?.output != null && (
+      {child.output != null && (
         <div>
-          <div className="mb-1 text-[10px] font-bold uppercase tracking-wide text-mute">
-            Output
-          </div>
+          <div className="mb-1 text-[10px] font-bold uppercase tracking-wide text-mute">Output</div>
           {web ? (
             <WebSearchResults data={web} compact />
           ) : (
             <pre className="max-h-44 overflow-auto rounded-[6px] border border-hairline bg-canvas p-2 font-mono text-[11px] text-body">
-              {prettyJson(tool.resultStep.output)}
+              {prettyJson(child.output)}
             </pre>
           )}
         </div>
       )}
-      {tool.state === "running" && !tool.resultStep && (
+      {child.state === "running" && child.output == null && (
         <div className="flex items-center gap-2 text-[11px] text-warning-text">
           <Loader2 className="h-3 w-3 animate-spin" />
           Executing…
@@ -286,163 +243,89 @@ function ToolTraceBody({ tool }: { tool: TraceToolNode }) {
   );
 }
 
-function stepText(step?: AgentStep): string {
-  if (!step?.output) return "";
-  if (typeof step.output === "string") return step.output;
-  return "";
+function TurnChildrenTimeline({
+  children,
+  activeChildId,
+  activeRef,
+  defaultOpen,
+}: {
+  children: TraceChild[];
+  activeChildId?: string | null;
+  activeRef?: React.RefObject<HTMLDivElement | null>;
+  defaultOpen: boolean;
+}) {
+  return (
+    <div className="rounded-[6px] border border-hairline/80 bg-canvas-soft/40 p-2">
+      {children.map((child, i) => {
+        const isLast = i === children.length - 1;
+        const active = child.id === activeChildId;
+        if (child.type === "tool") {
+          return (
+            <ExpandableTraceRow
+              key={child.id}
+              nodeId={child.id}
+              activeRef={active ? activeRef : undefined}
+              active={active}
+              nested
+              isLast={isLast}
+              defaultOpen={defaultOpen || active}
+              icon={Wrench}
+              label={child.label}
+              state={child.state}
+            >
+              <ToolChildBody child={child} />
+            </ExpandableTraceRow>
+          );
+        }
+        return (
+          <ExpandableTraceRow
+            key={child.id}
+            nodeId={child.id}
+            activeRef={active ? activeRef : undefined}
+            active={active}
+            nested
+            isLast={isLast}
+            defaultOpen={defaultOpen || active}
+            icon={Brain}
+            label={child.label}
+            state={child.state}
+          >
+            <div className="rounded-[6px] border border-hairline bg-canvas p-2.5">
+              <div className="prose prose-sm max-w-none text-xs text-body">
+                <MarkdownContent content={child.content || (child.state === "running" ? " " : "")} />
+              </div>
+              {child.state === "running" && (
+                <span className="mt-1 inline-block h-3 w-0.5 animate-pulse bg-ink" />
+              )}
+            </div>
+          </ExpandableTraceRow>
+        );
+      })}
+    </div>
+  );
 }
 
-function turnStatusLabel(turn: TraceAgentTurn): string | undefined {
-  if (turn.llm?.status === "running") return "Streaming…";
-  if (turn.llm?.has_tool_calls) return "Calling tools";
-  if (turn.thoughtStep?.type === "final") return "Final answer";
-  return undefined;
-}
-
-/** LLM text for the response row — skips pre-tool planning when tools ran first. */
-function turnResponseContent(turn: TraceAgentTurn): string {
-  if (turn.thoughtStep?.type === "final") {
-    return stepText(turn.thoughtStep);
-  }
-  if (turn.tools.length === 0) {
-    return turn.llm?.streamContent || stepText(turn.thoughtStep) || "";
-  }
-  if (turn.thoughtStep?.type === "thought") {
-    return turn.llm?.streamContent || "";
-  }
-  return turn.llm?.streamContent || stepText(turn.thoughtStep) || "";
-}
-
-type FlatRow =
-  | { id: string; kind: "goal"; isLast: boolean; goal: string }
-  | { id: string; kind: "turn"; isLast: boolean; turnNumber: number; turn: TraceAgentTurn }
-  | { id: string; kind: "tool"; isLast: boolean; tool: TraceToolNode; nested: true }
-  | { id: string; kind: "hitl"; isLast: boolean; hitl: Extract<TraceTreeItem, { kind: "hitl" }> }
-  | {
-      id: string;
-      kind: "presentation";
-      isLast: boolean;
-      presentation: Extract<TraceTreeItem, { kind: "presentation" }>;
-    }
-  | { id: string; kind: "synthesis"; isLast: boolean; synthesis: Extract<TraceTreeItem, { kind: "synthesis" }> };
-
-/** During a live run, reveal steps sequentially as each finishes. */
-function filterRowsForLive(rows: FlatRow[]): FlatRow[] {
-  const visible: FlatRow[] = [];
-
-  for (const row of rows) {
-    if (row.kind === "tool") {
-      if (row.tool.state === "pending" && !row.tool.callStep) break;
-      visible.push(row);
-      if (row.tool.state !== "done") break;
-      continue;
-    }
-
-    if (row.kind === "turn") {
-      const tools = row.turn.tools;
-      const toolsReady =
-        tools.length === 0 || tools.every((t) => t.state === "done");
-      if (!toolsReady) break;
-      visible.push(row);
-      if (row.turn.state !== "done") break;
-      continue;
-    }
-
-    visible.push(row);
-
-    if (row.kind === "hitl" && row.hitl.pending && !row.hitl.building) break;
-    if (row.kind === "presentation" && row.presentation.state === "pending") break;
-    if (row.kind === "presentation" && row.presentation.state !== "done") break;
-  }
-
-  if (!visible.length) return visible;
-  return visible.map((row, i) => ({
-    ...row,
-    isLast: i === visible.length - 1,
-  }));
-}
-
-function buildFlatRows(tree: TraceTreeItem[]): FlatRow[] {
-  const flat: FlatRow[] = [];
-  let turnCount = 0;
-
-  for (const item of tree) {
-    if (item.kind === "goal") {
-      flat.push({ id: item.id, kind: "goal", goal: item.goal, isLast: false });
-      continue;
-    }
-    if (item.kind === "turn") {
-      turnCount += 1;
-      for (const tool of item.turn.tools) {
-        flat.push({ id: tool.id, kind: "tool", tool, nested: true, isLast: false });
-      }
-      flat.push({
-        id: item.id,
-        kind: "turn",
-        turnNumber: turnCount,
-        turn: item.turn,
-        isLast: false,
-      });
-      continue;
-    }
-    if (item.kind === "hitl") {
-      flat.push({ id: item.id, kind: "hitl", hitl: item, isLast: false });
-      continue;
-    }
-    if (item.kind === "presentation") {
-      flat.push({ id: item.id, kind: "presentation", presentation: item, isLast: false });
-      continue;
-    }
-    if (item.kind === "synthesis") {
-      flat.push({ id: item.id, kind: "synthesis", synthesis: item, isLast: false });
-    }
-  }
-
-  if (flat.length > 0) {
-    flat[flat.length - 1] = { ...flat[flat.length - 1]!, isLast: true };
-  }
-  return flat;
-}
-
-function approvalOutput(
-  step?: AgentStep,
-): { status?: string; kind?: string } | null {
-  if (!step?.output || typeof step.output !== "object") return null;
-  return step.output as { status?: string; kind?: string };
-}
-
-function presentationTitle(
-  run: AgentRun | null | undefined,
-  tree: TraceTreeItem[],
-): string | undefined {
-  const fromRun = run?.presentation_spec;
-  if (isGenerativeUI(fromRun)) return fromRun.title;
-  for (const item of tree) {
-    if (item.kind === "presentation" && isGenerativeUI(item.step?.output)) {
-      return item.step.output.title;
-    }
-  }
-  return undefined;
-}
-
-function HitlTraceBody({
-  hitl,
+function HitlBody({
+  phase,
   run,
-  presentationTitle: presTitle,
   approving,
   onApprove,
   onReject,
+  presTitle,
 }: {
-  hitl: Extract<TraceTreeItem, { kind: "hitl" }>;
+  phase: Extract<TracePhase, { type: "hitl" }>;
   run: AgentRun | null | undefined;
-  presentationTitle?: string;
   approving?: boolean;
   onApprove?: () => void;
   onReject?: () => void;
+  presTitle?: string;
 }) {
-  const output = approvalOutput(hitl.step);
+  const output =
+    phase.output && typeof phase.output === "object"
+      ? (phase.output as { status?: string })
+      : null;
 
-  if (hitl.pending && run?.pending_tool && onApprove && onReject) {
+  if (phase.pending && run?.pending_tool && onApprove && onReject) {
     return (
       <AgentApprovalCard
         pendingTool={run.pending_tool}
@@ -454,7 +337,7 @@ function HitlTraceBody({
     );
   }
 
-  if (hitl.building && output?.status !== "approved") {
+  if (phase.building && output?.status !== "approved") {
     return (
       <div className="flex items-center gap-2 text-[11px] text-warning-text">
         <Loader2 className="h-3 w-3 animate-spin" />
@@ -472,27 +355,18 @@ function HitlTraceBody({
             Title: <span className="text-body">{presTitle}</span>
           </p>
         )}
-        <p className="text-mute">Open the Visual summary tab to view the full layout.</p>
       </div>
     );
   }
 
   if (output?.status === "rejected") {
-    return (
-      <p className="text-body">
-        Rejected — answer kept as text only (no visual summary).
-      </p>
-    );
+    return <p className="text-body">Rejected — answer kept as text only.</p>;
   }
 
-  if (output?.status === "waiting_approval") {
-    return <p className="text-mute">Waiting for your decision…</p>;
-  }
-
-  if (hitl.step?.input) {
+  if (phase.input) {
     return (
       <pre className="max-h-32 overflow-auto rounded border border-hairline bg-canvas p-2 font-mono text-[11px]">
-        {prettyJson(hitl.step.input)}
+        {prettyJson(phase.input)}
       </pre>
     );
   }
@@ -500,73 +374,38 @@ function HitlTraceBody({
   return <p className="text-mute">Completed</p>;
 }
 
-function PresentationTraceBody({
-  pres,
-  presTitle,
-}: {
-  pres: Extract<TraceTreeItem, { kind: "presentation" }>;
-  presTitle?: string;
-}) {
-  if (pres.state === "running") {
-    return (
-      <div className="flex items-center gap-2 text-[11px] text-warning-text">
-        <Loader2 className="h-3 w-3 animate-spin" />
-        Building UI blocks from answer + evidence…
-      </div>
-    );
-  }
+function traceProgress(trace: ExecutionTrace): number {
+  const nodes = trace.phases.filter((p) => p.type !== "goal");
+  if (!nodes.length) return 8;
+  const done = nodes.filter((p) => p.state === "done").length;
+  const running = nodes.some((p) => p.state === "running");
+  const base = Math.round((done / nodes.length) * 100);
+  return running ? Math.min(base + 6, 99) : base;
+}
 
-  if (pres.step?.output && isGenerativeUI(pres.step.output)) {
-    const payload = pres.step.output;
-    return (
-      <div className="space-y-1.5">
-        <p className="font-medium text-ink">{payload.title}</p>
-        {payload.plain_summary && (
-          <p className="line-clamp-4 text-mute">{payload.plain_summary}</p>
-        )}
-        {payload.blocks?.length != null && (
-          <p className="text-mute">
-            {payload.blocks.length} block{payload.blocks.length === 1 ? "" : "s"} ·{" "}
-            {payload.presentation_profile?.replace(/_/g, " ") ?? "layout"}
-          </p>
-        )}
-        <p className="text-mute">Open the Visual summary tab for the full view.</p>
-      </div>
-    );
+function presentationTitle(trace: ExecutionTrace, run: AgentRun | null | undefined): string | undefined {
+  if (run?.presentation_spec && isGenerativeUI(run.presentation_spec)) {
+    return run.presentation_spec.title;
   }
-
-  if (presTitle) {
-    return (
-      <p>
-        <span className="font-medium text-ink">{presTitle}</span>
-        {" — "}
-        open the <strong className="text-ink">Visual summary</strong> tab.
-      </p>
-    );
+  for (const phase of trace.phases) {
+    if (phase.type === "presentation" && isGenerativeUI(phase.output)) {
+      return phase.output.title;
+    }
   }
-
-  return <p className="text-mute">Runs after you approve View in UI.</p>;
+  return undefined;
 }
 
 export function AgentTraceTree({
   run,
-  goal,
-  liveSteps,
-  liveTrace,
-  liveTokenUsage,
+  executionTrace,
   running,
-  activeToolCalls,
   approving,
   onApprove,
   onReject,
 }: {
   run: AgentRun | null | undefined;
-  goal?: string | null;
-  liveSteps?: AgentStep[];
-  liveTrace?: LiveTraceSpan[];
-  liveTokenUsage?: number | null;
+  executionTrace?: ExecutionTrace | null;
   running?: boolean;
-  activeToolCalls?: ActiveToolCall[];
   approving?: boolean;
   onApprove?: () => void;
   onReject?: () => void;
@@ -574,65 +413,150 @@ export function AgentTraceTree({
   const activeRef = useRef<HTMLDivElement | null>(null);
   const scrollRef = useRef<HTMLDivElement | null>(null);
 
-  const mergedSteps = useMemo(() => {
-    const fromRun = run?.steps ?? [];
-    const live = liveSteps ?? [];
-    const map = new Map<string, AgentStep>();
-    for (const s of fromRun) map.set(s.id, s);
-    for (const s of live) map.set(s.id, s);
-    return [...map.values()].sort((a, b) => a.step_index - b.step_index);
-  }, [run?.steps, liveSteps]);
+  const trace = executionTrace ?? run?.execution_trace ?? null;
+  const phases = trace?.phases ?? [];
+  const isLive = running || approving || (trace != null && !trace.is_complete);
+  const progress = trace ? traceProgress(trace) : 0;
+  const tokens = run?.token_usage ?? null;
+  const presTitle = trace ? presentationTitle(trace, run) : undefined;
+  const activeId = trace?.active_phase_id ?? null;
 
-  const displayGoal = goal || run?.goal || "";
-  const presentationPending =
-    run?.status === "waiting_approval" &&
-    isPresentationPending(run.pending_tool);
-
-  const tree = useMemo(
-    () =>
-      buildAgentTraceTree({
-        goal: displayGoal,
-        steps: mergedSteps,
-        liveTrace,
-        running,
-        runningToolNames: activeToolCalls,
-        pendingTool: run?.pending_tool,
-        approving,
-        presentationPending,
-      }),
-    [
-      displayGoal,
-      mergedSteps,
-      liveTrace,
-      running,
-      activeToolCalls,
-      run?.pending_tool,
-      approving,
-      presentationPending,
-    ],
-  );
-
-  const activeId = findActiveTraceId(tree);
-  const progress = traceProgress(tree);
-  const tokens = liveTokenUsage ?? run?.token_usage ?? null;
-  const visualSummaryTitle = presentationTitle(run, tree);
-  const runComplete =
-    run?.status === "completed" ||
-    run?.status === "cancelled" ||
-    run?.status === "failed";
-  const isLive =
-    !runComplete &&
-    (running || approving || run?.status === "waiting_approval");
+  const activeChildId = useMemo(() => {
+    if (!activeId || !trace) return null;
+    for (const phase of trace.phases) {
+      if (phase.type !== "agent_turn") continue;
+      for (const child of phase.children) {
+        if (child.id === activeId) return child.id;
+      }
+    }
+    return null;
+  }, [activeId, trace]);
 
   useEffect(() => {
-    if (!running || !activeRef.current) return;
+    if (!isLive || !activeRef.current) return;
     activeRef.current.scrollIntoView({ behavior: "smooth", block: "nearest" });
-  }, [running, activeId, tree]);
+  }, [isLive, activeId, trace]);
 
-  const rows = useMemo((): FlatRow[] => {
-    const flat = buildFlatRows(tree);
-    return isLive ? filterRowsForLive(flat) : flat;
-  }, [tree, isLive]);
+  const defaultOpen = trace?.is_complete ?? false;
+
+  function renderPhase(phase: TracePhase, isLast: boolean) {
+    const active = phase.id === activeId || phase.state === "running";
+
+    if (phase.type === "goal") {
+      return (
+        <ExpandableTraceRow
+          key={phase.id}
+          nodeId={phase.id}
+          icon={Target}
+          label={phase.label}
+          state={phase.state}
+          isLast={isLast}
+          defaultOpen={defaultOpen}
+        >
+          <p className="text-body">{phase.goal}</p>
+        </ExpandableTraceRow>
+      );
+    }
+
+    if (phase.type === "agent_turn") {
+      const turn = phase as TraceAgentTurnPhase;
+      return (
+        <ExpandableTraceRow
+          key={phase.id}
+          nodeId={phase.id}
+          activeRef={active && !activeChildId ? activeRef : undefined}
+          active={active && !activeChildId}
+          icon={Brain}
+          label={phase.label}
+          state={phase.state}
+          isLast={isLast}
+          defaultOpen={defaultOpen || active}
+        >
+          <TurnChildrenTimeline
+            children={turn.children}
+            activeChildId={activeChildId}
+            activeRef={activeRef}
+            defaultOpen={defaultOpen}
+          />
+        </ExpandableTraceRow>
+      );
+    }
+
+    if (phase.type === "hitl") {
+      return (
+        <ExpandableTraceRow
+          key={phase.id}
+          nodeId={phase.id}
+          activeRef={active ? activeRef : undefined}
+          active={active}
+          icon={Shield}
+          label={phase.label}
+          state={phase.state}
+          isLast={isLast}
+          defaultOpen={defaultOpen || active || !!phase.pending}
+        >
+          <HitlBody
+            phase={phase}
+            run={run}
+            approving={approving}
+            onApprove={onApprove}
+            onReject={onReject}
+            presTitle={presTitle}
+          />
+        </ExpandableTraceRow>
+      );
+    }
+
+    if (phase.type === "presentation") {
+      return (
+        <ExpandableTraceRow
+          key={phase.id}
+          nodeId={phase.id}
+          activeRef={active ? activeRef : undefined}
+          active={active}
+          icon={Sparkles}
+          label={phase.label}
+          state={phase.state}
+          isLast={isLast}
+          defaultOpen={defaultOpen || active}
+        >
+          {phase.state === "running" ? (
+            <div className="flex items-center gap-2 text-[11px] text-warning-text">
+              <Loader2 className="h-3 w-3 animate-spin" />
+              Building UI blocks…
+            </div>
+          ) : isGenerativeUI(phase.output) ? (
+            <div className="space-y-1.5">
+              <p className="font-medium text-ink">{phase.output.title}</p>
+              {phase.output.plain_summary && (
+                <p className="line-clamp-4 text-mute">{phase.output.plain_summary}</p>
+              )}
+            </div>
+          ) : (
+            <p className="text-mute">Open the Visual summary tab.</p>
+          )}
+        </ExpandableTraceRow>
+      );
+    }
+
+    if (phase.type === "synthesis") {
+      return (
+        <ExpandableTraceRow
+          key={phase.id}
+          nodeId={phase.id}
+          icon={CheckCircle2}
+          label={phase.label}
+          state={phase.state}
+          isLast={isLast}
+          defaultOpen={defaultOpen}
+        >
+          <MarkdownContent content={phase.content ?? ""} />
+        </ExpandableTraceRow>
+      );
+    }
+
+    return null;
+  }
 
   return (
     <div className="flex flex-col">
@@ -670,160 +594,11 @@ export function AgentTraceTree({
 
       <div ref={scrollRef} className="max-h-[min(70vh,36rem)] overflow-x-auto overflow-y-auto p-4">
         <div className="relative min-w-0">
-          {rows.map((row) => {
-            if (row.kind === "goal") {
-              return (
-                <ExpandableTraceRow
-                  key={row.id}
-                  nodeId={row.id}
-                  icon={Target}
-                  label="Input goal"
-                  state="done"
-                  isLast={row.isLast}
-                  defaultOpen={runComplete}
-                >
-                  {row.goal ? (
-                    <p className="text-body">{row.goal}</p>
-                  ) : (
-                    <p className="italic text-mute">No goal text</p>
-                  )}
-                </ExpandableTraceRow>
-              );
-            }
-
-            if (row.kind === "turn" && row.turn) {
-              const turn = row.turn;
-              const turnActive = activeId === row.id || turn.state === "running";
-              const hasTools = turn.tools.length > 0;
-              const llmContent = turnResponseContent(turn);
-              const status = turnStatusLabel(turn);
-              const turnLabel = hasTools
-                ? `Agent · turn ${row.turnNumber} · response`
-                : `Agent · turn ${row.turnNumber}`;
-
-              return (
-                <ExpandableTraceRow
-                  key={row.id}
-                  nodeId={row.id}
-                  activeRef={turnActive ? activeRef : undefined}
-                  active={turnActive}
-                  defaultOpen={runComplete || turnActive}
-                  icon={Brain}
-                  label={turnLabel}
-                  state={turn.state}
-                  isLast={row.isLast}
-                >
-                  {status && (
-                    <p className="mb-2 text-[11px] text-mute">{status}</p>
-                  )}
-                  <div>
-                    {hasTools && (
-                      <div className="mb-1 text-[10px] font-bold uppercase tracking-wide text-mute">
-                        LLM response
-                      </div>
-                    )}
-                    <LlmStreamBody
-                      content={llmContent}
-                      running={turn.llm?.status === "running"}
-                    />
-                  </div>
-                </ExpandableTraceRow>
-              );
-            }
-
-            if (row.kind === "tool" && row.tool) {
-              const toolActive = activeId === row.id;
-              return (
-                <div key={row.id} className="pl-6">
-                  <ExpandableTraceRow
-                    nodeId={row.id}
-                    activeRef={toolActive ? activeRef : undefined}
-                    active={toolActive}
-                    defaultOpen={runComplete || toolActive}
-                    nested
-                    icon={Wrench}
-                    label={toolDisplayName(row.tool.toolName)}
-                    state={row.tool.state}
-                    isLast={row.isLast}
-                  >
-                    <ToolTraceBody tool={row.tool} />
-                  </ExpandableTraceRow>
-                </div>
-              );
-            }
-
-            if (row.kind === "hitl" && row.hitl) {
-              const hitl = row.hitl;
-              const hitlActive = hitl.state === "running" || activeId === hitl.id;
-              return (
-                <ExpandableTraceRow
-                  key={row.id}
-                  nodeId={row.id}
-                  activeRef={hitlActive ? activeRef : undefined}
-                  active={hitlActive}
-                  defaultOpen={runComplete || hitlActive || hitl.pending}
-                  icon={Shield}
-                  label={
-                    hitl.step?.tool_name === "generative_ui" || hitl.pending
-                      ? "Human approval · View in UI?"
-                      : "Human approval"
-                  }
-                  state={hitl.state}
-                  isLast={row.isLast}
-                >
-                  <HitlTraceBody
-                    hitl={hitl}
-                    run={run}
-                    presentationTitle={visualSummaryTitle}
-                    approving={approving}
-                    onApprove={onApprove}
-                    onReject={onReject}
-                  />
-                </ExpandableTraceRow>
-              );
-            }
-
-            if (row.kind === "presentation" && row.presentation) {
-              const pres = row.presentation;
-              const presActive = pres.state === "running";
-              return (
-                <ExpandableTraceRow
-                  key={row.id}
-                  nodeId={row.id}
-                  activeRef={presActive ? activeRef : undefined}
-                  active={presActive}
-                  defaultOpen={runComplete || presActive}
-                  icon={Sparkles}
-                  label="Visual summary"
-                  state={pres.state}
-                  isLast={row.isLast}
-                >
-                  <PresentationTraceBody
-                    pres={pres}
-                    presTitle={visualSummaryTitle}
-                  />
-                </ExpandableTraceRow>
-              );
-            }
-
-            if (row.kind === "synthesis" && row.synthesis) {
-              return (
-                <ExpandableTraceRow
-                  key={row.id}
-                  nodeId={row.id}
-                  icon={CheckCircle2}
-                  label="Answer synthesis"
-                  state="done"
-                  isLast={row.isLast}
-                  defaultOpen={runComplete}
-                >
-                  <MarkdownContent content={stepText(row.synthesis.step)} />
-                </ExpandableTraceRow>
-              );
-            }
-
-            return null;
-          })}
+          {phases.length === 0 ? (
+            <p className="text-xs text-mute">Waiting for execution trace…</p>
+          ) : (
+            phases.map((phase, i) => renderPhase(phase, i === phases.length - 1))
+          )}
         </div>
       </div>
 

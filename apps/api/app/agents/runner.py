@@ -19,6 +19,11 @@ from app.agents.profiles import agent_system_prompt, get_profile
 from app.agents.tools import build_tools
 from app.config import settings
 from app.models import AgentRun, AgentStep, Document, Workspace
+from app.agents.execution_trace import (
+    LiveTraceContext,
+    build_execution_trace,
+    emit_execution_trace,
+)
 from app.presentation.context import PresentationContext
 from app.presentation.engine import build_presentation
 from app.presentation.evidence import collect_evidence_from_steps
@@ -47,6 +52,8 @@ def _invoke_llm_turn(
     on_event: EventCallback,
     run_id: uuid.UUID,
     turn_id: str,
+    trace_live: LiveTraceContext | None = None,
+    on_trace: Callable[[], None] | None = None,
 ) -> tuple[AIMessage, float]:
     """Stream one LLM turn; emit llm_delta chunks for live trace UI."""
     t0 = time.perf_counter()
@@ -55,6 +62,10 @@ def _invoke_llm_turn(
         gathered = chunk if gathered is None else gathered + chunk  # type: ignore[operator,assignment]
         delta = _content_str(getattr(chunk, "content", None))
         if delta:
+            if trace_live is not None:
+                trace_live.stream_by_turn[turn_id] = (
+                    trace_live.stream_by_turn.get(turn_id, "") + delta
+                )
             _emit(
                 on_event,
                 "llm_delta",
@@ -62,6 +73,8 @@ def _invoke_llm_turn(
                 turn_id=turn_id,
                 delta=delta,
             )
+            if on_trace:
+                on_trace()
     if gathered is None:
         gathered = AIMessage(content="")
     llm_ms = (time.perf_counter() - t0) * 1000
@@ -147,7 +160,11 @@ def step_to_dict(step: AgentStep) -> dict[str, Any]:
     }
 
 
-def run_to_public_dict(run: AgentRun) -> dict[str, Any]:
+def run_to_public_dict(
+    run: AgentRun,
+    *,
+    trace_live: LiveTraceContext | None = None,
+) -> dict[str, Any]:
     steps = sorted(run.steps or [], key=lambda s: s.step_index)
     return {
         "id": str(run.id),
@@ -163,7 +180,20 @@ def run_to_public_dict(run: AgentRun) -> dict[str, Any]:
         "pending_tool": run.pending_tool,
         "created_at": run.created_at.isoformat() if run.created_at else None,
         "steps": [step_to_dict(s) for s in steps],
+        "execution_trace": build_execution_trace(run, live=trace_live),
     }
+
+
+def _refresh_execution_trace(
+    db: Session,
+    run: AgentRun,
+    on_event: EventCallback,
+    trace_live: LiveTraceContext | None,
+) -> None:
+    if not on_event:
+        return
+    db.refresh(run)
+    emit_execution_trace(on_event, run, trace_live)
 
 
 def _emit(on_event: EventCallback, event_type: str, **payload: Any) -> None:
@@ -198,6 +228,12 @@ def _append_step(
     if duration_ms is not None:
         payload["duration_ms"] = round(duration_ms, 1)
     _emit(on_event, "step", step=payload, run_id=str(run.id), status=run.status)
+    _refresh_execution_trace(
+        db,
+        run,
+        on_event,
+        getattr(run, "_trace_live", None),
+    )
     return step
 
 
@@ -576,6 +612,7 @@ def _run_tool_loop(
     total_tokens_acc: int = 0,
     start_step_index: int | None = None,
     on_event: EventCallback = None,
+    trace_live: LiveTraceContext | None = None,
 ) -> AgentRun:
     """
     Shared LLM ↔ tools loop.
@@ -598,10 +635,19 @@ def _run_tool_loop(
         else max(0, _next_step_index(db, run.id) - 1)
     )
     seen_calls: set[str] = set()
+    if trace_live is None:
+        trace_live = LiveTraceContext()
+    run._trace_live = trace_live  # type: ignore[attr-defined]
+
+    def refresh_trace() -> None:
+        _refresh_execution_trace(db, run, on_event, trace_live)
 
     try:
         for _ in range(max(1, max_steps)):
             turn_id = str(uuid.uuid4())
+            trace_live.current_turn_id = turn_id
+            trace_live.llm_running = True
+            trace_live.has_tool_calls = False
             _emit(
                 on_event,
                 "llm_start",
@@ -610,12 +656,15 @@ def _run_tool_loop(
                 name="ChatOpenAI",
                 status=run.status,
             )
+            refresh_trace()
             ai, llm_ms = _invoke_llm_turn(
                 model,
                 messages,
                 on_event=on_event,
                 run_id=run.id,
                 turn_id=turn_id,
+                trace_live=trace_live,
+                on_trace=refresh_trace,
             )
 
             p, c, t = _tokens_from_ai_message(ai)
@@ -635,6 +684,9 @@ def _run_tool_loop(
                 has_tool_calls=bool(ai.tool_calls),
                 token_usage_so_far=total_tokens_acc,
             )
+            trace_live.llm_running = False
+            trace_live.has_tool_calls = bool(ai.tool_calls)
+            refresh_trace()
 
             # Duplicate detection — check BEFORE appending ai so we don't
             # orphan tool_calls without ToolMessage responses.
@@ -866,14 +918,19 @@ def _run_tool_loop(
 
             # Emit tool_start events for every tool call in this turn
             for tc in ai.tool_calls:
+                name = tc.get("name")
+                if name and name not in trace_live.running_tool_names:
+                    trace_live.running_tool_names.append(str(name))
                 _emit(
                     on_event,
                     "tool_start",
                     run_id=str(run.id),
-                    tool_name=tc.get("name"),
+                    tool_name=name,
                     tool_args=tc.get("args"),
                     call_id=tc.get("id"),
                 )
+            if ai.tool_calls:
+                refresh_trace()
 
             # Execute read tools in parallel
             read_calls = [
@@ -928,6 +985,8 @@ def _run_tool_loop(
                             name=r["name"],
                         )
                     )
+                trace_live.running_tool_names = []
+                refresh_trace()
 
         run.status = "completed"
         run.token_usage = total_tokens_acc or None
@@ -1027,6 +1086,9 @@ def run_agent(
         agent_type=resolved_type,
         status="running",
     )
+    trace_live = LiveTraceContext()
+    run._trace_live = trace_live  # type: ignore[attr-defined]
+    _refresh_execution_trace(db, run, on_event, trace_live)
     return _run_tool_loop(
         db,
         run,
@@ -1034,6 +1096,7 @@ def run_agent(
         max_steps=cap_steps,
         start_step_index=0,
         on_event=on_event,
+        trace_live=trace_live,
     )
 
 
@@ -1053,6 +1116,9 @@ def approve_agent_run(
     """
     if run.status != "waiting_approval" or not run.pending_tool:
         raise ValueError("Run is not waiting for approval")
+
+    trace_live = getattr(run, "_trace_live", None) or LiveTraceContext()
+    run._trace_live = trace_live  # type: ignore[attr-defined]
 
     pending = dict(run.pending_tool)
     name = pending.get("name")
@@ -1084,6 +1150,8 @@ def approve_agent_run(
         return run
 
     if _is_presentation_pending(pending):
+        trace_live.approving = True
+        _refresh_execution_trace(db, run, on_event, trace_live)
         _append_step(
             db,
             run,
@@ -1105,6 +1173,7 @@ def approve_agent_run(
         run.pending_tool = None
         db.commit()
         db.refresh(run)
+        trace_live.approving = False
         _emit(
             on_event,
             "status",
@@ -1113,6 +1182,7 @@ def approve_agent_run(
             final_answer=run.final_answer,
             presentation_spec=run.presentation_spec,
         )
+        _refresh_execution_trace(db, run, on_event, trace_live)
         return run
 
     if name not in WRITE_TOOLS:

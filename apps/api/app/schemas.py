@@ -117,6 +117,7 @@ class AgentRunResponse(BaseModel):
     pending_tool: dict | None = None
     created_at: datetime
     steps: list[AgentStepResponse] = []
+    execution_trace: dict | None = None
 
     model_config = {"from_attributes": True}
 

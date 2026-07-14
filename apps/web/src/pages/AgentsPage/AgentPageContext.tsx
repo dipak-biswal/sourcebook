@@ -45,6 +45,8 @@ export function AgentPageProvider({
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [savingNote, setSavingNote] = useState(false);
   const [liveGoal, setLiveGoal] = useState<string | null>(null);
+  const [liveExecutionTrace, setLiveExecutionTrace] =
+    useState<import("@/api").ExecutionTrace | null>(null);
   const [liveSteps, setLiveSteps] = useState<AgentStep[]>([]);
   const [liveTokenUsage, setLiveTokenUsage] = useState<number | null>(null);
   const [liveLlmEvents, setLiveLlmEvents] = useState<LlmTraceEvent[]>([]);
@@ -70,6 +72,7 @@ export function AgentPageProvider({
     setLiveLlmEvents([]);
     setLiveTokenUsage(null);
     setLiveGoal(null);
+    setLiveExecutionTrace(null);
     setActiveToolCalls([]);
     setLoopWarning(null);
   }, [persistWorkspace]);
@@ -82,6 +85,7 @@ export function AgentPageProvider({
     setLiveLlmEvents([]);
     setLiveTokenUsage(null);
     setLiveGoal(null);
+    setLiveExecutionTrace(null);
     try {
       setSelected(await api.agentRun(id));
     } catch (err) {
@@ -109,6 +113,7 @@ export function AgentPageProvider({
 
   function resetLiveTrace(goalText: string) {
     setLiveGoal(goalText);
+    setLiveExecutionTrace(null);
     setLiveSteps([]);
     setLiveTokenUsage(null);
     setLiveLlmEvents([]);
@@ -132,6 +137,7 @@ export function AgentPageProvider({
         goalText,
         makeAgentStreamHandlers(
           {
+            onTrace: setLiveExecutionTrace,
             onLlmStart: (event) => {
               setLiveLlmEvents((prev) => [
                 ...prev.filter((e) => e.status === "done"),
@@ -194,6 +200,7 @@ export function AgentPageProvider({
           (final) => {
             setSelected(final);
             setSelectedId(final.id);
+            setLiveExecutionTrace(final.execution_trace ?? null);
           },
         ),
         { maxSteps: DEFAULT_MAX_STEPS },
@@ -221,6 +228,7 @@ export function AgentPageProvider({
     } finally {
       setRunning(false);
       setLiveGoal(null);
+      setActiveToolCalls([]);
     }
   }
 
@@ -240,6 +248,7 @@ export function AgentPageProvider({
           queryKey: ["agentRuns", effectiveWorkspaceId],
         });
         setSelected(run);
+        setLiveExecutionTrace(run.execution_trace ?? null);
         if (approve) {
           success("Visual summary ready", "Open the Visual summary tab.");
         } else {
@@ -270,6 +279,7 @@ export function AgentPageProvider({
         true,
         makeAgentStreamHandlers(
           {
+            onTrace: setLiveExecutionTrace,
             onLlmStart: (event) => {
               setLiveLlmEvents((prev) => [
                 ...prev.filter((e) => e.status === "done"),
@@ -331,6 +341,7 @@ export function AgentPageProvider({
           },
           (final) => {
             setSelected(final);
+            setLiveExecutionTrace(final.execution_trace ?? null);
           },
           false,
         ),
@@ -351,6 +362,7 @@ export function AgentPageProvider({
       setApproving(false);
       setRunning(false);
       setLiveGoal(null);
+      setActiveToolCalls([]);
     }
   }
 
@@ -431,6 +443,7 @@ export function AgentPageProvider({
     savingNote,
     loading,
     liveGoal,
+    liveExecutionTrace,
     liveSteps,
     liveTokenUsage,
     liveLlmEvents,
