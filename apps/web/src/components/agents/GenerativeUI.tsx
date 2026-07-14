@@ -1,8 +1,5 @@
-import { useState } from "react";
 import {
   BookOpen,
-  ChevronDown,
-  ChevronRight,
   HelpCircle,
   Lightbulb,
   ListOrdered,
@@ -15,7 +12,7 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
-import type { GenUIBlock, GenUISource, GenerativeUIPayload } from "./generative-ui";
+import type { GenerativeUIPayload } from "./generative-ui";
 import { generativeUIToNoteBody } from "./generative-ui";
 
 function BlockIcon({ type }: { type: string }) {
@@ -38,59 +35,6 @@ function BlockIcon({ type }: { type: string }) {
   }
 }
 
-function sourcesForBlock(
-  block: GenUIBlock,
-  sources: GenUISource[],
-): GenUISource[] {
-  const idxs = block.source_indices ?? [];
-  if (!idxs.length || !sources.length) return [];
-  const byIndex = new Map(sources.map((s) => [s.index, s]));
-  return idxs
-    .map((i) => byIndex.get(i))
-    .filter((s): s is GenUISource => !!s);
-}
-
-function BlockCitations({ sources }: { sources: GenUISource[] }) {
-  const [open, setOpen] = useState(false);
-  if (!sources.length) return null;
-
-  return (
-    <div className="mt-2 border-t border-hairline pt-2">
-      <button
-        type="button"
-        onClick={() => setOpen((v) => !v)}
-        className="inline-flex items-center gap-0.5 text-[10px] font-medium text-mute hover:text-ink"
-      >
-        {open ? (
-          <ChevronDown className="h-3 w-3" strokeWidth={1.5} />
-        ) : (
-          <ChevronRight className="h-3 w-3" strokeWidth={1.5} />
-        )}
-        Sources ({sources.map((s) => `[${s.index}]`).join(" ")})
-      </button>
-      {open && (
-        <ul className="mt-1.5 space-y-1.5">
-          {sources.map((s) => (
-            <li
-              key={`${s.index}-${s.chunk_id ?? s.snippet}`}
-              className="rounded-[6px] border border-hairline bg-canvas px-2 py-1.5 text-[10px] leading-relaxed text-body"
-            >
-              <span className="font-semibold text-ink">[{s.index}]</span>{" "}
-              {s.filename && (
-                <span className="font-medium text-ink">{s.filename}</span>
-              )}
-              {typeof s.score === "number" && (
-                <span className="text-mute"> · {s.score.toFixed(2)}</span>
-              )}
-              <p className="mt-0.5 text-mute">{s.snippet || "…"}</p>
-            </li>
-          ))}
-        </ul>
-      )}
-    </div>
-  );
-}
-
 export function GenerativeUIView({
   payload,
   className,
@@ -104,7 +48,6 @@ export function GenerativeUIView({
   savingNote?: boolean;
 }) {
   const blocks = payload.blocks ?? [];
-  const sources = payload.sources ?? [];
 
   return (
     <div
@@ -133,7 +76,7 @@ export function GenerativeUIView({
         </div>
         <div className="flex flex-wrap items-center gap-1.5">
           <Badge variant="secondary" className="text-[10px]">
-            Generative UI
+            Visual summary
           </Badge>
           {onSaveAsNote && (
             <Button
@@ -144,7 +87,7 @@ export function GenerativeUIView({
               disabled={savingNote}
               onClick={() =>
                 onSaveAsNote(
-                  payload.title.slice(0, 120) || "Structured summary",
+                  payload.title.slice(0, 120) || "Visual summary",
                   generativeUIToNoteBody(payload),
                 )
               }
@@ -160,16 +103,6 @@ export function GenerativeUIView({
         </div>
       </div>
 
-      {payload.source_files && payload.source_files.length > 0 && (
-        <div className="flex flex-wrap gap-1">
-          {payload.source_files.map((f) => (
-            <Badge key={f} variant="outline" className="text-[10px] font-normal">
-              {f}
-            </Badge>
-          ))}
-        </div>
-      )}
-
       {payload.plain_summary && (
         <p className="text-body-sm leading-relaxed text-body">
           {payload.plain_summary}
@@ -177,9 +110,7 @@ export function GenerativeUIView({
       )}
 
       <div className="space-y-2.5">
-        {blocks.map((b, i) => {
-          const cited = sourcesForBlock(b, sources);
-          return (
+        {blocks.map((b, i) => (
             <section
               key={`${b.type}-${i}`}
               className="rounded-[8px] border border-hairline bg-canvas-soft px-3 py-2.5"
@@ -189,11 +120,6 @@ export function GenerativeUIView({
                 <h4 className="text-xs font-semibold text-ink">
                   {b.title || b.type.replace("_", " ")}
                 </h4>
-                {cited.length > 0 && (
-                  <span className="text-[10px] text-mute">
-                    {cited.map((s) => `[${s.index}]`).join(" ")}
-                  </span>
-                )}
               </div>
 
               {b.body && (
@@ -290,10 +216,8 @@ export function GenerativeUIView({
                   </p>
                 )}
 
-              <BlockCitations sources={cited} />
             </section>
-          );
-        })}
+        ))}
       </div>
 
       {blocks.length === 0 && (

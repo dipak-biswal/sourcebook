@@ -227,7 +227,7 @@ export function AgentPageProvider({
         });
         setSelected(run);
         if (approve) {
-          success("Structured view ready", "Open the Structured view tab.");
+          success("Visual summary ready", "Open the Visual summary tab.");
         } else {
           success("Keeping text answer");
         }

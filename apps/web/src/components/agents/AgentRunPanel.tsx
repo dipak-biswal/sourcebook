@@ -176,7 +176,7 @@ function TraceNode({
                 {step.type === "tool_call"
                   ? prettyJson(step.input).slice(0, 120)
                   : gen
-                    ? `Structured view · ${(step.output as { title?: string }).title ?? "ready"}`
+                    ? `Visual summary · ${(step.output as { title?: string }).title ?? "ready"}`
                     : prettyJson(step.output).slice(0, 120)}
               </p>
             )}
@@ -202,8 +202,8 @@ function TraceNode({
                 </div>
                 {gen ? (
                   <p className="text-xs leading-relaxed text-body">
-                    Structured UI produced — rendered in the{" "}
-                    <strong className="text-ink">Structured view</strong> tab,
+                    Visual summary produced — rendered in the{" "}
+                    <strong className="text-ink">Visual summary</strong> tab,
                     not as raw JSON here.
                   </p>
                 ) : (
@@ -840,7 +840,7 @@ export function AgentRunPanel({
 
       {!open && !run?.pending_tool && (
         <p className="px-3 py-2 text-[11px] text-mute">
-          Details hidden. Structured view (if any) stays above — toggle to inspect
+          Details hidden. Visual summary (if any) stays above — toggle to inspect
           the full LangSmith-style trace.
         </p>
       )}

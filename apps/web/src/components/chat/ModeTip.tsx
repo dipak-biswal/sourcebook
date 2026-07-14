@@ -40,7 +40,7 @@ export function ModeTip() {
             <Bot className="inline h-3 w-3" strokeWidth={1.5} />
             Agent
           </span>{" "}
-          runs search and notes in this thread (quick). For structured views
+          runs search and notes in this thread (quick). For visual summaries
           and full traces, use{" "}
           <Link
             to="/agents"

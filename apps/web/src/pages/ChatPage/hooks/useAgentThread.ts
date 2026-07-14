@@ -279,7 +279,7 @@ export function useAgentThread(
         applyRunToThread(asstId, run);
         void queryClient.invalidateQueries({ queryKey: ["agentRuns", workspaceId] });
         if (approve) {
-          success("Structured view ready", "Open the agent trace panel.");
+          success("Visual summary ready", "Open the agent trace panel.");
         } else {
           success("Keeping text answer");
         }
@@ -385,7 +385,7 @@ export function useAgentThread(
     setModePersist("agent");
     setAgentThread((prev) => [
       ...prev,
-      { id: userId, role: "user", content: `Save structured view as note: ${title}` },
+      { id: userId, role: "user", content: `Save visual summary as note: ${title}` },
       {
         id: asstId,
         role: "assistant",

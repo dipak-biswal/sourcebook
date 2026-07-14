@@ -10,7 +10,7 @@ import { formatDate } from "@/lib/utils";
 import { cn } from "@/lib/utils";
 import { useAgentPage } from "./agent-page-context";
 
-type TabKey = "answer" | "structured" | "trace";
+type TabKey = "answer" | "visual" | "trace";
 
 function TabButton({
   active,
@@ -144,10 +144,10 @@ export function AgentRunDisplay() {
           />
           {gen && (
             <TabButton
-              active={activeTab === "structured"}
+              active={activeTab === "visual"}
               icon={Sparkles}
-              label="Structured view"
-              onClick={() => setActiveTab("structured")}
+              label="Visual summary"
+              onClick={() => setActiveTab("visual")}
             />
           )}
           <TabButton
@@ -178,7 +178,7 @@ export function AgentRunDisplay() {
           </div>
         )}
 
-        {activeTab === "structured" && gen && (
+        {activeTab === "visual" && gen && (
           <div className="p-4">
             <GenerativeUIView
               payload={gen}

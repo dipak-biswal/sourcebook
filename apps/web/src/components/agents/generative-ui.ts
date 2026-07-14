@@ -166,9 +166,6 @@ export function extractGenerativeUIFromSteps(
 
 export function generativeUIToNoteBody(payload: GenerativeUIPayload): string {
   const lines: string[] = [`# ${payload.title}`];
-  if (payload.document_filename) {
-    lines.push(`_Source: ${payload.document_filename}_`);
-  }
   if (payload.plain_summary) {
     lines.push("", payload.plain_summary);
   }
@@ -189,13 +186,6 @@ export function generativeUIToNoteBody(payload: GenerativeUIPayload): string {
     for (const f of b.faqs ?? []) {
       lines.push(`**Q: ${f.question}**`, `A: ${f.answer}`);
     }
-    const idxs = b.source_indices ?? [];
-    if (idxs.length) {
-      lines.push(`_Sources: ${idxs.map((i) => `[${i}]`).join(", ")}_`);
-    }
-  }
-  if (payload.source_files?.length) {
-    lines.push("", `_Files: ${payload.source_files.join(", ")}_`);
   }
   return lines.join("\n").trim();
 }
