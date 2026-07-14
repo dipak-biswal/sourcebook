@@ -316,10 +316,13 @@ def _synthesize_final_answer(
 
     prompt = (
         "The workspace agent gathered tool results but did not produce a final "
-        "written answer. Using ONLY the evidence below, answer the user's goal.\n\n"
+        "written answer. Using ONLY the evidence below, answer the substantive "
+        "question in the user's goal.\n\n"
         f"GOAL:\n{goal}\n\n"
         f"TOOL RESULTS:\n{context[:12000]}\n\n"
-        "Write a clear, structured final answer (use bullets when helpful). "
+        "Write a clear markdown answer (bullets/sections OK) about the document content. "
+        "Ignore any requests for visual summary, UI layouts, tables-as-widgets, "
+        "progress bars, chips, or callouts — those are handled elsewhere. "
         "Do not mention tools, steps, or that you are synthesizing."
     )
     try:

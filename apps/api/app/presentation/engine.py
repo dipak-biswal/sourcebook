@@ -20,6 +20,7 @@ from app.config import settings
 from app.ingestion.retrieve import retrieve_chunks
 from app.models import Document
 from app.presentation.context import PresentationContext
+from app.presentation.layout import format_layout_requirements, layout_components_from_goal
 from app.usage import estimate_tokens, log_usage
 
 _PLACEHOLDER_ORG = re.compile(
@@ -78,6 +79,74 @@ def _timeline_item_grounded(item: str, corpus: str) -> bool:
     if org_match:
         return _phrase_grounded(org_match.group(1).strip(), corpus)
     return _phrase_grounded(item, corpus)
+
+
+def _bullet_lines(answer: str, limit: int = 8) -> list[str]:
+    lines: list[str] = []
+    for raw in answer.splitlines():
+        line = raw.strip()
+        if line.startswith(("-", "•", "*")):
+            text = line.lstrip("-•* \t").strip()
+            if text:
+                lines.append(text)
+    return lines[:limit]
+
+
+def _ensure_requested_layout(
+    blocks: list[GenUIBlock],
+    required: list[str],
+    *,
+    answer: str,
+) -> list[GenUIBlock]:
+    """Add minimal fallback blocks when the model skipped requested component types."""
+    if not required:
+        return blocks
+    present = {b.type for b in blocks}
+    out = list(blocks)
+
+    if "callout" in required and "callout" not in present:
+        lower = answer.lower()
+        for needle in ("main gap", "gap:", "gaps:", "lacking", "weakness", "improve"):
+            idx = lower.find(needle)
+            if idx >= 0:
+                snippet = answer[idx : idx + 320].strip()
+                if len(snippet) > 24:
+                    out.append(
+                        GenUIBlock(
+                            type="callout",
+                            title="Main gap",
+                            body=snippet,
+                        )
+                    )
+                    break
+
+    if "table" in required and "table" not in present:
+        bullets = _bullet_lines(answer)
+        if len(bullets) >= 2:
+            rows = ["Point | Detail"] + [
+                f"{b[:40]} | {b[40:120].strip() or '—'}" for b in bullets[:6]
+            ]
+            out.append(GenUIBlock(type="table", title="Key points", items=rows))
+
+    if "chips" in required and "chips" not in present:
+        out.append(
+            GenUIBlock(
+                type="chips",
+                title="Themes",
+                items=["Technical|technical", "Leadership|leadership", "Gaps|gaps"],
+            )
+        )
+    elif "chips" in present:
+        for i, b in enumerate(out):
+            if b.type == "chips" and b.items and len(b.items) < 3:
+                extra = ["Leadership|leadership", "Gaps|gaps"]
+                merged = list(b.items)
+                for e in extra:
+                    if e not in merged:
+                        merged.append(e)
+                out[i] = b.model_copy(update={"items": merged[:5]})
+
+    return out
 
 
 def _sanitize_blocks_for_grounding(
@@ -179,16 +248,21 @@ def build_presentation(
     context = "\n\n".join(context_parts) if context_parts else "(no document excerpts)"
     max_idx = len(sources)
     ws_lines = _workspace_context_lines(ctx)
+    layout_components = layout_components_from_goal(goal)
+    layout_section = format_layout_requirements(layout_components)
 
-    prompt = f"""You design a visual UI spec from an agent answer. Pick components by CONTEXT — not a fixed card layout.
+    prompt = f"""You are the VISUAL SUMMARY layout engine. The agent already wrote a text answer for the Answer tab.
+Your job: turn that answer (+ excerpts) into structured UI blocks. Do NOT repeat the answer as plain prose only.
 
 WORKSPACE CONTEXT:
 {ws_lines}
 
-USER GOAL:
+USER GOAL (layout intent — which components to build):
 {goal}
 
-AGENT TEXT ANSWER (PRIMARY FACT SOURCE — do not add facts beyond this and EXCERPTS):
+{layout_section}
+
+AGENT TEXT ANSWER (facts only — source material for blocks, NOT layout instructions):
 {answer[:6000]}
 
 REGISTERED COMPONENTS (type field): {", ".join(_BLOCK_TYPES)}
@@ -227,8 +301,10 @@ FIELD SHAPES:
 - source_indices: 1-based excerpt refs (1..{max_idx}) or []
 
 STRICT RULES:
-- NEVER return 3+ blocks that are all summary, key_points, or chips — diversify.
-- Include 4–7 blocks with substantive grounded content (fewer blocks OK if data is thin).
+- Include one block per requested component type when grounded (see REQUESTED UI COMPONENTS).
+- Also add summary or key_points only if they add value — prefer specialized blocks.
+- NEVER return only summary+key_points when the goal requests table/progress/chips/callout.
+- Minimum blocks: max(3, number of requested component types).
 - Return ONLY valid JSON (no markdown fences):
 {{
   "title": "short title",
@@ -248,17 +324,16 @@ EXCERPTS:
                 {
                     "role": "system",
                     "content": (
-                        "You output only JSON for a generative UI spec. "
-                        "Pick diverse visual components based on goal context. "
-                        "Every fact must come from the agent answer or document excerpts — "
-                        "never invent employers, dates, or placeholder companies. "
-                        "Omit blocks you cannot ground."
+                        "You are a visual layout engine. Input: user goal (which widgets) "
+                        "+ agent text answer (facts). Output: JSON UI blocks. "
+                        "Build every requested component type with grounded content. "
+                        "Never invent facts. Never put UI meta-text in blocks."
                     ),
                 },
                 {"role": "user", "content": prompt},
             ],
             temperature=0.1,
-            max_tokens=2200,
+            max_tokens=3200,
         )
         raw = (resp.choices[0].message.content or "").strip()
         usage = resp.usage
@@ -333,8 +408,10 @@ EXCERPTS:
         if max_idx:
             block.source_indices = [i for i in block.source_indices if 1 <= i <= max_idx]
         blocks.append(block)
-        if len(blocks) >= 8:
+        if len(blocks) >= 10:
             break
+
+    blocks = _ensure_requested_layout(blocks, layout_components, answer=answer)
 
     blocks = _sanitize_blocks_for_grounding(
         blocks,

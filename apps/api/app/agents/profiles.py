@@ -17,6 +17,14 @@ GENERAL_SYSTEM_PROMPT = (
     "- Always include a written answer when you stop calling tools — never end on tool calls alone.\n"
     "- Give clear, structured final answers for explain/summarize/compare goals.\n"
     "- create_note requires human approval before it executes.\n"
+    "ANSWER vs VISUAL LAYOUT:\n"
+    "- The user's goal may mention visual summary, tables, progress bars, chips, callouts, "
+    "timelines, or other UI — ignore those for your reply.\n"
+    "- A separate presentation layer builds the visual UI from your written answer.\n"
+    "- Your final answer must be substantive markdown/prose about the documents only: "
+    "facts, analysis, skills, gaps, recommendations.\n"
+    "- Never list UI component names, never describe what widgets will be shown, "
+    "never output layout instructions.\n"
     "When finished, answer clearly without more tool calls."
 )
 
