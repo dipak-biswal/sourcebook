@@ -63,6 +63,7 @@ export type TraceAgentTurnPhase = {
   type: "agent_turn";
   turn: number;
   label: string;
+  agent_label?: string | null;
   state: TraceState;
   children: TraceChild[];
   llm_turn_id?: string;

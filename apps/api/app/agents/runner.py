@@ -17,6 +17,7 @@ from sqlalchemy.orm import Session
 
 from app.agents.profiles import agent_system_prompt, get_profile
 from app.agents.tools import build_tools
+from app.agents.visual_tools import VISUAL_SUMMARY_AGENT_LABEL
 from app.config import settings
 from app.models import AgentRun, AgentStep, Document, Workspace
 from app.agents.execution_trace import (
@@ -25,8 +26,12 @@ from app.agents.execution_trace import (
     emit_execution_trace,
 )
 from app.presentation.context import PresentationContext
-from app.presentation.engine import build_presentation
-from app.presentation.evidence import collect_evidence_from_steps, serialize_agent_evidence
+
+from app.presentation.evidence import (
+    collect_evidence_from_steps,
+    format_agent_evidence,
+    serialize_agent_evidence,
+)
 from app.presentation.planner import should_offer_presentation
 from app.usage import estimate_tokens, log_usage
 
@@ -36,9 +41,9 @@ PRESENTATION_TOOL = "generative_ui"
 # on_event(event_type, payload) — used for LangSmith-style live traces (SSE)
 EventCallback = Callable[[str, dict[str, Any]], None] | None
 
-def _llm():
+def _llm(model: str | None = None):
     return ChatOpenAI(
-        model=settings.chat_model,
+        model=model or settings.chat_model,
         api_key=SecretStr(settings.openai_api_key),
         base_url=settings.openai_base_url,
         temperature=0.1,
@@ -590,17 +595,7 @@ def _offer_presentation_if_needed(
     return step_index
 
 
-def _build_and_attach_presentation(
-    db: Session,
-    run: AgentRun,
-    *,
-    step_index: int,
-    on_event: EventCallback = None,
-) -> int:
-    """Build generative UI spec and attach to the run (after user approves)."""
-    if run.presentation_spec:
-        return step_index
-
+def _presentation_context_for_run(db: Session, run: AgentRun) -> PresentationContext:
     ws = db.get(Workspace, run.workspace_id)
     filenames = [
         row[0]
@@ -612,11 +607,9 @@ def _build_and_attach_presentation(
     ]
     raw_tags = ws.tags if ws and isinstance(ws.tags, list) else []
     tags = [str(t).strip() for t in raw_tags if t and str(t).strip()]
-
     steps = sorted(run.steps or [], key=lambda s: s.step_index)
     agent_evidence = collect_evidence_from_steps(steps)
-
-    ctx = PresentationContext(
+    return PresentationContext(
         workspace_id=run.workspace_id,
         user_id=run.user_id or uuid.UUID(int=0),
         goal=run.goal or "",
@@ -627,15 +620,41 @@ def _build_and_attach_presentation(
         document_filenames=filenames,
         agent_evidence=agent_evidence,
     )
-    spec, build_meta = build_presentation(db, ctx)
-    if not isinstance(spec, dict) or spec.get("error"):
-        return step_index
 
-    run.presentation_spec = spec
-    plain = spec.get("plain_summary")
-    if plain and (not run.final_answer or run.final_answer == "(no final answer)"):
-        run.final_answer = str(plain)
 
+def _visual_summary_handoff_message(ctx: PresentationContext) -> str:
+    evidence = format_agent_evidence(ctx.agent_evidence)
+    return (
+        "MAIN AGENT HANDOFF\n\n"
+        f"User goal:\n{ctx.goal}\n\n"
+        f"Main agent answer:\n{(ctx.final_answer or '')[:8000]}\n\n"
+        f"Agent evidence:\n{evidence or '(none)'}\n\n"
+        "Plan the visual layout with plan_layout, then render it with render_ui."
+    )
+
+
+def _extract_render_ui_spec(run: AgentRun) -> dict[str, Any] | None:
+    for step in reversed(sorted(run.steps or [], key=lambda s: s.step_index)):
+        if step.type != "tool_result" or step.tool_name != "render_ui":
+            continue
+        output = step.output if isinstance(step.output, dict) else {}
+        spec = output.get("spec")
+        if isinstance(spec, dict) and not spec.get("error"):
+            return spec
+    return None
+
+
+def _attach_presentation_step(
+    db: Session,
+    run: AgentRun,
+    *,
+    spec: dict[str, Any],
+    step_index: int,
+    agent_evidence: Any,
+    build_meta: dict[str, Any] | None = None,
+    on_event: EventCallback = None,
+) -> int:
+    meta = build_meta or {}
     step_index += 1
     _append_step(
         db,
@@ -644,29 +663,105 @@ def _build_and_attach_presentation(
         type="presentation",
         tool_name="generative_ui",
         input={
-            "prompt": build_meta.get("prompt"),
-            "llm_output": build_meta.get("llm_output"),
-            "messages": [
-                {
-                    "role": "system",
-                    "content": (
-                        "You are a visual layout engine. Input: user goal (which widgets) "
-                        "+ agent text answer (facts). Output: JSON UI blocks."
-                    ),
-                },
-                {"role": "human", "content": build_meta.get("prompt") or ""},
-            ],
-            "model": build_meta.get("model") or settings.chat_model,
-            "prompt_tokens": build_meta.get("prompt_tokens"),
-            "completion_tokens": build_meta.get("completion_tokens"),
-            "total_tokens": build_meta.get("total_tokens"),
+            "agent": VISUAL_SUMMARY_AGENT_LABEL,
+            "prompt": meta.get("prompt"),
+            "llm_output": meta.get("llm_output"),
+            "messages": meta.get("messages"),
+            "model": meta.get("model") or settings.visual_summary_model,
+            "prompt_tokens": meta.get("prompt_tokens"),
+            "completion_tokens": meta.get("completion_tokens"),
+            "total_tokens": meta.get("total_tokens"),
             "agent_evidence": serialize_agent_evidence(agent_evidence),
         },
         output=spec,
         on_event=on_event,
     )
-    _emit(on_event, "presentation", run_id=str(run.id), presentation_profile=spec.get("presentation_profile"))
+    _emit(
+        on_event,
+        "presentation",
+        run_id=str(run.id),
+        presentation_profile=spec.get("presentation_profile"),
+    )
     return step_index
+
+
+def _finalize_visual_summary_run(
+    db: Session,
+    run: AgentRun,
+    *,
+    step_index: int,
+    on_event: EventCallback = None,
+) -> int:
+    spec = _extract_render_ui_spec(run)
+    if not spec:
+        return step_index
+
+    run.presentation_spec = spec
+    plain = spec.get("plain_summary")
+    if plain and (not run.final_answer or run.final_answer == "(no final answer)"):
+        run.final_answer = str(plain)
+
+    ctx = _presentation_context_for_run(db, run)
+    return _attach_presentation_step(
+        db,
+        run,
+        spec=spec,
+        step_index=step_index,
+        agent_evidence=ctx.agent_evidence,
+        on_event=on_event,
+    )
+
+
+def _run_visual_summary_agent(
+    db: Session,
+    run: AgentRun,
+    *,
+    step_index: int,
+    on_event: EventCallback = None,
+    trace_live: LiveTraceContext | None = None,
+) -> AgentRun:
+    """Run the Visual Summary Agent after the user approves generative UI."""
+    if run.presentation_spec:
+        return run
+
+    ctx = _presentation_context_for_run(db, run)
+    step_index += 1
+    _append_step(
+        db,
+        run,
+        step_index=step_index,
+        type="agent_handoff",
+        input={
+            "from": run.agent_type or "general",
+            "to": "visual_summary",
+            "goal": run.goal,
+            "answer_preview": (run.final_answer or "")[:500],
+        },
+        output={"status": "handoff", "agent": VISUAL_SUMMARY_AGENT_LABEL},
+        on_event=on_event,
+    )
+
+    profile = get_profile("visual_summary")
+    messages: list[BaseMessage] = [
+        SystemMessage(content=agent_system_prompt(profile.system_prompt)),
+        HumanMessage(content=_visual_summary_handoff_message(ctx)),
+    ]
+    chat_model = settings.visual_summary_model
+    completed = _run_tool_loop(
+        db,
+        run,
+        messages=messages,
+        max_steps=profile.default_max_steps,
+        start_step_index=step_index,
+        on_event=on_event,
+        trace_live=trace_live,
+        agent_type_override="visual_summary",
+        presentation_context=ctx,
+        chat_model=chat_model,
+        finalize_mode="visual_summary",
+        initial_token_usage=int(run.token_usage or 0),
+    )
+    return completed
 
 
 def _run_tool_loop(
@@ -681,6 +776,11 @@ def _run_tool_loop(
     start_step_index: int | None = None,
     on_event: EventCallback = None,
     trace_live: LiveTraceContext | None = None,
+    agent_type_override: str | None = None,
+    presentation_context: PresentationContext | None = None,
+    chat_model: str | None = None,
+    finalize_mode: str = "main",
+    initial_token_usage: int = 0,
 ) -> AgentRun:
     """
     Shared LLM ↔ tools loop.
@@ -688,14 +788,17 @@ def _run_tool_loop(
     Pauses on first write tool with a checkpoint in pending_tool so approve can resume.
     """
     user_id = run.user_id or uuid.UUID(int=0)
+    resolved_agent_type = agent_type_override or run.agent_type
+    resolved_model = chat_model or settings.chat_model
     tools = build_tools(
         db,
         workspace_id=run.workspace_id,
         user_id=user_id,
-        agent_type=run.agent_type,
+        agent_type=resolved_agent_type,
+        presentation_context=presentation_context,
     )
     tool_by_name = {t.name: t for t in tools}
-    model = _llm().bind_tools(tools)
+    model = _llm(resolved_model).bind_tools(tools)
 
     step_index = (
         start_step_index
@@ -710,6 +813,27 @@ def _run_tool_loop(
     def refresh_trace() -> None:
         _refresh_execution_trace(db, run, on_event, trace_live)
 
+    def finish_run(step_index: int, *, fallback_answer: str) -> int:
+        run.status = "completed"
+        combined_usage = initial_token_usage + total_tokens_acc
+        run.token_usage = combined_usage or None
+        run.pending_tool = None
+        if finalize_mode == "visual_summary":
+            return _finalize_visual_summary_run(
+                db,
+                run,
+                step_index=step_index,
+                on_event=on_event,
+            )
+        return _finalize_completed_run(
+            db,
+            run,
+            messages=messages,
+            fallback_answer=fallback_answer,
+            step_index=step_index,
+            on_event=on_event,
+        )
+
     try:
         for _ in range(max(1, max_steps)):
             turn_id = str(uuid.uuid4())
@@ -718,14 +842,14 @@ def _run_tool_loop(
             trace_live.has_tool_calls = False
             trace_live.prompt_by_turn[turn_id] = _serialize_messages(messages)
             trace_live.tokens_by_turn.pop(turn_id, None)
-            trace_live.model_by_turn[turn_id] = settings.chat_model
+            trace_live.model_by_turn[turn_id] = resolved_model
             _emit(
                 on_event,
                 "llm_start",
                 run_id=str(run.id),
                 turn_id=turn_id,
                 name="ChatOpenAI",
-                model=settings.chat_model,
+                model=resolved_model,
                 status=run.status,
             )
             refresh_trace()
@@ -749,7 +873,7 @@ def _run_tool_loop(
                 run_id=str(run.id),
                 turn_id=turn_id,
                 name="ChatOpenAI",
-                model=settings.chat_model,
+                model=resolved_model,
                 duration_ms=round(llm_ms, 1),
                 prompt_tokens=p,
                 completion_tokens=c,
@@ -790,16 +914,9 @@ def _run_tool_loop(
                     )
                     # Don't append ai (would orphan tool_calls), don't re-invoke LLM.
                     # Just exit — repeated calls waste tokens.
-                    run.status = "completed"
-                    run.token_usage = total_tokens_acc or None
-                    run.pending_tool = None
-                    step_index = _finalize_completed_run(
-                        db,
-                        run,
-                        messages=messages,
+                    step_index = finish_run(
+                        step_index,
                         fallback_answer=_content_str(ai.content) or "(no final answer)",
-                        step_index=step_index,
-                        on_event=on_event,
                     )
                     _log_agent_usage(
                         db,
@@ -846,7 +963,7 @@ def _run_tool_loop(
                     type="thought" if ai.tool_calls else "final",
                     input={
                         "messages": prompt_messages,
-                        "model": settings.chat_model,
+                        "model": resolved_model,
                         "prompt_tokens": p,
                         "completion_tokens": c,
                         "total_tokens": t if t else (p + c),
@@ -857,16 +974,9 @@ def _run_tool_loop(
                 )
 
             if not ai.tool_calls:
-                run.status = "completed"
-                run.token_usage = total_tokens_acc or None
-                run.pending_tool = None
-                step_index = _finalize_completed_run(
-                    db,
-                    run,
-                    messages=messages,
+                step_index = finish_run(
+                    step_index,
                     fallback_answer=content or "(no final answer)",
-                    step_index=step_index,
-                    on_event=on_event,
                 )
                 _log_agent_usage(
                     db,
@@ -1074,18 +1184,11 @@ def _run_tool_loop(
                 trace_live.running_tool_names = []
                 refresh_trace()
 
-        run.status = "completed"
-        run.token_usage = total_tokens_acc or None
-        run.pending_tool = None
-        step_index = _finalize_completed_run(
-            db,
-            run,
-            messages=messages,
+        step_index = finish_run(
+            step_index,
             fallback_answer=(
                 run.final_answer or "Stopped after max_steps without a final answer."
             ),
-            step_index=step_index,
-            on_event=on_event,
         )
         _log_agent_usage(
             db,
@@ -1249,11 +1352,12 @@ def approve_agent_run(
             on_event=on_event,
         )
         step_index += 1
-        step_index = _build_and_attach_presentation(
+        _run_visual_summary_agent(
             db,
             run,
             step_index=step_index,
             on_event=on_event,
+            trace_live=trace_live,
         )
         run.status = "completed"
         run.pending_tool = None

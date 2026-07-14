@@ -256,39 +256,68 @@ def test_execution_trace_token_usage_sums_all_llm_calls():
     assert usage["total_tokens"] == 1060
 
 
-def test_presentation_children_include_agent_turn_style_steps():
+def test_visual_summary_agent_turns_after_handoff():
     run = _run_with_steps(
-        "Summarize",
+        "Summarize resume with visual summary",
         [
-            {"type": "tool_call", "tool_name": "web_search", "input": {"query": "x"}},
-            {"type": "tool_result", "tool_name": "web_search", "output": {"results": []}},
             {
                 "type": "final",
+                "output": "Main agent answer with enough detail for layout.",
+            },
+            {
+                "type": "approval",
+                "tool_name": "generative_ui",
+                "output": {"status": "approved"},
+            },
+            {
+                "type": "agent_handoff",
+                "output": {"status": "handoff", "agent": "Visual Summary Agent"},
+            },
+            {
+                "type": "tool_call",
+                "tool_name": "plan_layout",
+                "input": {"notes": ""},
+            },
+            {
+                "type": "tool_result",
+                "tool_name": "plan_layout",
+                "output": {
+                    "layout_plan": {
+                        "presentation_profile": "resume_dashboard",
+                        "components": ["table", "progress"],
+                    }
+                },
+            },
+            {
+                "type": "thought",
                 "input": {
-                    "messages": [{"role": "human", "content": "go"}],
+                    "messages": [{"role": "human", "content": "handoff"}],
                     "model": "gpt-4o-mini",
                     "prompt_tokens": 10,
                     "completion_tokens": 5,
                     "total_tokens": 15,
                 },
-                "output": "answer",
+                "output": "Plan looks good — rendering UI.",
+            },
+            {
+                "type": "tool_call",
+                "tool_name": "render_ui",
+                "input": {"layout_plan_json": "{}"},
+            },
+            {
+                "type": "tool_result",
+                "tool_name": "render_ui",
+                "output": {
+                    "spec": {
+                        "type": "generative_ui",
+                        "title": "Summary",
+                        "blocks": [{"type": "summary", "body": "text"}],
+                    }
+                },
             },
             {
                 "type": "presentation",
                 "tool_name": "generative_ui",
-                "input": {
-                    "model": "gpt-4o-mini",
-                    "prompt_tokens": 20,
-                    "completion_tokens": 8,
-                    "total_tokens": 28,
-                    "llm_output": '{"title":"Summary"}',
-                    "agent_evidence": {
-                        "document_hits": [
-                            {"filename": "Resume.pdf", "snippet": "PM experience"}
-                        ],
-                        "web_hits": [],
-                    },
-                },
                 "output": {
                     "type": "generative_ui",
                     "title": "Summary",
@@ -298,13 +327,20 @@ def test_presentation_children_include_agent_turn_style_steps():
         ],
     )
     trace = build_execution_trace(run, workspace_name="Resume")
+    agent_turns = [p for p in trace["phases"] if p["type"] == "agent_turn"]
+    assert agent_turns[0]["label"] == "Resume Agent"
+    visual_turns = [p for p in agent_turns if p.get("agent_label") == "Visual Summary Agent"]
+    assert len(visual_turns) >= 1
+    tool_labels = [
+        c.get("label")
+        for vt in visual_turns
+        for c in vt.get("children") or []
+        if c.get("type") == "tool"
+    ]
+    assert "Plan layout" in tool_labels
+    assert "Render UI" in tool_labels
     pres = next(p for p in trace["phases"] if p["type"] == "presentation")
-    children = pres["children"]
-    labels = [c.get("label") for c in children]
-    assert any("Resume Agent ·" in str(l) for l in labels)
-    assert any(c.get("label") == "Layout engine" for c in children)
-    assert any(c.get("label") == "Generated UI" for c in children)
-    assert any(c.get("tool_name") == "search_documents" for c in children)
+    assert pres.get("children") == []
 
 
 def test_hitl_before_presentation():

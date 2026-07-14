@@ -29,6 +29,12 @@ def test_normalize_agent_type_always_general():
     assert normalize_agent_type(None) == "general"
 
 
+def test_visual_summary_profile_has_layout_tools():
+    profile = get_profile("visual_summary")
+    assert profile.agent_type == "visual_summary"
+    assert profile.tool_names == frozenset({"plan_layout", "render_ui"})
+
+
 def test_build_tools_single_profile():
     db = MagicMock()
     ws_id = uuid.uuid4()

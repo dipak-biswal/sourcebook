@@ -53,6 +53,31 @@ GENERAL_PROFILE = AgentProfile(
     default_max_steps=6,
 )
 
+VISUAL_SUMMARY_TOOL_NAMES = frozenset({"plan_layout", "render_ui"})
+
+VISUAL_SUMMARY_SYSTEM_PROMPT = (
+    "You are the Visual Summary Agent. You receive a handoff from the workspace agent: "
+    "user goal, their written answer, and tool evidence.\n"
+    "Your job is to plan and build a visual UI — not rewrite the analysis.\n"
+    "- First call plan_layout to decide presentation_profile, components, and block_outline.\n"
+    "- Review the plan; call plan_layout again only if you need to adjust structure.\n"
+    "- When the plan is ready, call render_ui with the layout plan as a JSON string.\n"
+    "- Do not invent facts; layout only what the main agent already established.\n"
+    "- After render_ui succeeds, reply briefly that the visual summary is ready — no more tools."
+)
+
+VISUAL_SUMMARY_PROFILE = AgentProfile(
+    agent_type="visual_summary",
+    system_prompt=VISUAL_SUMMARY_SYSTEM_PROMPT,
+    tool_names=VISUAL_SUMMARY_TOOL_NAMES,
+    default_max_steps=4,
+)
+
+_PROFILES: dict[str, AgentProfile] = {
+    "general": GENERAL_PROFILE,
+    "visual_summary": VISUAL_SUMMARY_PROFILE,
+}
+
 
 def normalize_agent_type(value: str | None) -> str:
     """Legacy API values map to the single workspace agent."""
@@ -70,4 +95,5 @@ def agent_system_prompt(base: str | None = None) -> str:
 
 
 def get_profile(agent_type: str | None = None) -> AgentProfile:
-    return GENERAL_PROFILE
+    key = (agent_type or "general").strip() or "general"
+    return _PROFILES.get(key, GENERAL_PROFILE)

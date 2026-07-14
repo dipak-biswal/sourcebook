@@ -40,6 +40,7 @@ class Settings(BaseSettings):
     openai_base_url: str = "https://api.openai.com/v1"
     embedding_model: str = "text-embedding-3-small"
     chat_model: str = "gpt-4o-mini"
+    visual_summary_model: str = "gpt-4o-mini"
     rag_top_k: int = 5
     # Cosine floor: below this → no hits, no sources (off-topic questions).
     # Raise (e.g. 0.25) if off-topic still retrieves; lower if on-topic misses.

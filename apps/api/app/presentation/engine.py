@@ -344,7 +344,15 @@ def build_presentation(
     max_idx = len(sources)
     ws_lines = _workspace_context_lines(ctx)
     layout_components = layout_components_from_goal(goal)
+    if ctx.layout_plan and isinstance(ctx.layout_plan.get("components"), list):
+        layout_components = list(ctx.layout_plan["components"])
     layout_section = format_layout_requirements(layout_components)
+    plan_section = ""
+    if ctx.layout_plan:
+        plan_section = (
+            "\nAPPROVED LAYOUT PLAN (from Visual Summary Agent — follow this structure):\n"
+            f"{json.dumps(ctx.layout_plan, ensure_ascii=False)[:4000]}\n"
+        )
     agent_evidence_section = (
         f"\n{agent_evidence_text}\n"
         if agent_evidence_text
@@ -361,7 +369,7 @@ USER GOAL (layout intent — which components to build):
 {goal}
 
 {layout_section}
-
+{plan_section}
 AGENT TEXT ANSWER (facts only — source material for blocks, NOT layout instructions):
 {answer[:8000]}
 {agent_evidence_section}

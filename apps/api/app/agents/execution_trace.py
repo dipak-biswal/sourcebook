@@ -18,7 +18,11 @@ TOOL_LABELS: dict[str, str] = {
     "web_search": "Web search",
     "create_note": "Create note",
     "generative_ui": "Visual summary",
+    "plan_layout": "Plan layout",
+    "render_ui": "Render UI",
 }
+
+VISUAL_SUMMARY_AGENT_LABEL = "Visual Summary Agent"
 
 PRESENTATION_TOOL = "generative_ui"
 COMPLETE_STATUSES = frozenset({"completed", "cancelled", "failed"})
@@ -214,6 +218,7 @@ class _TurnAcc:
     response_step: AgentStep | None = None
     state: TraceState = "done"
     llm_turn_id: str | None = None
+    agent_label: str | None = None
 
     def prompt_for_output(self, live: LiveTraceContext | None) -> list[dict[str, Any]] | None:
         if self.response_step:
@@ -350,8 +355,8 @@ class _TurnAcc:
         *,
         workspace_name: str | None = None,
     ) -> dict[str, Any]:
-        label = _agent_name(workspace_name)
-        return {
+        label = self.agent_label or _agent_name(workspace_name)
+        phase = {
             "id": self.id,
             "type": "agent_turn",
             "turn": self.turn,
@@ -359,6 +364,9 @@ class _TurnAcc:
             "state": self.state,
             "children": self.children(live),
         }
+        if self.agent_label:
+            phase["agent_label"] = self.agent_label
+        return phase
 
 
 def _open_tool(
@@ -577,13 +585,7 @@ def _presentation_phase(
         "prompt": step_input.get("messages") or step_input.get("prompt"),
         "llm_output": llm_output,
         "agent_evidence": step_input.get("agent_evidence"),
-        "children": _presentation_children(
-            turns,
-            tail_before,
-            step,
-            state,
-            workspace_name=workspace_name,
-        ),
+        "children": [],
         "block_count": len(blocks) if isinstance(blocks, list) else 0,
         "presentation_profile": (
             output.get("presentation_profile") if isinstance(output, dict) else None
@@ -597,21 +599,42 @@ def _parse_steps(
     running_tools: set[str],
     *,
     workspace_name: str | None = None,
-) -> tuple[list[_TurnAcc], list[dict[str, Any]]]:
+) -> tuple[list[_TurnAcc], list[_TurnAcc], list[dict[str, Any]]]:
     """Parse steps without live context (fixed attach_tool_result)."""
     turns: list[_TurnAcc] = []
+    visual_turns: list[_TurnAcc] = []
     tail: list[dict[str, Any]] = []
     presentation_approvals: list[AgentStep] = []
     current: _TurnAcc | None = None
     turn_index = 0
+    visual_turn_index = 0
+    visual_mode = False
+
+    def active_turns() -> list[_TurnAcc]:
+        return visual_turns if visual_mode else turns
 
     def start_turn() -> _TurnAcc:
-        nonlocal turn_index, current
-        turn_index += 1
-        current = _TurnAcc(id=f"turn-{turn_index}", turn=turn_index, state="done")
+        nonlocal turn_index, visual_turn_index, current
+        if visual_mode:
+            visual_turn_index += 1
+            current = _TurnAcc(
+                id=f"vs-turn-{visual_turn_index}",
+                turn=visual_turn_index,
+                state="done",
+                agent_label=VISUAL_SUMMARY_AGENT_LABEL,
+            )
+        else:
+            turn_index += 1
+            current = _TurnAcc(id=f"turn-{turn_index}", turn=turn_index, state="done")
         return current
 
     for step in sorted(steps, key=lambda s: s.step_index):
+        if step.type == "agent_handoff":
+            if current is not None:
+                active_turns().append(current)
+                current = None
+            visual_mode = True
+            continue
         if step.type == "tool_call":
             if current is None:
                 start_turn()
@@ -637,7 +660,7 @@ def _parse_steps(
                 continue
             current.response_step = step
             current.state = "done"
-            turns.append(current)
+            active_turns().append(current)
             current = None
             continue
 
@@ -647,14 +670,14 @@ def _parse_steps(
             assert current is not None
             current.response_step = step
             current.state = "done"
-            turns.append(current)
+            active_turns().append(current)
             current = None
             continue
 
         if step.type == "approval":
             if current is not None:
                 current.state = "done"
-                turns.append(current)
+                active_turns().append(current)
                 current = None
             if step.tool_name == PRESENTATION_TOOL:
                 presentation_approvals.append(step)
@@ -698,7 +721,7 @@ def _parse_steps(
     if current is not None:
         if any(t.state != "done" for t in current.tools):
             current.state = "running"
-        turns.append(current)
+        active_turns().append(current)
 
     if presentation_approvals:
         last = presentation_approvals[-1]
@@ -721,7 +744,7 @@ def _parse_steps(
         else:
             tail.append(hitl)
 
-    return turns, tail
+    return turns, visual_turns, tail
 
 
 def _presentation_pending(run: AgentRun) -> bool:
@@ -772,14 +795,8 @@ def _apply_run_overlays(
                     "type": "presentation",
                     "label": "Visual summary",
                     "state": "running",
-                    "model": settings.chat_model,
-                    "children": _presentation_children(
-                        turns or [],
-                        _tail_before_presentation(tail or []),
-                        None,
-                        "running",
-                        workspace_name=workspace_name,
-                    ),
+                    "model": settings.visual_summary_model,
+                    "children": [],
                 }
             )
         else:
@@ -793,17 +810,13 @@ def _apply_run_overlays(
             ]
 
     if live and live.llm_running and live.current_turn_id and out:
-        for i, phase in enumerate(out):
-            if phase.get("type") != "agent_turn":
-                continue
-            if phase.get("state") == "running" or (
-                i == len([p for p in out if p.get("type") == "agent_turn"]) - 1
-            ):
-                phase = dict(phase)
-                phase["state"] = "running"
-                phase["llm_turn_id"] = live.current_turn_id
-                out[i] = phase
-                break
+        agent_indices = [i for i, p in enumerate(out) if p.get("type") == "agent_turn"]
+        if agent_indices:
+            i = agent_indices[-1]
+            phase = dict(out[i])
+            phase["state"] = "running"
+            phase["llm_turn_id"] = live.current_turn_id
+            out[i] = phase
 
     if live and live.running_tool_names and out:
         running_set = set(live.running_tool_names)
@@ -953,10 +966,13 @@ def build_execution_trace(
 ) -> dict[str, Any]:
     steps = sorted(run.steps or [], key=lambda s: s.step_index)
     running_tools = set(live.running_tool_names if live else [])
-    turns, tail = _parse_steps(steps, running_tools, workspace_name=workspace_name)
+    turns, visual_turns, tail = _parse_steps(
+        steps, running_tools, workspace_name=workspace_name
+    )
 
-    if live and live.current_turn_id and turns:
-        last = turns[-1]
+    live_turns = visual_turns if visual_turns else turns
+    if live and live.current_turn_id and live_turns:
+        last = live_turns[-1]
         if last.state == "running" or live.llm_running:
             last.llm_turn_id = live.current_turn_id
             if live.llm_running:
@@ -979,6 +995,17 @@ def build_execution_trace(
         phases.append(phase)
 
     phases.extend(tail)
+
+    if visual_turns:
+        pres_idx = next(
+            (i for i, p in enumerate(phases) if p.get("type") == "presentation"),
+            len(phases),
+        )
+        for offset, turn in enumerate(visual_turns):
+            phase = turn.to_phase(live, workspace_name=workspace_name)
+            if live and turn.llm_turn_id:
+                phase["llm_turn_id"] = turn.llm_turn_id
+            phases.insert(pres_idx + offset, phase)
     phases = _apply_run_overlays(
         phases,
         run,

@@ -5,6 +5,8 @@ from langchain_core.tools import tool
 from sqlalchemy.orm import Session
 
 from app.agents.profiles import get_profile
+from app.agents.visual_tools import build_visual_tools
+from app.presentation.context import PresentationContext
 from app.agents.web_search import search_web
 from app.ingestion.retrieve import retrieve_chunks
 from app.models import Document, Note
@@ -16,9 +18,20 @@ def build_tools(
     workspace_id: uuid.UUID,
     user_id: uuid.UUID,
     agent_type: str = "general",
+    presentation_context: PresentationContext | None = None,
 ):
     """Return tool callables bound to this request's db+tenant and agent profile."""
     profile = get_profile(agent_type)
+
+    if profile.agent_type == "visual_summary":
+        if presentation_context is None:
+            raise ValueError("presentation_context is required for visual_summary tools")
+        return build_visual_tools(
+            db,
+            workspace_id=workspace_id,
+            user_id=user_id,
+            ctx=presentation_context,
+        )
 
     @tool
     def list_documents() -> list[dict[str, Any]]:

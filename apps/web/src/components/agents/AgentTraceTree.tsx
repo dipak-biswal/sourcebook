@@ -364,54 +364,25 @@ function HitlEmbedBody({ child }: { child: TraceHitlEmbedChild }) {
   return <p className="text-mute">Completed</p>;
 }
 
-function PresentationTraceBody({
-  phase,
-  workspaceName,
-  defaultOpen,
-  activeChildId,
-  activeRef,
-}: {
-  phase: TracePresentationPhase;
-  workspaceName?: string | null;
-  defaultOpen: boolean;
-  activeChildId?: string | null;
-  activeRef?: React.RefObject<HTMLDivElement | null>;
-}) {
+function PresentationTraceBody({ phase }: { phase: TracePresentationPhase }) {
   const output = isGenerativeUI(phase.output) ? phase.output : null;
-  const children = phase.children ?? [];
+
+  if (!output) {
+    return <p className="text-[11px] text-mute">Waiting for generated UI…</p>;
+  }
 
   return (
-    <div className="space-y-3">
-      <div className="rounded-[6px] border border-hairline/80 bg-canvas-soft/30 px-2.5 py-2">
-        <div className="mb-2 text-[10px] font-bold uppercase tracking-wide text-mute">
-          {(workspaceName?.trim() || "Agent")} · visual summary
-        </div>
-        {children.length > 0 ? (
-          <TurnChildrenTimeline
-            children={children}
-            activeChildId={activeChildId}
-            activeRef={activeRef}
-            defaultOpen={defaultOpen}
-          />
-        ) : (
-          <p className="text-[11px] text-mute">Waiting for visual summary steps…</p>
-        )}
-      </div>
-
-      {output && (
-        <div className="space-y-1.5 rounded-[6px] border border-hairline bg-canvas-soft/40 p-2">
-          <p className="font-medium text-ink">{output.title}</p>
-          {output.plain_summary && (
-            <p className="text-[11px] text-mute">{output.plain_summary}</p>
-          )}
-          <div className="flex flex-wrap gap-2 text-[10px] text-mute">
-            {phase.presentation_profile && (
-              <span>Profile: {phase.presentation_profile.replace(/_/g, " ")}</span>
-            )}
-            {phase.block_count != null && <span>{phase.block_count} blocks</span>}
-          </div>
-        </div>
+    <div className="space-y-1.5 rounded-[6px] border border-hairline bg-canvas-soft/40 p-2">
+      <p className="font-medium text-ink">{output.title}</p>
+      {output.plain_summary && (
+        <p className="text-[11px] text-mute">{output.plain_summary}</p>
       )}
+      <div className="flex flex-wrap gap-2 text-[10px] text-mute">
+        {phase.presentation_profile && (
+          <span>Profile: {phase.presentation_profile.replace(/_/g, " ")}</span>
+        )}
+        {phase.block_count != null && <span>{phase.block_count} blocks</span>}
+      </div>
     </div>
   );
 }
@@ -758,13 +729,7 @@ export function AgentTraceTree({
           defaultOpen={defaultOpen || active}
           model={presentation.model}
         >
-          <PresentationTraceBody
-            phase={presentation}
-            workspaceName={trace?.workspace_name}
-            defaultOpen={defaultOpen || active}
-            activeChildId={activeChildId}
-            activeRef={activeRef}
-          />
+          <PresentationTraceBody phase={presentation} />
         </ExpandableTraceRow>
       );
     }
