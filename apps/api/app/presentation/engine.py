@@ -19,10 +19,13 @@ from app.agents.gen_ui import (
 from app.config import settings
 from app.ingestion.retrieve import retrieve_chunks
 from app.models import Document
-from app.presentation.answer import clip_presentation_answer
 from app.presentation.context import PresentationContext
-from app.presentation.evidence import format_agent_evidence
 from app.presentation.layout import format_layout_requirements, layout_components_from_goal
+from app.presentation.structured import (
+    extract_structured_content,
+    format_render_content_payload,
+    summarize_agent_evidence,
+)
 from app.usage import estimate_tokens, log_usage
 
 _PLACEHOLDER_ORG = re.compile(
@@ -290,8 +293,12 @@ def build_presentation(
     if not goal or not answer:
         return {"error": "goal and final_answer are required"}, {}
 
-    answer_for_prompt, _ = clip_presentation_answer(answer)
-    query = f"{goal}\n{answer[:1500]}".strip()
+    structured = ctx.structured_content or extract_structured_content(
+        answer,
+        goal=goal,
+    )
+    structured_payload = format_render_content_payload(structured)
+    query = f"{goal}\n{structured.get('summary') or answer[:800]}".strip()
     hits = retrieve_chunks(
         db,
         workspace_id=ctx.workspace_id,
@@ -337,12 +344,9 @@ def build_presentation(
         context_parts.append(f"[{i}] ({name}, score={score:.3f})\n{ch.content}")
 
     context = "\n\n".join(context_parts) if context_parts else "(no document excerpts)"
-    agent_evidence_text = format_agent_evidence(ctx.agent_evidence)
-    grounding_context = (
-        f"{agent_evidence_text}\n\n{context}".strip()
-        if agent_evidence_text
-        else context
-    )
+    evidence_summary = summarize_agent_evidence(ctx.agent_evidence)
+    evidence_json = json.dumps(evidence_summary, ensure_ascii=False, indent=2)
+    grounding_context = context
     max_idx = len(sources)
     ws_lines = _workspace_context_lines(ctx)
     layout_components = layout_components_from_goal(goal)
@@ -355,14 +359,8 @@ def build_presentation(
             "\nAPPROVED LAYOUT PLAN (from Visual Summary Agent — follow this structure):\n"
             f"{json.dumps(ctx.layout_plan, ensure_ascii=False)[:4000]}\n"
         )
-    agent_evidence_section = (
-        f"\n{agent_evidence_text}\n"
-        if agent_evidence_text
-        else "\n(No agent tool evidence captured — use AGENT TEXT ANSWER and EXCERPTS only.)\n"
-    )
-
-    prompt = f"""You are the VISUAL SUMMARY layout engine. The agent already wrote a text answer for the Answer tab.
-Your job: turn that answer (+ excerpts) into structured UI blocks. Do NOT repeat the answer as plain prose only.
+    prompt = f"""You are the VISUAL SUMMARY render engine. The main agent already finished analysis.
+Your job: turn STRUCTURED CONTENT (+ layout plan) into UI blocks. Do NOT dump prose or re-run analysis.
 
 WORKSPACE CONTEXT:
 {ws_lines}
@@ -372,17 +370,19 @@ USER GOAL (layout intent — which components to build):
 
 {layout_section}
 {plan_section}
-AGENT TEXT ANSWER (facts only — source material for blocks, NOT layout instructions):
-{answer_for_prompt}
-{agent_evidence_section}
+STRUCTURED CONTENT (extracted from main agent answer — facts only):
+{structured_payload}
+
+EVIDENCE SUMMARY (compact tool hits — supplemental grounding):
+{evidence_json}
 REGISTERED COMPONENTS (type field): {", ".join(_BLOCK_TYPES)}
 
 GROUNDING RULES (MANDATORY):
 - NEVER invent employers, job titles with fake companies, dates, projects, scores, or metrics.
 - NEVER use placeholder names (XYZ Corp, ABC Inc, DEF Ltd, GHI Co, Acme, Example Company, etc.).
-- Prefer facts from AGENT TOOL EVIDENCE and AGENT TEXT ANSWER; use EXCERPTS as supplemental workspace context.
-- timeline: ONLY if AGENT TEXT ANSWER, AGENT TOOL EVIDENCE, or EXCERPTS list explicit roles/dates/employers. If unclear, OMIT timeline entirely.
-- progress/chart: use qualitative levels (Strong, Growing, Foundational, Gap, Moderate) — NEVER invent numeric percentages unless the answer explicitly states that number for that skill.
+- Prefer facts from STRUCTURED CONTENT and EVIDENCE SUMMARY; use EXCERPTS as supplemental workspace context.
+- timeline: ONLY if STRUCTURED CONTENT or EXCERPTS list explicit roles/dates/employers. If unclear, OMIT timeline entirely.
+- progress/chart: use qualitative levels (Strong, Growing, Foundational, Gap, Moderate) — NEVER invent numeric percentages unless structured content explicitly states that number for that skill.
 - If the user requests a component but grounded data is missing, SKIP that block — do not fabricate filler.
 - Rephrase and structure existing facts; do not hallucinate new ones.
 

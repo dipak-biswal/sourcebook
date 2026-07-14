@@ -109,13 +109,10 @@ def _tokens_from_visual_tool_meta(meta: dict[str, Any]) -> dict[str, int]:
 def _visual_tool_llm_meta(step: AgentStep | None) -> dict[str, Any] | None:
     if not step or step.tool_name not in VISUAL_TOOL_LLM_NAMES:
         return None
-    meta: dict[str, Any] = {}
-    if isinstance(step.input, dict):
-        meta = dict(step.input)
-    elif isinstance(step.output, dict):
-        meta = dict(step.output)
-    else:
-        return None
+    input_meta = dict(step.input) if isinstance(step.input, dict) else {}
+    output_meta = dict(step.output) if isinstance(step.output, dict) else {}
+    # Prefer tool_result LLM fields over tool_call handoff blobs.
+    meta: dict[str, Any] = {**input_meta, **output_meta}
     if not any(
         isinstance(meta.get(key), int) and meta.get(key) >= 0
         for key in ("prompt_tokens", "completion_tokens", "total_tokens")
@@ -135,7 +132,11 @@ def _visual_tool_llm_child(tool_acc: _ToolAcc) -> dict[str, Any] | None:
     llm_output = meta.get("llm_output")
     if llm_output is None and isinstance(step.output if step else None, dict):
         output = step.output  # type: ignore[union-attr]
-        llm_output = output.get("layout_plan") or output.get("spec")
+        llm_output = (
+            output.get("layout_plan")
+            or output.get("spec")
+            or output.get("structured_input")
+        )
     if isinstance(llm_output, (dict, list)):
         output_text = json.dumps(llm_output, ensure_ascii=False, default=str)
     else:

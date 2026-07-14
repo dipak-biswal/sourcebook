@@ -12,11 +12,14 @@ from sqlalchemy.orm import Session
 
 from app.agents.date_tools import get_current_date
 from app.config import settings
-from app.presentation.answer import clip_presentation_answer
 from app.presentation.context import PresentationContext
 from app.presentation.engine import build_presentation
-from app.presentation.evidence import format_agent_evidence
 from app.presentation.layout import format_layout_requirements, layout_components_from_goal
+from app.presentation.structured import (
+    build_plan_layout_input,
+    extract_structured_content,
+    format_plan_layout_prompt,
+)
 from app.usage import estimate_tokens, log_usage
 
 VISUAL_SUMMARY_AGENT_LABEL = "Visual Summary Agent"
@@ -28,44 +31,20 @@ def _client() -> OpenAI:
 
 def _plan_layout_llm(ctx: PresentationContext, *, notes: str = "") -> dict[str, Any]:
     goal = (ctx.goal or "").strip()
-    answer, truncated = clip_presentation_answer(ctx.final_answer or "")
+    structured = ctx.structured_content or extract_structured_content(
+        ctx.final_answer or "",
+        goal=goal,
+    )
     components = layout_components_from_goal(goal)
     layout_hints = format_layout_requirements(components)
-    evidence = format_agent_evidence(ctx.agent_evidence)
-    truncation_note = (
-        "\nNOTE: Main agent answer was truncated for context limits — "
-        "use AGENT EVIDENCE for missing detail.\n"
-        if truncated
-        else ""
+    planner_input = build_plan_layout_input(
+        goal=goal,
+        structured_content=structured,
+        evidence=ctx.agent_evidence,
+        components=components,
+        notes=notes,
     )
-
-    prompt = f"""You are the Visual Summary Agent planner. Decide how to present the main agent's answer as UI blocks.
-
-USER GOAL:
-{goal}
-
-MAIN AGENT ANSWER (facts — do not invent new facts):
-{answer}
-{truncation_note}
-
-AGENT EVIDENCE:
-{evidence or "(none)"}
-
-{layout_hints}
-
-PLANNER NOTES FROM AGENT:
-{notes.strip() or "(none)"}
-
-Return JSON only:
-{{
-  "presentation_profile": "short_snake_case e.g. resume_dashboard",
-  "components": ["table", "progress", ...],
-  "block_outline": [
-    {{"type": "table", "title": "...", "purpose": "what facts this block shows"}}
-  ],
-  "rationale": "1-3 sentences on layout choices"
-}}
-Use only grounded components. Omit blocks when data is missing."""
+    prompt = format_plan_layout_prompt(planner_input, layout_hints=layout_hints)
 
     client = _client()
     resp = client.chat.completions.create(
@@ -104,6 +83,7 @@ Use only grounded components. Omit blocks when data is missing."""
 
     return {
         "plan": plan,
+        "structured_input": planner_input,
         "prompt": prompt,
         "llm_output": raw,
         "usage": {
@@ -146,13 +126,14 @@ def build_visual_tools(
         return {
             "status": "planned",
             "layout_plan": result["plan"],
+            "structured_input": result.get("structured_input"),
             "model": usage["model"],
-            "prompt": result["prompt"],
-            "llm_output": result["llm_output"],
-            "prompt_tokens": usage["prompt_tokens"],
-            "completion_tokens": usage["completion_tokens"],
-            "total_tokens": usage["total_tokens"],
-        }
+        "prompt": result["prompt"],
+        "llm_output": result["llm_output"],
+        "prompt_tokens": usage["prompt_tokens"],
+        "completion_tokens": usage["completion_tokens"],
+        "total_tokens": usage["total_tokens"],
+    }
 
     @tool
     def render_ui(layout_plan_json: str) -> dict[str, Any]:
@@ -177,6 +158,7 @@ def build_visual_tools(
             workspace_tags=list(ctx.workspace_tags),
             document_filenames=list(ctx.document_filenames),
             agent_evidence=ctx.agent_evidence,
+            structured_content=ctx.structured_content,
             layout_plan=plan,
         )
         spec, meta = build_presentation(db, render_ctx)

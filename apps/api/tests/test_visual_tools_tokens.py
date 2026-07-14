@@ -33,7 +33,8 @@ def test_plan_layout_llm_returns_prompt_and_usage(monkeypatch):
     monkeypatch.setattr("app.agents.visual_tools._client", lambda: fake_client)
 
     result = _plan_layout_llm(ctx)
-    assert "Detailed answer text." in result["prompt"]
+    assert "STRUCTURED INPUT" in result["prompt"]
+    assert "structured_content" in result["prompt"]
     assert result["llm_output"]
     assert result["usage"]["prompt_tokens"] == 120
     assert result["usage"]["completion_tokens"] == 30

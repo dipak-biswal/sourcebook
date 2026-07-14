@@ -19,4 +19,5 @@ class PresentationContext:
     workspace_tags: list[str] = field(default_factory=list)
     document_filenames: list[str] = field(default_factory=list)
     agent_evidence: AgentEvidenceBundle = field(default_factory=AgentEvidenceBundle)
+    structured_content: dict | None = None
     layout_plan: dict | None = None

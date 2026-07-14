@@ -33,6 +33,7 @@ from app.agents.execution_trace import (
     emit_execution_trace,
 )
 from app.presentation.answer import clip_presentation_answer, resolve_presentation_answer
+from app.presentation.structured import extract_structured_content
 from app.presentation.context import PresentationContext
 
 from app.presentation.evidence import (
@@ -870,34 +871,36 @@ def _presentation_context_for_run(db: Session, run: AgentRun) -> PresentationCon
         final_answer=run.final_answer,
         steps=steps,
     )
+    goal = run.goal or ""
     return PresentationContext(
         workspace_id=run.workspace_id,
         user_id=run.user_id or uuid.UUID(int=0),
-        goal=run.goal or "",
+        goal=goal,
         final_answer=narrative,
         workspace_name=ws.name if ws else "",
         workspace_description=(ws.description or "") if ws else "",
         workspace_tags=tags,
         document_filenames=filenames,
         agent_evidence=agent_evidence,
+        structured_content=extract_structured_content(narrative, goal=goal),
     )
 
 
 def _visual_summary_handoff_message(ctx: PresentationContext) -> str:
-    evidence = format_agent_evidence(ctx.agent_evidence)
-    answer, truncated = clip_presentation_answer(ctx.final_answer or "")
-    truncation_note = (
-        "\n(Note: answer clipped for context — plan_layout also receives agent evidence.)\n"
-        if truncated
-        else ""
-    )
+    structured = ctx.structured_content or {}
+    kp = len(structured.get("key_points") or [])
+    faq = len(structured.get("faq") or [])
+    sections = len(structured.get("sections") or [])
     return (
-        "MAIN AGENT HANDOFF\n\n"
+        "MAIN AGENT HANDOFF (complete — do not re-analyze documents)\n\n"
         f"User goal:\n{ctx.goal}\n\n"
-        f"Main agent answer:\n{answer}\n"
-        f"{truncation_note}\n"
-        f"Agent evidence:\n{evidence or '(none)'}\n\n"
-        "Plan the visual layout with plan_layout, then render it with render_ui."
+        "Structured content was extracted from the main agent answer for planning.\n"
+        f"- Summary: {(structured.get('summary') or '')[:240]}\n"
+        f"- Key points: {kp}\n"
+        f"- FAQ items: {faq}\n"
+        f"- Sections: {sections}\n\n"
+        "Call plan_layout (uses structured input internally), review the plan, "
+        "then call render_ui with the layout plan JSON string."
     )
 
 
@@ -950,19 +953,12 @@ def _visual_tool_call_input(
     *,
     ctx: PresentationContext | None,
 ) -> Any:
-    """Record full handoff context on plan_layout steps (not just agent notes)."""
+    """Record compact structured handoff on plan_layout tool calls (not raw answer)."""
     if tool_name != "plan_layout" or ctx is None:
         return args
-    answer, truncated = clip_presentation_answer(ctx.final_answer or "")
-    evidence = format_agent_evidence(ctx.agent_evidence)
     payload = dict(args or {}) if isinstance(args, dict) else {"notes": args}
-    payload["handoff"] = {
-        "goal": ctx.goal,
-        "answer": answer,
-        "answer_chars": len(ctx.final_answer or ""),
-        "answer_truncated": truncated,
-        "evidence": evidence or None,
-    }
+    payload["structured_handoff"] = ctx.structured_content
+    payload["goal"] = ctx.goal
     return payload
 
 

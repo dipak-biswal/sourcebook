@@ -12,6 +12,7 @@ from app.presentation.answer import (
 )
 from app.presentation.context import PresentationContext
 from app.presentation.evidence import AgentEvidenceBundle
+from app.presentation.structured import extract_structured_content
 
 
 def test_resolve_presentation_answer_prefers_longest_narrative():
@@ -58,13 +59,15 @@ def test_clip_presentation_answer_truncates_very_long_text():
     assert "truncated" in clipped.lower()
 
 
-def test_plan_layout_prompt_includes_full_answer_not_6000_cap(monkeypatch):
-    long_answer = "Z" * 9000
+def test_plan_layout_prompt_uses_structured_extract_not_raw_blob(monkeypatch):
+    long_answer = "## Key Points\n- Alpha\n\n" + ("Z" * 9000)
+    structured = extract_structured_content(long_answer, goal="Summarize resume")
     ctx = PresentationContext(
         workspace_id=uuid.uuid4(),
         user_id=uuid.uuid4(),
         goal="Summarize resume with visual summary",
         final_answer=long_answer,
+        structured_content=structured,
         agent_evidence=AgentEvidenceBundle(),
     )
 
@@ -84,6 +87,6 @@ def test_plan_layout_prompt_includes_full_answer_not_6000_cap(monkeypatch):
 
     _plan_layout_llm(ctx)
     prompt = captured[0]
-    assert long_answer in prompt
-    assert "ZZZZ"[:6000] not in prompt or long_answer in prompt
+    assert "STRUCTURED INPUT" in prompt
+    assert "ZZZZZZ" not in prompt
     assert len(long_answer) > 6000
