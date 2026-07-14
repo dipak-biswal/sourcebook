@@ -35,6 +35,15 @@ def _step_output_status(step: AgentStep | dict[str, Any]) -> str | None:
     return str(status) if status is not None else None
 
 
+def _messages_from_step_input(step: AgentStep | None) -> list[dict[str, Any]] | None:
+    if not step or not step.input or not isinstance(step.input, dict):
+        return None
+    messages = step.input.get("messages")
+    if isinstance(messages, list):
+        return messages
+    return None
+
+
 def _step_text(step: AgentStep | None) -> str:
     if not step or step.output is None:
         return ""
@@ -56,6 +65,7 @@ class LiveTraceContext:
     """In-memory stream state while a run is executing (not persisted)."""
 
     stream_by_turn: dict[str, str] = field(default_factory=dict)
+    prompt_by_turn: dict[str, list[dict[str, Any]]] = field(default_factory=dict)
     current_turn_id: str | None = None
     llm_running: bool = False
     has_tool_calls: bool = False
@@ -109,6 +119,26 @@ class _TurnAcc:
     state: TraceState = "done"
     llm_turn_id: str | None = None
 
+    def prompt_for_output(self, live: LiveTraceContext | None) -> list[dict[str, Any]] | None:
+        if self.response_step:
+            stored = _messages_from_step_input(self.response_step)
+            if stored:
+                return stored
+        if (
+            live
+            and self.llm_turn_id
+            and live.llm_running
+            and self.llm_turn_id == live.current_turn_id
+        ):
+            return live.prompt_by_turn.get(self.llm_turn_id)
+        if self.planning_step:
+            stored = _messages_from_step_input(self.planning_step)
+            if stored:
+                return stored
+        if live and self.llm_turn_id:
+            return live.prompt_by_turn.get(self.llm_turn_id)
+        return None
+
     def response_content(self, live: LiveTraceContext | None) -> str:
         if self.response_step and self.response_step.type == "final":
             return _step_text(self.response_step)
@@ -142,7 +172,8 @@ class _TurnAcc:
                 "type": "llm_response",
                 "label": label,
                 "state": llm_state,
-                "content": content,
+                "prompt": self.prompt_for_output(live),
+                "output": content,
             }
         )
         return nodes

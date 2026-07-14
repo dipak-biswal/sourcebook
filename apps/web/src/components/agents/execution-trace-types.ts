@@ -10,12 +10,21 @@ export type TraceToolChild = {
   output?: unknown;
 };
 
+export type TraceLlmMessage = {
+  role: string;
+  content: string;
+  tool_calls?: unknown[];
+  tool_call_id?: string;
+  name?: string;
+};
+
 export type TraceLlmChild = {
   id: string;
   type: "llm_response";
   label: string;
   state: TraceState;
-  content: string;
+  prompt?: TraceLlmMessage[] | null;
+  output: string;
 };
 
 export type TraceChild = TraceToolChild | TraceLlmChild;

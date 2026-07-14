@@ -648,6 +648,7 @@ def _run_tool_loop(
             trace_live.current_turn_id = turn_id
             trace_live.llm_running = True
             trace_live.has_tool_calls = False
+            trace_live.prompt_by_turn[turn_id] = _serialize_messages(messages)
             _emit(
                 on_event,
                 "llm_start",
@@ -765,6 +766,7 @@ def _run_tool_loop(
                     run,
                     step_index=step_index,
                     type="thought" if ai.tool_calls else "final",
+                    input={"messages": _serialize_messages(messages)},
                     output=content,
                     on_event=on_event,
                     duration_ms=llm_ms if not ai.tool_calls else None,

@@ -41,7 +41,30 @@ def test_agent_turn_children_tools_before_llm():
     children = turn["children"]
     assert children[0]["type"] == "tool"
     assert children[1]["type"] == "llm_response"
-    assert "answer" in children[1]["content"].lower()
+    assert "answer" in children[1]["output"].lower()
+
+
+def test_llm_response_includes_prompt_from_step_input():
+    run = _run_with_steps(
+        "Hello",
+        [
+            {
+                "type": "final",
+                "input": {
+                    "messages": [
+                        {"role": "system", "content": "You are helpful."},
+                        {"role": "human", "content": "Hello"},
+                    ]
+                },
+                "output": "Hi there.",
+            },
+        ],
+    )
+    trace = build_execution_trace(run)
+    turn = next(p for p in trace["phases"] if p["type"] == "agent_turn")
+    llm = next(c for c in turn["children"] if c["type"] == "llm_response")
+    assert llm["prompt"][1]["content"] == "Hello"
+    assert llm["output"] == "Hi there."
 
 
 def test_hitl_before_presentation():

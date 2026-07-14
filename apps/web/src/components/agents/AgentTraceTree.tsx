@@ -18,6 +18,7 @@ import type {
   ExecutionTrace,
   TraceAgentTurnPhase,
   TraceChild,
+  TraceLlmChild,
   TracePhase,
   TraceState,
 } from "@/components/agents/execution-trace-types";
@@ -209,6 +210,45 @@ function PhaseLabel({
   );
 }
 
+function formatLlmPrompt(prompt: TraceLlmChild["prompt"]): string {
+  if (prompt == null) return "";
+  if (!Array.isArray(prompt) || prompt.length === 0) return "";
+  return prompt
+    .map((message) => {
+      const role = message.role || "message";
+      const content = message.content ?? "";
+      return `[${role}]\n${content}`;
+    })
+    .join("\n\n");
+}
+
+function LlmChildBody({ child }: { child: Extract<TraceChild, { type: "llm_response" }> }) {
+  const promptText = formatLlmPrompt(child.prompt);
+  const outputText = child.output ?? "";
+
+  return (
+    <div className="space-y-2">
+      {promptText ? (
+        <div>
+          <div className="mb-1 text-[10px] font-bold uppercase tracking-wide text-mute">Prompt</div>
+          <pre className="max-h-44 overflow-auto whitespace-pre-wrap rounded-[6px] border border-hairline bg-canvas p-2 font-mono text-[11px] text-body">
+            {promptText}
+          </pre>
+        </div>
+      ) : null}
+      <div>
+        <div className="mb-1 text-[10px] font-bold uppercase tracking-wide text-mute">Output</div>
+        <pre className="max-h-44 overflow-auto whitespace-pre-wrap rounded-[6px] border border-hairline bg-canvas p-2 font-mono text-[11px] text-body">
+          {outputText || (child.state === "running" ? "" : "—")}
+        </pre>
+        {child.state === "running" && (
+          <span className="mt-1 inline-block h-3 w-0.5 animate-pulse bg-ink" />
+        )}
+      </div>
+    </div>
+  );
+}
+
 function ToolChildBody({ child }: { child: Extract<TraceChild, { type: "tool" }> }) {
   const web =
     child.tool_name === "web_search" && child.output
@@ -294,14 +334,7 @@ function TurnChildrenTimeline({
             label={child.label}
             state={child.state}
           >
-            <div className="rounded-[6px] border border-hairline bg-canvas p-2.5">
-              <div className="prose prose-sm max-w-none text-xs text-body">
-                <MarkdownContent content={child.content || (child.state === "running" ? " " : "")} />
-              </div>
-              {child.state === "running" && (
-                <span className="mt-1 inline-block h-3 w-0.5 animate-pulse bg-ink" />
-              )}
-            </div>
+            <LlmChildBody child={child} />
           </ExpandableTraceRow>
         );
       })}
