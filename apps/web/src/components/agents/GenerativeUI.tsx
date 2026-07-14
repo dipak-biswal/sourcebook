@@ -19,7 +19,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import type { GenUIBlock, GenerativeUIPayload } from "./generative-ui";
-import { generativeUIToNoteBody } from "./generative-ui";
+import { coerceTableRows, generativeUIToNoteBody } from "./generative-ui";
 
 function parsePipeRow(row: string): string[] {
   return row.split("|").map((c) => c.trim());
@@ -379,38 +379,55 @@ function TimelineBlock({ block }: { block: GenUIBlock }) {
 }
 
 function TableBlock({ block }: { block: GenUIBlock }) {
-  const items = block.items ?? [];
-  if (!items.length) return null;
-  const rows = items.map(parsePipeRow);
+  const rows = coerceTableRows(block);
+  if (!rows.length) {
+    if (block.body?.trim()) {
+      return (
+        <div>
+          <BlockLabel type="table" title={block.title} />
+          <p className="text-xs leading-relaxed text-body">{block.body}</p>
+        </div>
+      );
+    }
+    return null;
+  }
+
+  const useHeader = rows.length > 1;
+  const header = useHeader ? rows[0] : null;
+  const bodyRows = useHeader ? rows.slice(1) : rows;
   const colCount = Math.max(...rows.map((r) => r.length), 1);
+
   return (
     <div>
       <BlockLabel type="table" title={block.title} />
       <div className="overflow-x-auto rounded-[8px] border border-hairline">
         <table className="w-full min-w-[14rem] border-collapse text-left text-xs">
+          {header && (
+            <thead>
+              <tr className="border-b border-hairline bg-canvas-soft">
+                {Array.from({ length: colCount }).map((_, k) => (
+                  <th
+                    key={k}
+                    scope="col"
+                    className="px-3 py-2 text-left font-semibold text-ink"
+                  >
+                    {header[k] ?? ""}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+          )}
           <tbody>
-            {rows.map((cells, j) => (
+            {bodyRows.map((cells, j) => (
               <tr
                 key={j}
-                className={cn(
-                  "border-b border-hairline last:border-0",
-                  j === 0 && "bg-canvas-soft",
-                )}
+                className="border-b border-hairline last:border-0 even:bg-canvas-soft/40"
               >
-                {Array.from({ length: colCount }).map((_, k) => {
-                  const CellTag = j === 0 ? "th" : "td";
-                  return (
-                    <CellTag
-                      key={k}
-                      className={cn(
-                        "px-3 py-2 align-top text-body",
-                        j === 0 && "font-semibold text-ink",
-                      )}
-                    >
-                      {cells[k] ?? ""}
-                    </CellTag>
-                  );
-                })}
+                {Array.from({ length: colCount }).map((_, k) => (
+                  <td key={k} className="px-3 py-2 align-top text-body">
+                    {cells[k] ?? ""}
+                  </td>
+                ))}
               </tr>
             ))}
           </tbody>

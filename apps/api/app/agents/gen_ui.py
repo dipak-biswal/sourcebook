@@ -108,6 +108,46 @@ def _client() -> OpenAI:
     return OpenAI(api_key=settings.openai_api_key, base_url=settings.openai_base_url)
 
 
+def _table_row_to_pipe(row: Any) -> str | None:
+    """Coerce a table row object into pipe-separated cells."""
+    if isinstance(row, str):
+        s = row.strip()
+        return s or None
+    if isinstance(row, list):
+        cells = [str(c).strip() for c in row if str(c).strip()]
+        return " | ".join(cells) if cells else None
+    if isinstance(row, dict):
+        if isinstance(row.get("cells"), list):
+            cells = [str(c).strip() for c in row["cells"] if str(c).strip()]
+            return " | ".join(cells) if cells else None
+        skip = frozenset({"source_indices", "tags", "type", "id"})
+        cells = [
+            str(v).strip()
+            for k, v in row.items()
+            if k not in skip and v is not None and str(v).strip()
+        ]
+        return " | ".join(cells) if cells else None
+    return None
+
+
+def _markdown_table_to_items(body: str) -> list[str]:
+    rows: list[str] = []
+    for line in body.splitlines():
+        line = line.strip()
+        if "|" not in line:
+            continue
+        if re.match(r"^[\s\-:|]+$", line):
+            continue
+        parts = [p.strip() for p in line.split("|")]
+        if parts and parts[0] == "":
+            parts = parts[1:]
+        if parts and parts[-1] == "":
+            parts = parts[:-1]
+        if parts:
+            rows.append(" | ".join(parts))
+    return rows
+
+
 def _as_str_list(value: Any) -> list[str]:
     if value is None:
         return []
@@ -278,6 +318,44 @@ def _normalize_block_dict(raw: Any) -> dict[str, Any] | None:
                 if str(t).strip()
             ]
 
+    if b["type"] == "table":
+        headers = b.get("headers") or b.get("columns")
+        raw_rows = b.get("rows") or b.get("data") or b.get("table")
+        if isinstance(headers, list) and headers and isinstance(raw_rows, list):
+            hdr = " | ".join(str(h).strip() for h in headers if str(h).strip())
+            piped = [_table_row_to_pipe(r) for r in raw_rows]
+            piped = [p for p in piped if p]
+            if hdr and piped:
+                b["items"] = [hdr, *piped]
+        elif isinstance(raw_rows, list) and raw_rows:
+            if raw_rows and all(isinstance(r, dict) for r in raw_rows):
+                skip = frozenset({"source_indices", "tags", "type", "id"})
+                keys = [k for k in raw_rows[0] if k not in skip]
+                if keys:
+                    hdr = " | ".join(str(k).replace("_", " ") for k in keys)
+                    body = [
+                        " | ".join(str(r.get(k, "")).strip() for k in keys)
+                        for r in raw_rows
+                    ]
+                    b["items"] = [hdr, *body]
+            if not b.get("items"):
+                piped = [_table_row_to_pipe(r) for r in raw_rows]
+                piped = [p for p in piped if p]
+                if piped:
+                    b["items"] = piped
+        if not b.get("items") and b.get("body"):
+            md_items = _markdown_table_to_items(str(b["body"]))
+            if md_items:
+                b["items"] = md_items
+        if b.get("items") and isinstance(b["items"], list):
+            coerced: list[str] = []
+            for row in b["items"]:
+                piped = _table_row_to_pipe(row)
+                if piped:
+                    coerced.append(piped)
+            if coerced:
+                b["items"] = coerced
+
     # If model put a list into body only, split to items for list-like types
     if b["type"] in ("key_points", "steps") and not b.get("items") and b.get("body"):
         parts = re.split(r"[\n;•]+", str(b["body"]))
@@ -293,6 +371,7 @@ def _normalize_block_dict(raw: Any) -> dict[str, Any] | None:
         or b.get("items")
         or b.get("terms")
         or b.get("faqs")
+        or b["type"] in ("chips", "table", "metrics", "progress", "chart")
     )
     if not has_content:
         return None

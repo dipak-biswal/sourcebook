@@ -21,6 +21,37 @@ def test_comparison_alias():
     assert norm["type"] == "comparison"
 
 
+def test_table_object_rows():
+    norm = _normalize_block_dict(
+        {
+            "type": "table",
+            "title": "Skills",
+            "rows": [
+                {"Skill": "React", "Level": "Strong"},
+                {"Skill": "Python", "Level": "Expert"},
+            ],
+        }
+    )
+    assert norm is not None
+    assert norm["type"] == "table"
+    assert norm["items"][0] == "Skill | Level"
+    assert norm["items"][1] == "React | Strong"
+    assert norm["items"][2] == "Python | Expert"
+
+
+def test_table_markdown_body():
+    norm = _normalize_block_dict(
+        {
+            "type": "table",
+            "body": "| Skill | Level |\n| --- | --- |\n| React | Strong |",
+        }
+    )
+    assert norm is not None
+    assert len(norm["items"]) == 2
+    assert "Skill" in norm["items"][0]
+    assert "React" in norm["items"][1]
+
+
 def test_progress_and_tags():
     norm = _normalize_block_dict(
         {

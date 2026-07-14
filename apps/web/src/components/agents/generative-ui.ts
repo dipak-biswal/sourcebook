@@ -37,6 +37,120 @@ export function isGenerativeUI(value: unknown): value is GenerativeUIPayload {
   return v.type === "generative_ui" && typeof v.title === "string";
 }
 
+function rowToCells(row: unknown): string[] {
+  if (typeof row === "string") {
+    const s = row.trim();
+    if (!s) return [];
+    if (s.includes("|")) return s.split("|").map((c) => c.trim());
+    if (s.includes("\t")) return s.split("\t").map((c) => c.trim());
+    return [s];
+  }
+  if (Array.isArray(row)) {
+    return row.map((c) => String(c ?? "").trim()).filter(Boolean);
+  }
+  if (row && typeof row === "object") {
+    const o = row as Record<string, unknown>;
+    if (Array.isArray(o.cells)) {
+      return o.cells.map((c) => String(c ?? "").trim());
+    }
+    const skip = new Set(["source_indices", "tags", "type", "id"]);
+    return Object.entries(o)
+      .filter(([k]) => !skip.has(k))
+      .map(([, v]) => String(v ?? "").trim());
+  }
+  return [];
+}
+
+function parseMarkdownTableBody(body: string): string[][] {
+  const rows: string[][] = [];
+  for (const line of body.split("\n")) {
+    const trimmed = line.trim();
+    if (!trimmed.includes("|")) continue;
+    if (/^[\s\-:|]+$/.test(trimmed)) continue;
+    let parts = trimmed.split("|").map((c) => c.trim());
+    if (parts[0] === "") parts = parts.slice(1);
+    if (parts[parts.length - 1] === "") parts = parts.slice(0, -1);
+    if (parts.length) rows.push(parts);
+  }
+  return rows;
+}
+
+function padTableRows(rows: string[][]): string[][] {
+  const cols = Math.max(...rows.map((r) => r.length), 1);
+  return rows.map((r) => {
+    const out = [...r];
+    while (out.length < cols) out.push("");
+    return out.slice(0, cols);
+  });
+}
+
+function objectRowsToTable(rows: Record<string, unknown>[]): string[][] {
+  if (!rows.length) return [];
+  const skip = new Set(["source_indices", "tags", "type", "id"]);
+  const keys = Object.keys(rows[0]).filter((k) => !skip.has(k));
+  if (!keys.length) return [];
+  const header = keys.map((k) => k.replace(/_/g, " "));
+  const body = rows.map((row) =>
+    keys.map((k) => String(row[k] ?? "").trim()),
+  );
+  return padTableRows([header, ...body]);
+}
+
+/** Normalize table blocks from pipes, markdown body, or row objects. */
+export function coerceTableRows(block: GenUIBlock): string[][] {
+  const anyB = block as GenUIBlock & Record<string, unknown>;
+
+  if (Array.isArray(anyB.headers) && anyB.headers.length) {
+    const header = (anyB.headers as unknown[]).map((h) => String(h).trim());
+    const bodyRaw = anyB.rows ?? anyB.data ?? block.items ?? [];
+    if (Array.isArray(bodyRaw) && bodyRaw.length) {
+      const body = bodyRaw
+        .map(rowToCells)
+        .filter((r) => r.length);
+      if (body.length) return padTableRows([header, ...body]);
+    }
+  }
+
+  const rowsRaw = anyB.rows ?? anyB.data ?? anyB.table;
+  if (
+    Array.isArray(rowsRaw) &&
+    rowsRaw.length &&
+    rowsRaw.every((r) => r && typeof r === "object" && !Array.isArray(r))
+  ) {
+    const table = objectRowsToTable(rowsRaw as Record<string, unknown>[]);
+    if (table.length) return table;
+  }
+
+  const fromItems = (block.items ?? []).map(rowToCells).filter((r) => r.length);
+  const rawItems = block.items as unknown;
+  if (
+    Array.isArray(rawItems) &&
+    rawItems.length &&
+    rawItems.every((x) => x && typeof x === "object" && !Array.isArray(x))
+  ) {
+    const table = objectRowsToTable(rawItems as Record<string, unknown>[]);
+    if (table.length) return table;
+  }
+  if (fromItems.some((r) => r.length > 1)) {
+    return padTableRows(fromItems);
+  }
+
+  if (Array.isArray(rowsRaw) && rowsRaw.length) {
+    const parsed = rowsRaw.map(rowToCells).filter((r) => r.length);
+    if (parsed.some((r) => r.length > 1)) {
+      return padTableRows(parsed);
+    }
+  }
+
+  if (block.body?.includes("|")) {
+    const md = parseMarkdownTableBody(block.body);
+    if (md.length) return padTableRows(md);
+  }
+
+  if (fromItems.length) return padTableRows(fromItems);
+  return [];
+}
+
 function asStringList(value: unknown): string[] {
   if (!value) return [];
   if (typeof value === "string") return value.trim() ? [value.trim()] : [];
@@ -66,13 +180,20 @@ export function normalizeGenerativeUI(raw: GenerativeUIPayload): GenerativeUIPay
       (typeof anyB.text === "string" ? anyB.text : null) ||
       (typeof anyB.description === "string" ? anyB.description : null);
 
-    const items =
+    let items =
       (b.items && b.items.length ? b.items : null) ||
       asStringList(anyB.points) ||
       asStringList(anyB.bullets) ||
       asStringList(anyB.key_points) ||
       asStringList(anyB.steps) ||
       undefined;
+
+    if (b.type === "table") {
+      const coerced = coerceTableRows({ ...b, items: items ?? b.items });
+      if (coerced.length) {
+        items = coerced.map((row) => row.join(" | "));
+      }
+    }
 
     let terms = b.terms;
     if ((!terms || !terms.length) && Array.isArray(anyB.glossary)) {
