@@ -20,7 +20,7 @@ import { useLastWorkspace } from "@/hooks/useLastWorkspace";
 import type { AgentPageContextValue } from "@/types/agents";
 import { AgentPageContext } from "./agent-page-context";
 import {
-  AGENT_EXAMPLE_GOALS,
+  AGENT_FORM_EXAMPLE_GOALS,
   isPresentationPending,
 } from "@/components/agents/agent-utils";
 
@@ -38,7 +38,7 @@ export function AgentPageProvider({
   useDocumentTitle("Agents");
 
   const [selectedId, setSelectedId] = useState("");
-  const [goal, setGoal] = useState(AGENT_EXAMPLE_GOALS[0]);
+  const [goal, setGoal] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [running, setRunning] = useState(false);
   const [approving, setApproving] = useState(false);
@@ -525,7 +525,7 @@ export function AgentPageProvider({
 
   const value: AgentPageContextValue = {
     agentType: "general" as const,
-    exampleGoals: AGENT_EXAMPLE_GOALS,
+    exampleGoals: AGENT_FORM_EXAMPLE_GOALS,
     workspaces,
     workspaceId: effectiveWorkspaceId,
     runs,

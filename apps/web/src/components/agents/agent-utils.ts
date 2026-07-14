@@ -9,6 +9,24 @@ export const AGENT_EXAMPLE_GOALS = [
   "Create a note titled Demo Approval with body hello from HITL agent.",
 ];
 
+export type AgentFormExample = { label: string; goal: string };
+
+/** Curated prompts shown on the Agents page run form. */
+export const AGENT_FORM_EXAMPLE_GOALS: AgentFormExample[] = [
+  {
+    label: "Explain documents",
+    goal: "Explain my documents simply with key points and a short FAQ.",
+  },
+  {
+    label: "Analyze resume",
+    goal: "Analyze my resume for a senior full-stack AI role — compare skills to current market expectations.",
+  },
+  {
+    label: "List documents",
+    goal: "List all ready documents and describe what each file covers.",
+  },
+];
+
 const TOOL_LABELS: Record<string, string> = {
   list_documents: "List documents",
   search_documents: "Search workspace",

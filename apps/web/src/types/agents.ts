@@ -1,10 +1,10 @@
 import type { AgentStep, AgentRun, ExecutionTrace } from "@/api";
 import type { LiveTraceSpan, LlmTraceEvent } from "@/components/agents/trace-types";
-import type { AgentType } from "@/components/agents/agent-utils";
+import type { AgentFormExample, AgentType } from "@/components/agents/agent-utils";
 
 export type AgentPageContextValue = {
   agentType: AgentType;
-  exampleGoals: string[];
+  exampleGoals: AgentFormExample[];
   workspaces: Workspace[];
   workspaceId: string;
   runs: AgentRun[];
