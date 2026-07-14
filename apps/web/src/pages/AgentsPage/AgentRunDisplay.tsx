@@ -17,11 +17,13 @@ type TabKey = "answer" | "visual" | "trace";
 
 function TabButton({
   active,
+  disabled = false,
   icon: Icon,
   label,
   onClick,
 }: {
   active: boolean;
+  disabled?: boolean;
   icon: typeof Sparkles;
   label: string;
   onClick: () => void;
@@ -29,12 +31,15 @@ function TabButton({
   return (
     <button
       type="button"
+      disabled={disabled}
       onClick={onClick}
       className={cn(
         "inline-flex items-center gap-1.5 rounded-[6px] px-2.5 py-1 text-[11px] font-medium transition-colors",
-        active
+        disabled && "cursor-not-allowed opacity-40",
+        active && !disabled
           ? "bg-ink text-[var(--canvas)]"
-          : "text-body hover:bg-canvas-soft-2 hover:text-ink",
+          : !disabled && "text-body hover:bg-canvas-soft-2 hover:text-ink",
+        disabled && !active && "text-mute",
       )}
     >
       <Icon className="h-3.5 w-3.5" strokeWidth={1.5} />
@@ -147,6 +152,7 @@ export function AgentRunDisplay() {
         <div className="flex items-center gap-1 border-t border-hairline bg-canvas-soft/50 px-4 py-2">
           <TabButton
             active={activeTab === "answer"}
+            disabled={running}
             icon={MessageCircle}
             label={
               selected?.status === "waiting_approval" && !presentationPending
@@ -158,6 +164,7 @@ export function AgentRunDisplay() {
           {gen && (
             <TabButton
               active={activeTab === "visual"}
+              disabled={running}
               icon={Sparkles}
               label="Visual summary"
               onClick={() => setActiveTab("visual")}
@@ -171,7 +178,7 @@ export function AgentRunDisplay() {
           />
         </div>
 
-        {activeTab === "answer" && (
+        {activeTab === "answer" && !running && (
           <div className="px-4 py-3">
             {running && !selected?.final_answer ? (
               <div className="text-sm text-mute">Processing…</div>
@@ -191,7 +198,7 @@ export function AgentRunDisplay() {
           </div>
         )}
 
-        {activeTab === "visual" && gen && (
+        {activeTab === "visual" && gen && !running && (
           <div className="p-4">
             <GenerativeUIView
               payload={gen}
