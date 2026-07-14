@@ -10,13 +10,14 @@ from sqlalchemy.orm import Session, joinedload
 
 from app.agents.profiles import get_profile, normalize_agent_type
 from app.agents.runner import (
+    _workspace_name_for_run,
     approve_agent_run,
     run_agent,
     run_to_public_dict,
 )
 from app.db import SessionLocal, get_db
 from app.deps import get_current_user
-from app.models import AgentRun, User, WorkspaceMember
+from app.models import AgentRun, User, Workspace, WorkspaceMember
 from app.rate_limit import rate_limit
 from app.schemas import AgentApproveRequest, AgentRunCreate, AgentRunResponse
 
@@ -39,8 +40,12 @@ def _require_member(db: Session, user_id: uuid.UUID, workspace_id: uuid.UUID) ->
         )
 
 
-def _as_run_response(run: AgentRun) -> AgentRunResponse:
-    return AgentRunResponse.model_validate(run_to_public_dict(run))
+def _as_run_response(run: AgentRun, db: Session) -> AgentRunResponse:
+    ws = db.get(Workspace, run.workspace_id)
+    workspace_name = ws.name if ws else None
+    return AgentRunResponse.model_validate(
+        run_to_public_dict(run, workspace_name=workspace_name)
+    )
 
 
 def _load_run(db: Session, run_id: uuid.UUID, user_id: uuid.UUID) -> AgentRun | None:
@@ -124,7 +129,7 @@ def start_agent_run(
     loaded = _load_run(db, run.id, current_user.id)
     if not loaded:
         raise HTTPException(status_code=500, detail="Run missing after create")
-    return _as_run_response(loaded)
+    return _as_run_response(loaded, db)
 
 
 @router.post("/runs/stream")
@@ -176,7 +181,12 @@ def start_agent_run_stream(
         )
         on_event(
             "done",
-            {"run": run_to_public_dict(loaded or run)},
+            {
+                "run": run_to_public_dict(
+                    loaded or run,
+                    workspace_name=_workspace_name_for_run(session, loaded or run),
+                )
+            },
         )
 
     return StreamingResponse(
@@ -212,7 +222,7 @@ def approve_run(
     loaded = _load_run(db, run_id, current_user.id)
     if not loaded:
         raise HTTPException(status_code=500, detail="Run missing after approve")
-    return _as_run_response(loaded)
+    return _as_run_response(loaded, db)
 
 
 @router.post("/runs/{run_id}/approve/stream")
@@ -249,7 +259,15 @@ def approve_run_stream(
             .filter(AgentRun.id == rid)
             .first()
         )
-        on_event("done", {"run": run_to_public_dict(loaded or run)})
+        on_event(
+            "done",
+            {
+                "run": run_to_public_dict(
+                    loaded or run,
+                    workspace_name=_workspace_name_for_run(session, loaded or run),
+                )
+            },
+        )
 
     return StreamingResponse(
         _stream_agent_work(work),
@@ -273,7 +291,7 @@ def get_agent_run(
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Run not found"
         )
-    return _as_run_response(run)
+    return _as_run_response(run, db)
 
 
 @router.get("/runs", response_model=list[AgentRunResponse])
@@ -295,7 +313,7 @@ def list_agent_runs(
     if agent_type:
         q = q.filter(AgentRun.agent_type == normalize_agent_type(agent_type))
     runs = q.order_by(AgentRun.created_at.desc()).limit(30).all()
-    return [_as_run_response(r) for r in runs]
+    return [_as_run_response(r, db) for r in runs]
 
 
 @router.delete("/runs/{run_id}", status_code=204)

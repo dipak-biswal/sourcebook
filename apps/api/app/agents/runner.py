@@ -185,10 +185,16 @@ def step_to_dict(step: AgentStep) -> dict[str, Any]:
     }
 
 
+def _workspace_name_for_run(db: Session, run: AgentRun) -> str | None:
+    ws = db.get(Workspace, run.workspace_id)
+    return ws.name if ws else None
+
+
 def run_to_public_dict(
     run: AgentRun,
     *,
     trace_live: LiveTraceContext | None = None,
+    workspace_name: str | None = None,
 ) -> dict[str, Any]:
     steps = sorted(run.steps or [], key=lambda s: s.step_index)
     return {
@@ -205,7 +211,11 @@ def run_to_public_dict(
         "pending_tool": run.pending_tool,
         "created_at": run.created_at.isoformat() if run.created_at else None,
         "steps": [step_to_dict(s) for s in steps],
-        "execution_trace": build_execution_trace(run, live=trace_live),
+        "execution_trace": build_execution_trace(
+            run,
+            live=trace_live,
+            workspace_name=workspace_name,
+        ),
     }
 
 
@@ -218,7 +228,12 @@ def _refresh_execution_trace(
     if not on_event:
         return
     db.refresh(run)
-    emit_execution_trace(on_event, run, trace_live)
+    emit_execution_trace(
+        on_event,
+        run,
+        trace_live,
+        workspace_name=_workspace_name_for_run(db, run),
+    )
 
 
 def _emit(on_event: EventCallback, event_type: str, **payload: Any) -> None:

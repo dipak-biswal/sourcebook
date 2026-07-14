@@ -366,11 +366,13 @@ function HitlEmbedBody({ child }: { child: TraceHitlEmbedChild }) {
 
 function PresentationTraceBody({
   phase,
+  workspaceName,
   defaultOpen,
   activeChildId,
   activeRef,
 }: {
   phase: TracePresentationPhase;
+  workspaceName?: string | null;
   defaultOpen: boolean;
   activeChildId?: string | null;
   activeRef?: React.RefObject<HTMLDivElement | null>;
@@ -382,7 +384,7 @@ function PresentationTraceBody({
     <div className="space-y-3">
       <div className="rounded-[6px] border border-hairline/80 bg-canvas-soft/30 px-2.5 py-2">
         <div className="mb-2 text-[10px] font-bold uppercase tracking-wide text-mute">
-          Agent · visual summary
+          {(workspaceName?.trim() || "Agent")} · visual summary
         </div>
         {children.length > 0 ? (
           <TurnChildrenTimeline
@@ -758,6 +760,7 @@ export function AgentTraceTree({
         >
           <PresentationTraceBody
             phase={presentation}
+            workspaceName={trace?.workspace_name}
             defaultOpen={defaultOpen || active}
             activeChildId={activeChildId}
             activeRef={activeRef}

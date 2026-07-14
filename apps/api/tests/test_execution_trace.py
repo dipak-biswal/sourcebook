@@ -27,6 +27,22 @@ def _run_with_steps(goal: str, steps: list[dict]) -> AgentRun:
     return run
 
 
+def test_agent_turn_label_uses_workspace_name():
+    run = _run_with_steps("Compare resume", [{"type": "final", "output": "Done."}])
+    trace = build_execution_trace(run, workspace_name="Resume")
+    turn = next(p for p in trace["phases"] if p["type"] == "agent_turn")
+    assert turn["label"] == "Resume · turn 1"
+    assert trace["workspace_name"] == "Resume"
+
+
+def test_agent_turn_label_falls_back_to_agent():
+    run = _run_with_steps("Hello", [{"type": "final", "output": "Hi"}])
+    trace = build_execution_trace(run)
+    turn = next(p for p in trace["phases"] if p["type"] == "agent_turn")
+    assert turn["label"] == "Agent · turn 1"
+    assert trace["workspace_name"] == "Agent"
+
+
 def test_agent_turn_children_tools_before_llm():
     run = _run_with_steps(
         "Compare resume",
@@ -281,11 +297,11 @@ def test_presentation_children_include_agent_turn_style_steps():
             },
         ],
     )
-    trace = build_execution_trace(run)
+    trace = build_execution_trace(run, workspace_name="Resume")
     pres = next(p for p in trace["phases"] if p["type"] == "presentation")
     children = pres["children"]
     labels = [c.get("label") for c in children]
-    assert any("Turn 1 ·" in str(l) for l in labels)
+    assert any("Resume · turn 1 ·" in str(l) for l in labels)
     assert any(c.get("label") == "Layout engine" for c in children)
     assert any(c.get("label") == "Generated UI" for c in children)
     assert any(c.get("tool_name") == "search_documents" for c in children)

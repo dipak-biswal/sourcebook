@@ -139,6 +139,7 @@ export type TraceTokenSummary = {
 
 export type ExecutionTrace = {
   goal: string;
+  workspace_name?: string | null;
   phases: TracePhase[];
   active_phase_id: string | null;
   is_complete: boolean;

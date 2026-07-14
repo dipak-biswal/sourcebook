@@ -24,6 +24,15 @@ PRESENTATION_TOOL = "generative_ui"
 COMPLETE_STATUSES = frozenset({"completed", "cancelled", "failed"})
 
 
+def _agent_name(workspace_name: str | None) -> str:
+    name = (workspace_name or "").strip()
+    return name or "Agent"
+
+
+def _turn_label(workspace_name: str | None, turn: int) -> str:
+    return f"{_agent_name(workspace_name)} · turn {turn}"
+
+
 def _tool_label(name: str | None) -> str:
     if not name:
         return "Tool"
@@ -339,10 +348,13 @@ class _TurnAcc:
 
         return nodes
 
-    def to_phase(self, live: LiveTraceContext | None) -> dict[str, Any]:
-        label = f"Agent · turn {self.turn}"
-        if self.tools:
-            label = f"Agent · turn {self.turn}"
+    def to_phase(
+        self,
+        live: LiveTraceContext | None,
+        *,
+        workspace_name: str | None = None,
+    ) -> dict[str, Any]:
+        label = _turn_label(workspace_name, self.turn)
         return {
             "id": self.id,
             "type": "agent_turn",
@@ -422,6 +434,8 @@ def _presentation_children(
     tail_before: list[dict[str, Any]],
     step: AgentStep | None,
     state: TraceState,
+    *,
+    workspace_name: str | None = None,
 ) -> list[dict[str, Any]]:
     """Build agent-turn-style children for the visual summary agent."""
     children: list[dict[str, Any]] = []
@@ -430,7 +444,9 @@ def _presentation_children(
         for child in turn.children(live=None):
             labeled = dict(child)
             labeled["id"] = f"pres-{turn.id}-{child['id']}"
-            labeled["label"] = f"Turn {turn.turn} · {child.get('label') or 'Step'}"
+            labeled["label"] = (
+                f"{_turn_label(workspace_name, turn.turn)} · {child.get('label') or 'Step'}"
+            )
             children.append(labeled)
 
     for phase in tail_before:
@@ -546,6 +562,7 @@ def _presentation_phase(
     turns: list[_TurnAcc],
     tail: list[dict[str, Any]],
     state: TraceState = "done",
+    workspace_name: str | None = None,
 ) -> dict[str, Any]:
     step_input = step.input if isinstance(step.input, dict) else {}
     output = step.output
@@ -564,7 +581,13 @@ def _presentation_phase(
         "prompt": step_input.get("messages") or step_input.get("prompt"),
         "llm_output": llm_output,
         "agent_evidence": step_input.get("agent_evidence"),
-        "children": _presentation_children(turns, tail_before, step, state),
+        "children": _presentation_children(
+            turns,
+            tail_before,
+            step,
+            state,
+            workspace_name=workspace_name,
+        ),
         "block_count": len(blocks) if isinstance(blocks, list) else 0,
         "presentation_profile": (
             output.get("presentation_profile") if isinstance(output, dict) else None
@@ -576,6 +599,8 @@ def _presentation_phase(
 def _parse_steps(
     steps: list[AgentStep],
     running_tools: set[str],
+    *,
+    workspace_name: str | None = None,
 ) -> tuple[list[_TurnAcc], list[dict[str, Any]]]:
     """Parse steps without live context (fixed attach_tool_result)."""
     turns: list[_TurnAcc] = []
@@ -654,7 +679,13 @@ def _parse_steps(
             continue
 
         if step.type == "presentation" or _is_generative_ui(step.output):
-            item = _presentation_phase(step, turns=turns, tail=tail, state="done")
+            item = _presentation_phase(
+                step,
+                turns=turns,
+                tail=tail,
+                state="done",
+                workspace_name=workspace_name,
+            )
             idx = next(
                 (i for i, t in enumerate(tail) if t.get("type") == "presentation" and t.get("state") != "done"),
                 -1,
@@ -711,6 +742,7 @@ def _apply_run_overlays(
     *,
     turns: list[_TurnAcc] | None = None,
     tail: list[dict[str, Any]] | None = None,
+    workspace_name: str | None = None,
 ) -> list[dict[str, Any]]:
     out = list(phases)
     pres_pending = _presentation_pending(run) and run.status == "waiting_approval"
@@ -750,6 +782,7 @@ def _apply_run_overlays(
                         _tail_before_presentation(tail or []),
                         None,
                         "running",
+                        workspace_name=workspace_name,
                     ),
                 }
             )
@@ -920,10 +953,11 @@ def build_execution_trace(
     run: AgentRun,
     *,
     live: LiveTraceContext | None = None,
+    workspace_name: str | None = None,
 ) -> dict[str, Any]:
     steps = sorted(run.steps or [], key=lambda s: s.step_index)
     running_tools = set(live.running_tool_names if live else [])
-    turns, tail = _parse_steps(steps, running_tools)
+    turns, tail = _parse_steps(steps, running_tools, workspace_name=workspace_name)
 
     if live and live.current_turn_id and turns:
         last = turns[-1]
@@ -943,13 +977,20 @@ def build_execution_trace(
     ]
 
     for turn in turns:
-        phase = turn.to_phase(live)
+        phase = turn.to_phase(live, workspace_name=workspace_name)
         if live and turn.llm_turn_id:
             phase["llm_turn_id"] = turn.llm_turn_id
         phases.append(phase)
 
     phases.extend(tail)
-    phases = _apply_run_overlays(phases, run, live, turns=turns, tail=tail)
+    phases = _apply_run_overlays(
+        phases,
+        run,
+        live,
+        turns=turns,
+        tail=tail,
+        workspace_name=workspace_name,
+    )
 
     is_complete = run.status in COMPLETE_STATUSES
     live_mode = not is_complete and (
@@ -963,6 +1004,7 @@ def build_execution_trace(
 
     return {
         "goal": run.goal or "",
+        "workspace_name": _agent_name(workspace_name),
         "phases": visible,
         "active_phase_id": _active_phase_id(visible),
         "is_complete": is_complete,
@@ -974,8 +1016,10 @@ def emit_execution_trace(
     on_event: Any,
     run: AgentRun,
     live: LiveTraceContext | None = None,
+    *,
+    workspace_name: str | None = None,
 ) -> dict[str, Any]:
-    trace = build_execution_trace(run, live=live)
+    trace = build_execution_trace(run, live=live, workspace_name=workspace_name)
     if on_event:
         on_event(
             "trace",
