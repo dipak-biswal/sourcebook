@@ -17,6 +17,14 @@ import {
   Timer,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
 import { cn } from "@/lib/utils";
 import type { GenUIBlock, GenerativeUIPayload } from "./generative-ui";
 import { coerceTableRows, generativeUIToNoteBody } from "./generative-ui";
@@ -392,46 +400,39 @@ function TableBlock({ block }: { block: GenUIBlock }) {
     return null;
   }
 
-  const useHeader = rows.length > 1;
+  const colCount = Math.max(...rows.map((r) => r.length), 1);
+  const headerLooksLikeLabels =
+    rows.length > 1 &&
+    rows[0].every((cell) => cell.length > 0 && cell.length < 40) &&
+    rows[0].some((cell) => /[a-zA-Z]/.test(cell));
+  const useHeader = rows.length > 1 && headerLooksLikeLabels;
   const header = useHeader ? rows[0] : null;
   const bodyRows = useHeader ? rows.slice(1) : rows;
-  const colCount = Math.max(...rows.map((r) => r.length), 1);
 
   return (
     <div>
       <BlockLabel type="table" title={block.title} />
-      <div className="overflow-x-auto rounded-[8px] border border-hairline">
-        <table className="w-full min-w-[14rem] border-collapse text-left text-xs">
+      <div className="rounded-[8px] border border-hairline">
+        <Table>
           {header && (
-            <thead>
-              <tr className="border-b border-hairline bg-canvas-soft">
+            <TableHeader>
+              <TableRow className="hover:bg-canvas-soft">
                 {Array.from({ length: colCount }).map((_, k) => (
-                  <th
-                    key={k}
-                    scope="col"
-                    className="px-3 py-2 text-left font-semibold text-ink"
-                  >
-                    {header[k] ?? ""}
-                  </th>
+                  <TableHead key={k}>{header[k] ?? ""}</TableHead>
                 ))}
-              </tr>
-            </thead>
+              </TableRow>
+            </TableHeader>
           )}
-          <tbody>
+          <TableBody>
             {bodyRows.map((cells, j) => (
-              <tr
-                key={j}
-                className="border-b border-hairline last:border-0 even:bg-canvas-soft/40"
-              >
+              <TableRow key={j} className="even:bg-canvas-soft/40">
                 {Array.from({ length: colCount }).map((_, k) => (
-                  <td key={k} className="px-3 py-2 align-top text-body">
-                    {cells[k] ?? ""}
-                  </td>
+                  <TableCell key={k}>{cells[k] ?? ""}</TableCell>
                 ))}
-              </tr>
+              </TableRow>
             ))}
-          </tbody>
-        </table>
+          </TableBody>
+        </Table>
       </div>
     </div>
   );

@@ -37,13 +37,21 @@ export function isGenerativeUI(value: unknown): value is GenerativeUIPayload {
   return v.type === "generative_ui" && typeof v.title === "string";
 }
 
+function splitDelimitedRow(text: string): string[] {
+  const s = text.trim();
+  if (!s) return [];
+  if (s.includes("|")) return s.split("|").map((c) => c.trim());
+  if (s.includes("\t")) return s.split("\t").map((c) => c.trim());
+  if (s.includes(" · ")) return s.split(" · ").map((c) => c.trim());
+  if (s.includes(" — ")) return s.split(" — ").map((c) => c.trim());
+  const commas = s.split(",").map((c) => c.trim()).filter(Boolean);
+  if (commas.length >= 2 && commas.length <= 8) return commas;
+  return [s];
+}
+
 function rowToCells(row: unknown): string[] {
   if (typeof row === "string") {
-    const s = row.trim();
-    if (!s) return [];
-    if (s.includes("|")) return s.split("|").map((c) => c.trim());
-    if (s.includes("\t")) return s.split("\t").map((c) => c.trim());
-    return [s];
+    return splitDelimitedRow(row);
   }
   if (Array.isArray(row)) {
     return row.map((c) => String(c ?? "").trim()).filter(Boolean);
@@ -96,9 +104,31 @@ function objectRowsToTable(rows: Record<string, unknown>[]): string[][] {
   return padTableRows([header, ...body]);
 }
 
+function itemsToRowMatrix(items: string[]): string[][] {
+  if (items.length === 1 && items[0].includes("\n")) {
+    const lines = items[0]
+      .split("\n")
+      .map((l) => l.trim())
+      .filter((l) => l.length > 0);
+    const rows = lines
+      .filter((l) => !/^[\s\-:|]+$/.test(l))
+      .map(splitDelimitedRow)
+      .filter((r) => r.length);
+    if (rows.length) return padTableRows(rows);
+  }
+  return items.map(splitDelimitedRow).filter((r) => r.length);
+}
+
 /** Normalize table blocks from pipes, markdown body, or row objects. */
 export function coerceTableRows(block: GenUIBlock): string[][] {
   const anyB = block as GenUIBlock & Record<string, unknown>;
+
+  if (block.items?.length) {
+    const matrix = itemsToRowMatrix(block.items);
+    const multiCol = matrix.filter((r) => r.length > 1);
+    if (multiCol.length >= 2) return padTableRows(matrix);
+    if (multiCol.length === 1 && matrix.length >= 2) return padTableRows(matrix);
+  }
 
   if (Array.isArray(anyB.headers) && anyB.headers.length) {
     const header = (anyB.headers as unknown[]).map((h) => String(h).trim());
