@@ -54,8 +54,10 @@ function ChatPageInner() {
             />
           )}
           <ChatNoDocsBanner />
+          <div className="shrink-0 px-4 pt-4 sm:px-6">
+            <ChatInput />
+          </div>
           <ChatMessageList />
-          <ChatInput />
         </main>
       </div>
     </div>
