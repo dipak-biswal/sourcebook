@@ -30,6 +30,13 @@ type AgentLiveCallbacks = {
     call_id?: string;
   }) => void;
   onLoopWarning?: (p: { message: string }) => void;
+  onStatus?: (p: {
+    status?: string;
+    token_usage?: number | null;
+    final_answer?: string | null;
+    pending_tool?: AgentRun["pending_tool"];
+    presentation_spec?: AgentRun["presentation_spec"];
+  }) => void;
 };
 
 export function createAgentLlmEvent(
@@ -149,8 +156,9 @@ export function makeAgentStreamHandlers(
     },
     onError: () => {},
   };
-  if (includeStatus) {
+  if (includeStatus || cb.onStatus) {
     base.onStatus = (p) => {
+      cb.onStatus?.(p);
       if (p.token_usage != null) cb.onTokenUsage(p.token_usage);
     };
   }

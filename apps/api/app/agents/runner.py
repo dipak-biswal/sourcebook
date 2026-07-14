@@ -633,15 +633,63 @@ def _visual_summary_handoff_message(ctx: PresentationContext) -> str:
     )
 
 
+def _spec_from_render_ui_result(result: Any) -> dict[str, Any] | None:
+    if not isinstance(result, dict):
+        return None
+    spec = result.get("spec")
+    if isinstance(spec, dict) and not spec.get("error"):
+        return spec
+    return None
+
+
 def _extract_render_ui_spec(run: AgentRun) -> dict[str, Any] | None:
     for step in reversed(sorted(run.steps or [], key=lambda s: s.step_index)):
         if step.type != "tool_result" or step.tool_name != "render_ui":
             continue
-        output = step.output if isinstance(step.output, dict) else {}
-        spec = output.get("spec")
-        if isinstance(spec, dict) and not spec.get("error"):
+        spec = _spec_from_render_ui_result(step.output)
+        if spec:
             return spec
     return None
+
+
+def _is_generative_ui_output(value: Any) -> bool:
+    return (
+        isinstance(value, dict)
+        and value.get("type") == "generative_ui"
+        and isinstance(value.get("title"), str)
+    )
+
+
+def _has_presentation_step(run: AgentRun) -> bool:
+    return any(
+        s.type == "presentation" or _is_generative_ui_output(s.output)
+        for s in (run.steps or [])
+    )
+
+
+def _apply_render_ui_result(
+    run: AgentRun,
+    *,
+    tool_name: str,
+    result: Any,
+    on_event: EventCallback = None,
+) -> bool:
+    """Persist generative UI as soon as render_ui succeeds."""
+    if tool_name != "render_ui":
+        return False
+    spec = _spec_from_render_ui_result(result)
+    if not spec:
+        return False
+    run.presentation_spec = spec
+    _emit(
+        on_event,
+        "status",
+        run_id=str(run.id),
+        status=run.status,
+        presentation_spec=spec,
+        final_answer=run.final_answer,
+    )
+    return True
 
 
 def _attach_presentation_step(
@@ -692,7 +740,9 @@ def _finalize_visual_summary_run(
     step_index: int,
     on_event: EventCallback = None,
 ) -> int:
-    spec = _extract_render_ui_spec(run)
+    spec = run.presentation_spec if isinstance(run.presentation_spec, dict) else None
+    if not spec:
+        spec = _extract_render_ui_spec(run)
     if not spec:
         return step_index
 
@@ -700,6 +750,9 @@ def _finalize_visual_summary_run(
     plain = spec.get("plain_summary")
     if plain and (not run.final_answer or run.final_answer == "(no final answer)"):
         run.final_answer = str(plain)
+
+    if _has_presentation_step(run):
+        return step_index
 
     ctx = _presentation_context_for_run(db, run)
     return _attach_presentation_step(
@@ -1056,6 +1109,13 @@ def _run_tool_loop(
                             on_event=on_event,
                             duration_ms=round(rr["ms"], 1),
                         )
+                        if finalize_mode == "visual_summary":
+                            _apply_render_ui_result(
+                                run,
+                                tool_name=rr["name"],
+                                result=rr["result"],
+                                on_event=on_event,
+                            )
                         messages.append(
                             ToolMessage(
                                 content=json.dumps(rr["result"], default=str),
@@ -1174,6 +1234,13 @@ def _run_tool_loop(
                         on_event=on_event,
                         duration_ms=round(r["ms"], 1),
                     )
+                    if finalize_mode == "visual_summary":
+                        _apply_render_ui_result(
+                            run,
+                            tool_name=r["name"],
+                            result=r["result"],
+                            on_event=on_event,
+                        )
                     messages.append(
                         ToolMessage(
                             content=json.dumps(r["result"], default=str),

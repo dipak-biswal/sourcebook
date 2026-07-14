@@ -531,6 +531,7 @@ export type AgentStreamHandlers = {
     token_usage?: number | null;
     final_answer?: string | null;
     pending_tool?: AgentRun["pending_tool"];
+    presentation_spec?: AgentRun["presentation_spec"];
   }) => void;
   onTrace?: (trace: ExecutionTrace) => void;
   onDone?: (run: AgentRun) => void;
@@ -591,6 +592,7 @@ async function streamAgentRun(
         token_usage: (payload.token_usage as number | null | undefined) ?? null,
         final_answer: (payload.final_answer as string | null | undefined) ?? null,
         pending_tool: payload.pending_tool as AgentRun["pending_tool"],
+        presentation_spec: payload.presentation_spec as AgentRun["presentation_spec"],
       });
     } else if (type === "done" && payload.run) {
       finalRun = payload.run as AgentRun;

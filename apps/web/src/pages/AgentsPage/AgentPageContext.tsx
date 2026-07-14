@@ -237,22 +237,119 @@ export function AgentPageProvider({
     const presentationPending = isPresentationPending(selected.pending_tool);
     setApproving(true);
     setError(null);
-    if (!presentationPending) {
+    if (!presentationPending || approve) {
       setRunning(true);
       setLiveGoal(selected.goal);
     }
     try {
-      if (presentationPending) {
-        const run = await api.approveAgentRun(selected.id, approve);
+      if (presentationPending && !approve) {
+        const run = await api.approveAgentRun(selected.id, false);
         await queryClient.invalidateQueries({
           queryKey: ["agentRuns", effectiveWorkspaceId],
         });
         setSelected(run);
         setLiveExecutionTrace(run.execution_trace ?? null);
-        if (approve) {
+        success("Keeping text answer");
+        return;
+      }
+      if (presentationPending && approve) {
+        const seedSteps = selected.steps ?? [];
+        setLiveSteps(seedSteps);
+        setLiveTrace(
+          seedSteps.map((step) => ({
+            kind: "step" as const,
+            step,
+          })),
+        );
+        setLiveTokenUsage(selected.token_usage);
+        const run = await api.approveAgentRunStream(
+          selected.id,
+          true,
+          makeAgentStreamHandlers(
+            {
+              onTrace: setLiveExecutionTrace,
+              onLlmStart: (event) => {
+                setLiveLlmEvents((prev) => [
+                  ...prev.filter((e) => e.status === "done"),
+                  event,
+                ]);
+                setLiveTrace((prev) => [...prev, { kind: "llm", event }]);
+              },
+              onLlmDelta: (p) => {
+                setLiveLlmEvents((prev) =>
+                  prev.map((e) =>
+                    e.status === "running"
+                      ? appendLlmStream(e, p.delta, p.turn_id)
+                      : e,
+                  ),
+                );
+                setLiveTrace((prev) =>
+                  patchRunningLlmWithDelta(prev, p.delta, p.turn_id),
+                );
+              },
+              onLlmEnd: (p) => {
+                const patch = makeLlmEndPatch(p);
+                setLiveLlmEvents((prev) =>
+                  prev.map((e) =>
+                    e.status === "running"
+                      ? { ...e, ...patch, status: "done" as const }
+                      : e,
+                  ),
+                );
+                setLiveTrace((prev) =>
+                  prev.map((node) =>
+                    node.kind === "llm" && node.event.status === "running"
+                      ? {
+                          kind: "llm" as const,
+                          event: { ...node.event, ...patch, status: "done" as const },
+                        }
+                      : node,
+                  ),
+                );
+              },
+              onStep: (step) => {
+                setLiveSteps((prev) => upsertSteps(prev, step));
+                setLiveTrace((prev) => upsertTraceStep(prev, step));
+                if (step.type === "tool_result") {
+                  setActiveToolCalls((prev) =>
+                    prev.filter((t) => t.tool_name !== step.tool_name),
+                  );
+                }
+              },
+              onTokenUsage: (usage) => setLiveTokenUsage(usage),
+              onToolStart: (p) => {
+                setActiveToolCalls((prev) => [
+                  ...prev,
+                  { tool_name: p.tool_name, startTime: Date.now() },
+                ]);
+              },
+              onLoopWarning: (p) => {
+                setLoopWarning(p.message);
+              },
+              onStatus: (p) => {
+                if (p.presentation_spec) {
+                  setSelected((prev) =>
+                    prev
+                      ? { ...prev, presentation_spec: p.presentation_spec ?? null }
+                      : prev,
+                  );
+                }
+                if (p.token_usage != null) setLiveTokenUsage(p.token_usage);
+              },
+            },
+            (final) => {
+              setSelected(final);
+              setLiveExecutionTrace(final.execution_trace ?? null);
+            },
+            false,
+          ),
+        );
+        if (run) {
+          setSelected(run);
+          await queryClient.invalidateQueries({
+            queryKey: ["agentRuns", effectiveWorkspaceId],
+          });
           success("Visual summary ready", "Open the Visual summary tab.");
-        } else {
-          success("Keeping text answer");
         }
         return;
       }

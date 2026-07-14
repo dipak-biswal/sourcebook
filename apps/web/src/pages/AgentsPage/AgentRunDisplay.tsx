@@ -76,6 +76,12 @@ export function AgentRunDisplay() {
     if (running) setActiveTab("trace");
   }, [running]);
 
+  useEffect(() => {
+    if (gen && !running && !approving) {
+      setActiveTab("visual");
+    }
+  }, [gen, running, approving]);
+
   if (!selected && !running) {
     return (
       <div className="rounded-vercel-md border border-dashed border-hairline bg-canvas px-6 py-14 text-center">

@@ -365,6 +365,12 @@ function extractFromValue(value: unknown): GenerativeUIPayload | null {
       /* ignore */
     }
   }
+  if (value && typeof value === "object") {
+    const record = value as Record<string, unknown>;
+    if (record.spec) {
+      return extractFromValue(record.spec);
+    }
+  }
   return null;
 }
 
