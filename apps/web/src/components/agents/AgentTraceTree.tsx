@@ -25,6 +25,8 @@ import {
 import type {
   ActiveToolCall,
   LiveTraceSpan,
+  TraceAgentTurn,
+  TraceTreeItem,
   TraceToolNode,
 } from "@/components/agents/trace-types";
 import { cn } from "@/lib/utils";
@@ -201,10 +203,7 @@ function ToolTraceLabel({
   );
 }
 
-function turnStatusLabel(turn: {
-  llm?: { status?: string; has_tool_calls?: boolean };
-  thoughtStep?: AgentStep;
-}): string | undefined {
+function turnStatusLabel(turn: TraceAgentTurn): string | undefined {
   if (turn.llm?.status === "running") return "Streaming…";
   if (turn.llm?.has_tool_calls) return "Calling tools";
   if (turn.thoughtStep?.type === "final") return "Final answer";
@@ -284,27 +283,26 @@ export function AgentTraceTree({
     activeRef.current.scrollIntoView({ behavior: "smooth", block: "nearest" });
   }, [running, activeId, tree]);
 
-  type FlatRow = {
-    id: string;
-    kind: "goal" | "turn" | "tool" | "hitl" | "presentation" | "synthesis";
-    isLast: boolean;
-    nested?: boolean;
-    goal?: string;
-    turnNumber?: number;
-    turn?: (typeof tree)[number] extends { kind: "turn"; turn: infer T } ? T : never;
-    tool?: TraceToolNode;
-    hitl?: Extract<(typeof tree)[number], { kind: "hitl" }>;
-    presentation?: Extract<(typeof tree)[number], { kind: "presentation" }>;
-    synthesis?: Extract<(typeof tree)[number], { kind: "synthesis" }>;
-  };
+  type FlatRow =
+    | { id: string; kind: "goal"; isLast: boolean; goal: string }
+    | { id: string; kind: "turn"; isLast: boolean; turnNumber: number; turn: TraceAgentTurn }
+    | { id: string; kind: "tool"; isLast: boolean; tool: TraceToolNode; nested: true }
+    | { id: string; kind: "hitl"; isLast: boolean; hitl: Extract<TraceTreeItem, { kind: "hitl" }> }
+    | {
+        id: string;
+        kind: "presentation";
+        isLast: boolean;
+        presentation: Extract<TraceTreeItem, { kind: "presentation" }>;
+      }
+    | { id: string; kind: "synthesis"; isLast: boolean; synthesis: Extract<TraceTreeItem, { kind: "synthesis" }> };
 
-  const rows = useMemo(() => {
-    const flat: Omit<FlatRow, "isLast">[] = [];
+  const rows = useMemo((): FlatRow[] => {
+    const flat: FlatRow[] = [];
     let turnCount = 0;
 
     for (const item of tree) {
       if (item.kind === "goal") {
-        flat.push({ id: item.id, kind: "goal", goal: item.goal });
+        flat.push({ id: item.id, kind: "goal", goal: item.goal, isLast: false });
         continue;
       }
       if (item.kind === "turn") {
@@ -314,26 +312,30 @@ export function AgentTraceTree({
           kind: "turn",
           turnNumber: turnCount,
           turn: item.turn,
+          isLast: false,
         });
         for (const tool of item.turn.tools) {
-          flat.push({ id: tool.id, kind: "tool", tool, nested: true });
+          flat.push({ id: tool.id, kind: "tool", tool, nested: true, isLast: false });
         }
         continue;
       }
       if (item.kind === "hitl") {
-        flat.push({ id: item.id, kind: "hitl", hitl: item });
+        flat.push({ id: item.id, kind: "hitl", hitl: item, isLast: false });
         continue;
       }
       if (item.kind === "presentation") {
-        flat.push({ id: item.id, kind: "presentation", presentation: item });
+        flat.push({ id: item.id, kind: "presentation", presentation: item, isLast: false });
         continue;
       }
       if (item.kind === "synthesis") {
-        flat.push({ id: item.id, kind: "synthesis", synthesis: item });
+        flat.push({ id: item.id, kind: "synthesis", synthesis: item, isLast: false });
       }
     }
 
-    return flat.map((row, i) => ({ ...row, isLast: i === flat.length - 1 }));
+    if (flat.length > 0) {
+      flat[flat.length - 1] = { ...flat[flat.length - 1]!, isLast: true };
+    }
+    return flat;
   }, [tree]);
 
   return (
