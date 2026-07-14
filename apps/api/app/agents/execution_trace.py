@@ -26,7 +26,7 @@ COMPLETE_STATUSES = frozenset({"completed", "cancelled", "failed"})
 
 def _agent_name(workspace_name: str | None) -> str:
     name = (workspace_name or "").strip()
-    return name or "Agent"
+    return f"{name} Agent" if name else "Agent"
 
 
 def _tool_label(name: str | None) -> str:

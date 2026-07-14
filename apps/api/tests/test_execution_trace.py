@@ -31,8 +31,8 @@ def test_agent_turn_label_uses_workspace_name():
     run = _run_with_steps("Compare resume", [{"type": "final", "output": "Done."}])
     trace = build_execution_trace(run, workspace_name="Resume")
     turn = next(p for p in trace["phases"] if p["type"] == "agent_turn")
-    assert turn["label"] == "Resume"
-    assert trace["workspace_name"] == "Resume"
+    assert turn["label"] == "Resume Agent"
+    assert trace["workspace_name"] == "Resume Agent"
 
 
 def test_agent_turn_label_falls_back_to_agent():
@@ -301,7 +301,7 @@ def test_presentation_children_include_agent_turn_style_steps():
     pres = next(p for p in trace["phases"] if p["type"] == "presentation")
     children = pres["children"]
     labels = [c.get("label") for c in children]
-    assert any("Resume ·" in str(l) for l in labels)
+    assert any("Resume Agent ·" in str(l) for l in labels)
     assert any(c.get("label") == "Layout engine" for c in children)
     assert any(c.get("label") == "Generated UI" for c in children)
     assert any(c.get("tool_name") == "search_documents" for c in children)
