@@ -271,15 +271,24 @@ def _tool_context_for_synthesis(messages: list[BaseMessage]) -> str:
             for item in data:
                 if not isinstance(item, dict):
                     continue
-                if item.get("snippet"):
+                if item.get("snippet") and item.get("filename"):
                     fn = item.get("filename") or "document"
                     parts.append(f"[{fn}] {item['snippet']}")
                 elif item.get("filename") and item.get("status"):
                     parts.append(
                         f"Document: {item['filename']} (status: {item['status']})"
                     )
-        elif isinstance(data, dict) and data.get("error"):
-            parts.append(f"Tool error: {data['error']}")
+        elif isinstance(data, dict):
+            if data.get("error"):
+                parts.append(f"Tool error: {data['error']}")
+            elif data.get("results") and data.get("query"):
+                parts.append(f"Web search: {data['query']}")
+                for hit in data.get("results") or []:
+                    if not isinstance(hit, dict):
+                        continue
+                    title = hit.get("title") or "result"
+                    snippet = hit.get("snippet") or ""
+                    parts.append(f"[web] {title}: {snippet}")
     return "\n".join(parts[:24])
 
 

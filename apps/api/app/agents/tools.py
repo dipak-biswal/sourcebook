@@ -5,6 +5,7 @@ from langchain_core.tools import tool
 from sqlalchemy.orm import Session
 
 from app.agents.profiles import get_profile
+from app.agents.web_search import search_web
 from app.ingestion.retrieve import retrieve_chunks
 from app.models import Document, Note
 
@@ -64,6 +65,15 @@ def build_tools(
         return results
 
     @tool
+    def web_search(query: str, max_results: int = 5) -> dict[str, Any]:
+        """
+        Search the public web via DuckDuckGo for role requirements, market context,
+        benchmarks, or definitions not found in workspace documents.
+        """
+
+        return search_web(query, max_results=max_results)
+
+    @tool
     def create_note(title: str, body: str = "") -> dict[str, Any]:
         """
         Create a note in the workspace.
@@ -89,6 +99,7 @@ def build_tools(
     by_name = {
         "list_documents": list_documents,
         "search_documents": search_documents,
+        "web_search": web_search,
         "create_note": create_note,
     }
     return [by_name[name] for name in by_name if name in profile.tool_names]

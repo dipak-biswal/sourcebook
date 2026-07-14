@@ -18,7 +18,12 @@ import {
 import type { AgentRun, AgentStep } from "@/api";
 import { isGenerativeUI } from "@/components/agents/generative-ui";
 import { AgentApprovalCard, AgentStatusBadge } from "@/components/agents/shared";
-import { prettyJson } from "@/components/agents/agent-utils";
+import {
+  parseWebSearchOutput,
+  prettyJson,
+  toolDisplayName,
+} from "@/components/agents/agent-utils";
+import { WebSearchResults } from "@/components/agents/WebSearchResults";
 import { Badge } from "@/components/ui/badge";
 import { MarkdownContent } from "@/components/chat/MarkdownContent";
 import { cn } from "@/lib/utils";
@@ -89,6 +94,10 @@ function TraceNode({
 }) {
   const [open, setOpen] = useState(!!defaultOpen);
   const gen = isGenerativeUI(step.output);
+  const webSearch =
+    step.tool_name === "web_search" && step.type === "tool_result"
+      ? parseWebSearchOutput(step.output)
+      : null;
   const isTool = step.type === "tool_call" || step.type === "tool_result";
   const isLlm = step.type === "thought" || step.type === "final";
   const isApproval = step.type === "approval";
@@ -142,7 +151,7 @@ function TraceNode({
                 #{step.step_index}
               </span>
               <span className="text-xs font-semibold text-ink">
-                {step.tool_name || stepKindLabel(step)}
+                {toolDisplayName(step.tool_name) || stepKindLabel(step)}
               </span>
               <Badge
                 variant={
@@ -177,7 +186,9 @@ function TraceNode({
                   ? prettyJson(step.input).slice(0, 120)
                   : gen
                     ? `Visual summary · ${(step.output as { title?: string }).title ?? "ready"}`
-                    : prettyJson(step.output).slice(0, 120)}
+                    : webSearch
+                      ? `Web · ${webSearch.query ?? "search"} · ${webSearch.result_count ?? 0} results`
+                      : prettyJson(step.output).slice(0, 120)}
               </p>
             )}
           </div>
@@ -206,6 +217,8 @@ function TraceNode({
                     <strong className="text-ink">Visual summary</strong> tab,
                     not as raw JSON here.
                   </p>
+                ) : webSearch ? (
+                  <WebSearchResults data={webSearch} />
                 ) : (
                   <pre className="max-h-56 overflow-auto rounded-[6px] border border-hairline bg-canvas p-2.5 font-mono text-[11px] leading-relaxed text-body">
                     {prettyJson(step.output)}
@@ -310,6 +323,10 @@ function LlmLiveNode({
 function StepRow({ step }: { step: AgentStep }) {
   const [open, setOpen] = useState(false);
   const gen = isGenerativeUI(step.output);
+  const webSearch =
+    step.tool_name === "web_search" && step.type === "tool_result"
+      ? parseWebSearchOutput(step.output)
+      : null;
 
   return (
     <div className="border-b border-hairline/60 last:border-b-0">
@@ -325,7 +342,7 @@ function StepRow({ step }: { step: AgentStep }) {
           #{step.step_index}
         </span>
         <span className="text-xs font-medium text-ink">
-          {step.tool_name || stepKindLabel(step)}
+          {toolDisplayName(step.tool_name) || stepKindLabel(step)}
         </span>
         <Badge variant="outline" className="text-[10px]">
           {step.type === "tool_call"
@@ -369,9 +386,13 @@ function StepRow({ step }: { step: AgentStep }) {
               <div className="mb-1 text-[10px] font-bold uppercase tracking-wide text-mute">
                 Outputs
               </div>
-              <pre className="max-h-56 overflow-auto rounded-[6px] border border-hairline bg-canvas p-2 font-mono text-[11px] leading-relaxed text-body">
-                {prettyJson(step.output)}
-              </pre>
+              {webSearch ? (
+                <WebSearchResults data={webSearch} compact />
+              ) : (
+                <pre className="max-h-56 overflow-auto rounded-[6px] border border-hairline bg-canvas p-2 font-mono text-[11px] leading-relaxed text-body">
+                  {prettyJson(step.output)}
+                </pre>
+              )}
             </div>
           )}
         </div>
@@ -383,7 +404,8 @@ function StepRow({ step }: { step: AgentStep }) {
 function StepGroup({ steps, isLast }: { steps: AgentStep[]; isLast?: boolean }) {
   const [open, setOpen] = useState(true);
   const firstTool = steps.find((s) => s.type === "tool_call");
-  const toolName = firstTool?.tool_name || stepKindLabel(steps[0]);
+  const toolName =
+    toolDisplayName(firstTool?.tool_name) || stepKindLabel(steps[0]);
   const totalDuration = steps.reduce((acc, s) => acc + (s.duration_ms ?? 0), 0) || null;
   const hasTool = steps.some((s) => s.type === "tool_call" || s.type === "tool_result");
 
@@ -681,7 +703,7 @@ export function AgentRunPanel({
         </span>
         {stats.tools.length > 0 && (
           <span className="max-w-full truncate font-mono text-[10px] text-ink">
-            {stats.tools.join(" · ")}
+            {stats.tools.map((t) => toolDisplayName(t)).join(" · ")}
           </span>
         )}
         {status === "completed" && !isLive && (

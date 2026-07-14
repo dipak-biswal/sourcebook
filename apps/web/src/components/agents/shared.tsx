@@ -6,6 +6,7 @@ import {
   agentStatusVariant,
   isPresentationPending,
   prettyJson,
+  toolDisplayName,
   type PendingTool,
 } from "./agent-utils";
 import type { AgentStep } from "@/api";
@@ -20,7 +21,9 @@ export function AgentStepCard({ step }: { step: AgentStep }) {
       <div className="mb-1 flex flex-wrap items-center gap-2">
         <span className="text-xs font-semibold text-ink">#{step.step_index}</span>
         <Badge variant="outline">{step.type}</Badge>
-        {step.tool_name && <Badge variant="secondary">{step.tool_name}</Badge>}
+        {step.tool_name && (
+          <Badge variant="secondary">{toolDisplayName(step.tool_name)}</Badge>
+        )}
       </div>
       {step.input != null && (
         <div className="mt-1">
@@ -85,7 +88,7 @@ export function AgentStepList({
               </Badge>
               {s.tool_name && (
                 <Badge variant="secondary" className="text-[10px]">
-                  {s.tool_name}
+                  {toolDisplayName(s.tool_name)}
                 </Badge>
               )}
             </li>

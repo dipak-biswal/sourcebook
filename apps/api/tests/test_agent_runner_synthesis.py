@@ -40,6 +40,31 @@ def test_tool_context_for_synthesis_flattens_search_hits():
     assert "RAG chatbot" in text
 
 
+def test_tool_context_for_synthesis_flattens_web_search():
+    payload = {
+        "query": "senior full stack AI engineer skills",
+        "results": [
+            {
+                "title": "What senior full-stack AI engineers need",
+                "url": "https://example.com/post",
+                "snippet": "React, Python, RAG pipelines, and deployment.",
+            }
+        ],
+        "result_count": 1,
+    }
+    messages = [
+        ToolMessage(
+            content=json.dumps(payload),
+            tool_call_id="2",
+            name="web_search",
+        )
+    ]
+    text = _tool_context_for_synthesis(messages)
+    assert "Web search:" in text
+    assert "senior full stack AI engineer skills" in text
+    assert "RAG pipelines" in text
+
+
 def test_first_tool_call_should_not_count_as_repeat():
     """Fresh run: list_documents {} is not a repeat before any tool results."""
     messages = [SystemMessage(content="sys"), HumanMessage(content="goal")]

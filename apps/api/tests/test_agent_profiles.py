@@ -12,6 +12,7 @@ def test_general_profile_has_workspace_tools():
     assert profile.agent_type == "general"
     assert "study_guide" not in profile.tool_names
     assert "search_documents" in profile.tool_names
+    assert "web_search" in profile.tool_names
     assert "create_note" in profile.tool_names
 
 
@@ -39,4 +40,5 @@ def test_build_tools_single_profile():
     }
     assert "study_guide" not in general
     assert general == legacy
+    assert "web_search" in general
     assert "create_note" in general

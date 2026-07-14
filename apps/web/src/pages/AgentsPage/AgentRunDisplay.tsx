@@ -2,7 +2,10 @@ import { useEffect, useState } from "react";
 import { Activity, AlertTriangle, Loader2, MessageCircle, Sparkles } from "lucide-react";
 import { AgentRunPanel } from "@/components/agents/AgentRunPanel";
 import { AgentApprovalCard } from "@/components/agents/shared";
-import { isPresentationPending } from "@/components/agents/agent-utils";
+import {
+  isPresentationPending,
+  toolDisplayName,
+} from "@/components/agents/agent-utils";
 import { GenerativeUIView } from "@/components/agents/GenerativeUI";
 import { extractGenerativeUIFromRun } from "@/components/agents/generative-ui";
 import { MarkdownContent } from "@/components/chat/MarkdownContent";
@@ -117,7 +120,7 @@ export function AgentRunDisplay() {
                     className="inline-flex items-center gap-1 rounded-[4px] bg-warning-bg/20 px-1.5 py-0.5 text-[10px] font-medium text-warning"
                   >
                     <Loader2 className="h-2.5 w-2.5 animate-spin" />
-                    {t.tool_name}
+                    {toolDisplayName(t.tool_name)}
                   </span>
                 ))}
               </div>
