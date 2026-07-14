@@ -121,6 +121,28 @@ def collect_evidence_from_steps(
     return AgentEvidenceBundle(document_hits=doc_hits, web_hits=web_hits)
 
 
+def serialize_agent_evidence(bundle: AgentEvidenceBundle) -> dict[str, list[dict[str, Any]]]:
+    return {
+        "document_hits": [
+            {
+                "filename": hit.filename,
+                "snippet": hit.snippet,
+                "score": hit.score,
+                "chunk_id": hit.chunk_id,
+            }
+            for hit in bundle.document_hits
+        ],
+        "web_hits": [
+            {
+                "title": hit.title,
+                "snippet": hit.snippet,
+                "url": hit.url,
+            }
+            for hit in bundle.web_hits
+        ],
+    }
+
+
 def format_agent_evidence(bundle: AgentEvidenceBundle) -> str:
     """Prompt + grounding text for evidence the agent already retrieved."""
     if not bundle.has_content():

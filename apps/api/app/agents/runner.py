@@ -26,7 +26,7 @@ from app.agents.execution_trace import (
 )
 from app.presentation.context import PresentationContext
 from app.presentation.engine import build_presentation
-from app.presentation.evidence import collect_evidence_from_steps
+from app.presentation.evidence import collect_evidence_from_steps, serialize_agent_evidence
 from app.presentation.planner import should_offer_presentation
 from app.usage import estimate_tokens, log_usage
 
@@ -399,18 +399,17 @@ def _synthesize_final_answer(
         "progress bars, chips, or callouts — those are handled elsewhere. "
         "Do not mention tools, steps, or that you are synthesizing."
     )
+    synthesis_messages = [
+        SystemMessage(
+            content=(
+                "You produce concise, accurate answers grounded in the "
+                "provided excerpts. No tools."
+            )
+        ),
+        HumanMessage(content=prompt),
+    ]
     try:
-        ai: AIMessage = _llm().invoke(  # type: ignore[assignment]
-            [
-                SystemMessage(
-                    content=(
-                        "You produce concise, accurate answers grounded in the "
-                        "provided excerpts. No tools."
-                    )
-                ),
-                HumanMessage(content=prompt),
-            ]
-        )
+        ai: AIMessage = _llm().invoke(synthesis_messages)  # type: ignore[assignment]
         p, c, t = _tokens_from_ai_message(ai)
         _log_agent_usage(
             db,
@@ -420,7 +419,15 @@ def _synthesize_final_answer(
             total_tokens=t if t else (p + c),
         )
         text = _content_str(ai.content).strip()
-        return text or None
+        if not text:
+            return None
+        run._synthesis_trace_input = {  # type: ignore[attr-defined]
+            "messages": _serialize_messages(synthesis_messages),
+            "prompt_tokens": p,
+            "completion_tokens": c,
+            "total_tokens": t if t else (p + c),
+        }
+        return text
     except Exception:
         return None
 
@@ -467,6 +474,7 @@ def _finalize_completed_run(
                 run,
                 step_index=step_index,
                 type="synthesis",
+                input=getattr(run, "_synthesis_trace_input", None),
                 output=answer,
                 on_event=on_event,
             )
@@ -578,7 +586,7 @@ def _build_and_attach_presentation(
         document_filenames=filenames,
         agent_evidence=agent_evidence,
     )
-    spec = build_presentation(db, ctx)
+    spec, build_meta = build_presentation(db, ctx)
     if not isinstance(spec, dict) or spec.get("error"):
         return step_index
 
@@ -594,6 +602,24 @@ def _build_and_attach_presentation(
         step_index=step_index,
         type="presentation",
         tool_name="generative_ui",
+        input={
+            "prompt": build_meta.get("prompt"),
+            "llm_output": build_meta.get("llm_output"),
+            "messages": [
+                {
+                    "role": "system",
+                    "content": (
+                        "You are a visual layout engine. Input: user goal (which widgets) "
+                        "+ agent text answer (facts). Output: JSON UI blocks."
+                    ),
+                },
+                {"role": "human", "content": build_meta.get("prompt") or ""},
+            ],
+            "prompt_tokens": build_meta.get("prompt_tokens"),
+            "completion_tokens": build_meta.get("completion_tokens"),
+            "total_tokens": build_meta.get("total_tokens"),
+            "agent_evidence": serialize_agent_evidence(agent_evidence),
+        },
         output=spec,
         on_event=on_event,
     )
@@ -649,6 +675,7 @@ def _run_tool_loop(
             trace_live.llm_running = True
             trace_live.has_tool_calls = False
             trace_live.prompt_by_turn[turn_id] = _serialize_messages(messages)
+            trace_live.tokens_by_turn.pop(turn_id, None)
             _emit(
                 on_event,
                 "llm_start",
@@ -687,6 +714,11 @@ def _run_tool_loop(
             )
             trace_live.llm_running = False
             trace_live.has_tool_calls = bool(ai.tool_calls)
+            trace_live.tokens_by_turn[turn_id] = {
+                "prompt_tokens": p,
+                "completion_tokens": c,
+                "total_tokens": t if t else (p + c),
+            }
             refresh_trace()
 
             # Duplicate detection — check BEFORE appending ai so we don't
@@ -766,7 +798,12 @@ def _run_tool_loop(
                     run,
                     step_index=step_index,
                     type="thought" if ai.tool_calls else "final",
-                    input={"messages": _serialize_messages(messages)},
+                    input={
+                        "messages": _serialize_messages(messages),
+                        "prompt_tokens": p,
+                        "completion_tokens": c,
+                        "total_tokens": t if t else (p + c),
+                    },
                     output=content,
                     on_event=on_event,
                     duration_ms=llm_ms if not ai.tool_calls else None,

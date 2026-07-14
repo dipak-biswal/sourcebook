@@ -20,12 +20,13 @@ import type {
   TraceChild,
   TraceLlmChild,
   TracePhase,
+  TracePresentationPhase,
   TraceState,
+  TraceSynthesisPhase,
 } from "@/components/agents/execution-trace-types";
 import { isGenerativeUI } from "@/components/agents/generative-ui";
 import { AgentApprovalCard } from "@/components/agents/shared";
 import { WebSearchResults } from "@/components/agents/WebSearchResults";
-import { MarkdownContent } from "@/components/chat/MarkdownContent";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 
@@ -210,8 +211,11 @@ function PhaseLabel({
   );
 }
 
-function formatLlmPrompt(prompt: TraceLlmChild["prompt"]): string {
+function formatTracePrompt(
+  prompt: TraceLlmChild["prompt"] | TracePresentationPhase["prompt"],
+): string {
   if (prompt == null) return "";
+  if (typeof prompt === "string") return prompt;
   if (!Array.isArray(prompt) || prompt.length === 0) return "";
   return prompt
     .map((message) => {
@@ -222,12 +226,59 @@ function formatLlmPrompt(prompt: TraceLlmChild["prompt"]): string {
     .join("\n\n");
 }
 
-function LlmChildBody({ child }: { child: Extract<TraceChild, { type: "llm_response" }> }) {
-  const promptText = formatLlmPrompt(child.prompt);
-  const outputText = child.output ?? "";
+function TokenUsageLine({
+  promptTokens,
+  completionTokens,
+  totalTokens,
+}: {
+  promptTokens?: number | null;
+  completionTokens?: number | null;
+  totalTokens?: number | null;
+}) {
+  if (
+    promptTokens == null &&
+    completionTokens == null &&
+    totalTokens == null
+  ) {
+    return null;
+  }
+  return (
+    <div className="flex flex-wrap items-center gap-2 text-[10px] text-mute">
+      <Coins className="h-3 w-3" strokeWidth={1.5} />
+      {promptTokens != null && <span>Input: {promptTokens.toLocaleString()} tok</span>}
+      {completionTokens != null && (
+        <span>Output: {completionTokens.toLocaleString()} tok</span>
+      )}
+      {totalTokens != null && <span>Total: {totalTokens.toLocaleString()} tok</span>}
+    </div>
+  );
+}
+
+function LlmTraceSections({
+  prompt,
+  output,
+  state,
+  promptTokens,
+  completionTokens,
+  totalTokens,
+}: {
+  prompt?: TraceLlmChild["prompt"] | TracePresentationPhase["prompt"];
+  output?: string;
+  state: TraceState;
+  promptTokens?: number | null;
+  completionTokens?: number | null;
+  totalTokens?: number | null;
+}) {
+  const promptText = formatTracePrompt(prompt);
+  const outputText = output ?? "";
 
   return (
     <div className="space-y-2">
+      <TokenUsageLine
+        promptTokens={promptTokens}
+        completionTokens={completionTokens}
+        totalTokens={totalTokens}
+      />
       {promptText ? (
         <div>
           <div className="mb-1 text-[10px] font-bold uppercase tracking-wide text-mute">Prompt</div>
@@ -239,12 +290,111 @@ function LlmChildBody({ child }: { child: Extract<TraceChild, { type: "llm_respo
       <div>
         <div className="mb-1 text-[10px] font-bold uppercase tracking-wide text-mute">Output</div>
         <pre className="max-h-44 overflow-auto whitespace-pre-wrap rounded-[6px] border border-hairline bg-canvas p-2 font-mono text-[11px] text-body">
-          {outputText || (child.state === "running" ? "" : "—")}
+          {outputText || (state === "running" ? "" : "—")}
         </pre>
-        {child.state === "running" && (
+        {state === "running" && (
           <span className="mt-1 inline-block h-3 w-0.5 animate-pulse bg-ink" />
         )}
       </div>
+    </div>
+  );
+}
+
+function LlmChildBody({ child }: { child: Extract<TraceChild, { type: "llm_response" }> }) {
+  return (
+    <LlmTraceSections
+      prompt={child.prompt}
+      output={child.output}
+      state={child.state}
+      promptTokens={child.prompt_tokens}
+      completionTokens={child.completion_tokens}
+      totalTokens={child.total_tokens}
+    />
+  );
+}
+
+function PresentationTraceBody({ phase }: { phase: TracePresentationPhase }) {
+  const evidence = phase.agent_evidence;
+  const docHits = evidence?.document_hits ?? [];
+  const webHits = evidence?.web_hits ?? [];
+  const output = isGenerativeUI(phase.output) ? phase.output : null;
+
+  const layoutOutput =
+    phase.llm_output ||
+    output?.plain_summary ||
+    (phase.block_count ? `Generated ${phase.block_count} UI blocks.` : "");
+
+  return (
+    <div className="space-y-3">
+      {phase.agent_steps && phase.agent_steps.length > 0 && (
+        <div>
+          <div className="mb-1 text-[10px] font-bold uppercase tracking-wide text-mute">
+            Agent work
+          </div>
+          <ul className="space-y-1 rounded-[6px] border border-hairline bg-canvas p-2">
+            {phase.agent_steps.map((step, i) => (
+              <li key={`${step.type}-${step.label}-${i}`} className="flex items-center gap-2 text-[11px]">
+                <span className="font-medium text-ink">{step.label}</span>
+                {step.state === "running" && (
+                  <Badge variant="warning" className="text-[9px]">running</Badge>
+                )}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      {(docHits.length > 0 || webHits.length > 0) && (
+        <div>
+          <div className="mb-1 text-[10px] font-bold uppercase tracking-wide text-mute">
+            Evidence used
+          </div>
+          <div className="space-y-2 rounded-[6px] border border-hairline bg-canvas p-2">
+            {docHits.slice(0, 4).map((hit, i) => (
+              <div key={`doc-${hit.chunk_id ?? i}`} className="text-[11px]">
+                <div className="font-medium text-ink">{hit.filename}</div>
+                <p className="line-clamp-2 text-mute">{hit.snippet}</p>
+              </div>
+            ))}
+            {webHits.slice(0, 3).map((hit, i) => (
+              <div key={`web-${hit.url ?? i}`} className="text-[11px]">
+                <div className="font-medium text-ink">{hit.title}</div>
+                <p className="line-clamp-2 text-mute">{hit.snippet}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {output && (
+        <div className="space-y-1.5 rounded-[6px] border border-hairline bg-canvas-soft/40 p-2">
+          <p className="font-medium text-ink">{output.title}</p>
+          <div className="flex flex-wrap gap-2 text-[10px] text-mute">
+            {phase.presentation_profile && (
+              <span>Profile: {phase.presentation_profile.replace(/_/g, " ")}</span>
+            )}
+            {phase.block_count != null && <span>{phase.block_count} blocks</span>}
+          </div>
+        </div>
+      )}
+
+      {phase.state === "running" ? (
+        <div className="flex items-center gap-2 text-[11px] text-warning-text">
+          <Loader2 className="h-3 w-3 animate-spin" />
+          Building UI blocks…
+        </div>
+      ) : phase.prompt || layoutOutput ? (
+        <LlmTraceSections
+          prompt={phase.prompt}
+          output={layoutOutput}
+          state={phase.state}
+          promptTokens={phase.prompt_tokens}
+          completionTokens={phase.completion_tokens}
+          totalTokens={phase.total_tokens}
+        />
+      ) : (
+        <p className="text-mute">Open the Visual summary tab.</p>
+      )}
     </div>
   );
 }
@@ -557,26 +707,13 @@ export function AgentTraceTree({
           isLast={isLast}
           defaultOpen={defaultOpen || active}
         >
-          {phase.state === "running" ? (
-            <div className="flex items-center gap-2 text-[11px] text-warning-text">
-              <Loader2 className="h-3 w-3 animate-spin" />
-              Building UI blocks…
-            </div>
-          ) : isGenerativeUI(phase.output) ? (
-            <div className="space-y-1.5">
-              <p className="font-medium text-ink">{phase.output.title}</p>
-              {phase.output.plain_summary && (
-                <p className="line-clamp-4 text-mute">{phase.output.plain_summary}</p>
-              )}
-            </div>
-          ) : (
-            <p className="text-mute">Open the Visual summary tab.</p>
-          )}
+          <PresentationTraceBody phase={phase as TracePresentationPhase} />
         </ExpandableTraceRow>
       );
     }
 
     if (phase.type === "synthesis") {
+      const synthesis = phase as TraceSynthesisPhase;
       return (
         <ExpandableTraceRow
           key={phase.id}
@@ -587,7 +724,14 @@ export function AgentTraceTree({
           isLast={isLast}
           defaultOpen={defaultOpen}
         >
-          <MarkdownContent content={phase.content ?? ""} />
+          <LlmTraceSections
+            prompt={synthesis.prompt}
+            output={synthesis.output}
+            state={synthesis.state}
+            promptTokens={synthesis.prompt_tokens}
+            completionTokens={synthesis.completion_tokens}
+            totalTokens={synthesis.total_tokens}
+          />
         </ExpandableTraceRow>
       );
     }

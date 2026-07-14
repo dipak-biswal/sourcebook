@@ -67,6 +67,70 @@ def test_llm_response_includes_prompt_from_step_input():
     assert llm["output"] == "Hi there."
 
 
+def test_llm_response_includes_token_counts():
+    run = _run_with_steps(
+        "Hello",
+        [
+            {
+                "type": "final",
+                "input": {
+                    "messages": [{"role": "human", "content": "Hello"}],
+                    "prompt_tokens": 120,
+                    "completion_tokens": 45,
+                    "total_tokens": 165,
+                },
+                "output": "Hi there.",
+            },
+        ],
+    )
+    trace = build_execution_trace(run)
+    llm = next(
+        c
+        for p in trace["phases"]
+        if p["type"] == "agent_turn"
+        for c in p["children"]
+        if c["type"] == "llm_response"
+    )
+    assert llm["prompt_tokens"] == 120
+    assert llm["completion_tokens"] == 45
+
+
+def test_agent_turn_shows_decision_before_tools_and_response():
+    run = _run_with_steps(
+        "Search",
+        [
+            {"type": "tool_call", "tool_name": "web_search", "input": {"query": "jobs"}},
+            {
+                "type": "thought",
+                "input": {
+                    "messages": [{"role": "human", "content": "goal"}],
+                    "prompt_tokens": 10,
+                    "completion_tokens": 5,
+                    "total_tokens": 15,
+                },
+                "output": "I'll search the web.",
+            },
+            {"type": "tool_result", "tool_name": "web_search", "output": {"results": []}},
+            {
+                "type": "final",
+                "input": {
+                    "messages": [{"role": "human", "content": "goal"}],
+                    "prompt_tokens": 20,
+                    "completion_tokens": 8,
+                    "total_tokens": 28,
+                },
+                "output": "Here are results.",
+            },
+        ],
+    )
+    trace = build_execution_trace(run)
+    turn = next(p for p in trace["phases"] if p["type"] == "agent_turn")
+    types = [c["type"] for c in turn["children"]]
+    labels = [c.get("label") for c in turn["children"]]
+    assert types == ["llm_response", "tool", "llm_response"]
+    assert labels == ["Decision", "Web search", "Response"]
+
+
 def test_hitl_before_presentation():
     run = _run_with_steps(
         "Summarize docs",

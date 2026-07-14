@@ -279,7 +279,7 @@ def _workspace_context_lines(ctx: PresentationContext) -> str:
 def build_presentation(
     db: Session,
     ctx: PresentationContext,
-) -> dict[str, Any]:
+) -> tuple[dict[str, Any], dict[str, Any]]:
     """
     Produce a generative_ui payload from agent goal + answer + workspace context.
     Uses RAG chunks for grounding; layout is chosen freely from registered block types.
@@ -287,7 +287,7 @@ def build_presentation(
     goal = (ctx.goal or "").strip()
     answer = (ctx.final_answer or "").strip()
     if not goal or not answer:
-        return {"error": "goal and final_answer are required"}
+        return {"error": "goal and final_answer are required"}, {}
 
     query = f"{goal}\n{answer[:1500]}".strip()
     hits = retrieve_chunks(
@@ -462,7 +462,7 @@ EXCERPTS:
             )
         db.commit()
     except Exception as e:
-        return {"error": f"Failed to generate presentation: {e}"}
+        return {"error": f"Failed to generate presentation: {e}"}, {}
 
     raw = re.sub(r"^```(?:json)?\s*", "", raw)
     raw = re.sub(r"\s*```$", "", raw)
@@ -552,11 +552,25 @@ EXCERPTS:
             sources=sources,
         )
     except Exception as e:
-        return {"error": f"Invalid presentation shape: {e}", "raw": data}
+        return {"error": f"Invalid presentation shape: {e}", "raw": data}, {}
 
     out = payload.model_dump()
     profile = data.get("presentation_profile")
     if isinstance(profile, str) and profile.strip():
         out["presentation_profile"] = profile.strip()[:120]
     out["version"] = 2
-    return out
+    build_meta: dict[str, Any] = {
+        "prompt": prompt,
+        "llm_output": raw,
+        "prompt_tokens": None,
+        "completion_tokens": None,
+        "total_tokens": None,
+    }
+    if usage is not None:
+        build_meta["prompt_tokens"] = usage.prompt_tokens
+        build_meta["completion_tokens"] = usage.completion_tokens
+        build_meta["total_tokens"] = usage.total_tokens
+    else:
+        estimated = estimate_tokens(prompt, raw)
+        build_meta["total_tokens"] = estimated
+    return out, build_meta

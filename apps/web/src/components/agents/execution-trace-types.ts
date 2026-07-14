@@ -18,6 +18,12 @@ export type TraceLlmMessage = {
   name?: string;
 };
 
+export type TraceTokenUsage = {
+  prompt_tokens?: number | null;
+  completion_tokens?: number | null;
+  total_tokens?: number | null;
+};
+
 export type TraceLlmChild = {
   id: string;
   type: "llm_response";
@@ -25,6 +31,9 @@ export type TraceLlmChild = {
   state: TraceState;
   prompt?: TraceLlmMessage[] | null;
   output: string;
+  prompt_tokens?: number | null;
+  completion_tokens?: number | null;
+  total_tokens?: number | null;
 };
 
 export type TraceChild = TraceToolChild | TraceLlmChild;
@@ -58,12 +67,43 @@ export type TraceHitlPhase = {
   output?: unknown;
 };
 
+export type TraceAgentStepSummary = {
+  type: string;
+  label: string;
+  turn?: number;
+  tool_name?: string;
+  state?: TraceState;
+};
+
+export type TraceAgentEvidence = {
+  document_hits?: Array<{
+    filename: string;
+    snippet: string;
+    score?: number | null;
+    chunk_id?: string | null;
+  }>;
+  web_hits?: Array<{
+    title: string;
+    snippet: string;
+    url?: string;
+  }>;
+};
+
 export type TracePresentationPhase = {
   id: string;
   type: "presentation";
   label: string;
   state: TraceState;
   output?: unknown;
+  prompt?: TraceLlmMessage[] | string | null;
+  llm_output?: string | null;
+  prompt_tokens?: number | null;
+  completion_tokens?: number | null;
+  total_tokens?: number | null;
+  agent_steps?: TraceAgentStepSummary[];
+  agent_evidence?: TraceAgentEvidence | null;
+  block_count?: number;
+  presentation_profile?: string | null;
 };
 
 export type TraceSynthesisPhase = {
@@ -71,7 +111,11 @@ export type TraceSynthesisPhase = {
   type: "synthesis";
   label: string;
   state: TraceState;
-  content?: string;
+  prompt?: TraceLlmMessage[] | null;
+  output?: string;
+  prompt_tokens?: number | null;
+  completion_tokens?: number | null;
+  total_tokens?: number | null;
 };
 
 export type TracePhase =

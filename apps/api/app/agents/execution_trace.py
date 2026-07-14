@@ -35,6 +35,36 @@ def _step_output_status(step: AgentStep | dict[str, Any]) -> str | None:
     return str(status) if status is not None else None
 
 
+def _tokens_from_step_input(step: AgentStep | None) -> dict[str, int]:
+    if not step or not step.input or not isinstance(step.input, dict):
+        return {}
+    out: dict[str, int] = {}
+    for key in ("prompt_tokens", "completion_tokens", "total_tokens"):
+        value = step.input.get(key)
+        if isinstance(value, int) and value >= 0:
+            out[key] = value
+    return out
+
+
+def _tokens_from_live(
+    live: LiveTraceContext | None,
+    turn_id: str | None,
+) -> dict[str, int]:
+    if not live or not turn_id:
+        return {}
+    return dict(live.tokens_by_turn.get(turn_id) or {})
+
+
+def _apply_tokens(node: dict[str, Any], tokens: dict[str, int]) -> dict[str, Any]:
+    if not tokens:
+        return node
+    merged = dict(node)
+    for key in ("prompt_tokens", "completion_tokens", "total_tokens"):
+        if key in tokens:
+            merged[key] = tokens[key]
+    return merged
+
+
 def _messages_from_step_input(step: AgentStep | None) -> list[dict[str, Any]] | None:
     if not step or not step.input or not isinstance(step.input, dict):
         return None
@@ -66,6 +96,7 @@ class LiveTraceContext:
 
     stream_by_turn: dict[str, str] = field(default_factory=dict)
     prompt_by_turn: dict[str, list[dict[str, Any]]] = field(default_factory=dict)
+    tokens_by_turn: dict[str, dict[str, int]] = field(default_factory=dict)
     current_turn_id: str | None = None
     llm_running: bool = False
     has_tool_calls: bool = False
@@ -154,28 +185,97 @@ class _TurnAcc:
                 return streamed
         return _step_text(self.response_step or self.planning_step)
 
-    def children(self, live: LiveTraceContext | None) -> list[dict[str, Any]]:
-        nodes: list[dict[str, Any]] = [t.to_node() for t in self.tools]
-        content = self.response_content(live)
-        llm_state: TraceState = self.state if self.state != "done" else "done"
-        if live and self.llm_turn_id == live.current_turn_id and live.llm_running:
-            llm_state = "running"
-        elif content or (live and self.llm_turn_id and live.stream_by_turn.get(self.llm_turn_id)):
-            llm_state = "done" if self.state == "done" else llm_state
-        elif not self.tools:
-            llm_state = self.state
+    def _make_llm_node(
+        self,
+        *,
+        suffix: str,
+        label: str,
+        step: AgentStep | None,
+        live: LiveTraceContext | None,
+        live_turn_id: str | None,
+        state: TraceState,
+        output: str,
+        prompt: list[dict[str, Any]] | None = None,
+    ) -> dict[str, Any]:
+        resolved_prompt = prompt
+        if resolved_prompt is None and step:
+            resolved_prompt = _messages_from_step_input(step)
+        if resolved_prompt is None and live and live_turn_id:
+            resolved_prompt = live.prompt_by_turn.get(live_turn_id)
 
-        label = "Response" if self.tools else "LLM output"
-        nodes.append(
+        tokens = _tokens_from_step_input(step)
+        if not tokens and live and live_turn_id:
+            tokens = _tokens_from_live(live, live_turn_id)
+
+        return _apply_tokens(
             {
-                "id": f"{self.id}-llm",
+                "id": f"{self.id}-llm-{suffix}",
                 "type": "llm_response",
                 "label": label,
-                "state": llm_state,
-                "prompt": self.prompt_for_output(live),
-                "output": content,
-            }
+                "state": state,
+                "prompt": resolved_prompt,
+                "output": output,
+            },
+            tokens,
         )
+
+    def _response_llm_state(self, live: LiveTraceContext | None) -> TraceState:
+        if live and self.llm_turn_id == live.current_turn_id and live.llm_running:
+            return "running"
+        if self.response_step or self.state == "done":
+            return "done"
+        if live and self.llm_turn_id and live.stream_by_turn.get(self.llm_turn_id):
+            return "running"
+        return self.state
+
+    def children(self, live: LiveTraceContext | None) -> list[dict[str, Any]]:
+        nodes: list[dict[str, Any]] = []
+
+        if self.planning_step:
+            nodes.append(
+                self._make_llm_node(
+                    suffix="decision",
+                    label="Decision",
+                    step=self.planning_step,
+                    live=None,
+                    live_turn_id=None,
+                    state="done",
+                    output=_step_text(self.planning_step),
+                )
+            )
+
+        nodes.extend(t.to_node() for t in self.tools)
+
+        has_response_step = self.response_step is not None
+        live_response = bool(
+            live
+            and self.llm_turn_id
+            and (
+                (live.llm_running and self.llm_turn_id == live.current_turn_id)
+                or live.stream_by_turn.get(self.llm_turn_id)
+            )
+        )
+        show_response = has_response_step or live_response or (
+            not self.planning_step and not self.tools
+        )
+
+        if show_response:
+            response_output = self.response_content(live)
+            nodes.append(
+                self._make_llm_node(
+                    suffix="response" if self.planning_step or self.tools else "llm",
+                    label="Response" if (self.planning_step or self.tools) else "LLM output",
+                    step=self.response_step,
+                    live=live,
+                    live_turn_id=self.llm_turn_id,
+                    state=self._response_llm_state(live),
+                    output=response_output,
+                    prompt=self.prompt_for_output(live)
+                    if not self.response_step
+                    else _messages_from_step_input(self.response_step),
+                )
+            )
+
         return nodes
 
     def to_phase(self, live: LiveTraceContext | None) -> dict[str, Any]:
@@ -234,6 +334,105 @@ def _attach_tool_result(tools: list[_ToolAcc], step: AgentStep) -> list[_ToolAcc
         )
     )
     return next_tools
+
+
+def _synthesis_phase(step: AgentStep) -> dict[str, Any]:
+    prompt = _messages_from_step_input(step)
+    return _apply_tokens(
+        {
+            "id": str(step.id),
+            "type": "synthesis",
+            "label": "Answer synthesis",
+            "state": "done",
+            "prompt": prompt,
+            "output": _step_text(step),
+        },
+        _tokens_from_step_input(step),
+    )
+
+
+def _summarize_agent_work(
+    turns: list[_TurnAcc],
+    tail: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    summary: list[dict[str, Any]] = []
+    for turn in turns:
+        if turn.planning_step:
+            summary.append(
+                {
+                    "type": "decision",
+                    "label": f"Turn {turn.turn}: LLM decision",
+                    "turn": turn.turn,
+                    "state": "done",
+                }
+            )
+        for tool in turn.tools:
+            summary.append(
+                {
+                    "type": "tool",
+                    "label": _tool_label(tool.tool_name),
+                    "tool_name": tool.tool_name,
+                    "state": tool.state,
+                }
+            )
+        if turn.response_step:
+            summary.append(
+                {
+                    "type": "response",
+                    "label": f"Turn {turn.turn}: LLM response",
+                    "turn": turn.turn,
+                    "state": "done",
+                }
+            )
+    for phase in tail:
+        if phase.get("type") == "hitl":
+            summary.append(
+                {
+                    "type": "hitl",
+                    "label": str(phase.get("label") or "Human approval"),
+                    "state": phase.get("state") or "done",
+                }
+            )
+        elif phase.get("type") == "synthesis":
+            summary.append(
+                {
+                    "type": "synthesis",
+                    "label": str(phase.get("label") or "Answer synthesis"),
+                    "state": phase.get("state") or "done",
+                }
+            )
+    return summary
+
+
+def _presentation_phase(
+    step: AgentStep,
+    *,
+    turns: list[_TurnAcc],
+    tail: list[dict[str, Any]],
+    state: TraceState = "done",
+) -> dict[str, Any]:
+    step_input = step.input if isinstance(step.input, dict) else {}
+    output = step.output
+    blocks = output.get("blocks") if isinstance(output, dict) else None
+    llm_output = step_input.get("llm_output")
+    if llm_output is None and isinstance(output, dict):
+        llm_output = output.get("plain_summary")
+    item = {
+        "id": str(step.id),
+        "type": "presentation",
+        "label": "Visual summary",
+        "state": state,
+        "output": output,
+        "prompt": step_input.get("messages") or step_input.get("prompt"),
+        "llm_output": llm_output,
+        "agent_evidence": step_input.get("agent_evidence"),
+        "agent_steps": _summarize_agent_work(turns, tail),
+        "block_count": len(blocks) if isinstance(blocks, list) else 0,
+        "presentation_profile": (
+            output.get("presentation_profile") if isinstance(output, dict) else None
+        ),
+    }
+    return _apply_tokens(item, _tokens_from_step_input(step))
 
 
 def _parse_steps(
@@ -317,13 +516,7 @@ def _parse_steps(
             continue
 
         if step.type == "presentation" or _is_generative_ui(step.output):
-            item = {
-                "id": str(step.id),
-                "type": "presentation",
-                "label": "Visual summary",
-                "state": "done",
-                "output": step.output,
-            }
+            item = _presentation_phase(step, turns=turns, tail=tail, state="done")
             idx = next(
                 (i for i, t in enumerate(tail) if t.get("type") == "presentation" and t.get("state") != "done"),
                 -1,
@@ -335,15 +528,7 @@ def _parse_steps(
             continue
 
         if step.type == "synthesis":
-            tail.append(
-                {
-                    "id": str(step.id),
-                    "type": "synthesis",
-                    "label": "Answer synthesis",
-                    "state": "done",
-                    "content": _step_text(step),
-                }
-            )
+            tail.append(_synthesis_phase(step))
 
     if current is not None:
         if any(t.state != "done" for t in current.tools):
@@ -372,6 +557,45 @@ def _parse_steps(
             tail.append(hitl)
 
     return turns, tail
+
+
+def _agent_steps_from_phases(phases: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    summary: list[dict[str, Any]] = []
+    for phase in phases:
+        ptype = phase.get("type")
+        if ptype == "agent_turn":
+            turn = phase.get("turn")
+            for child in phase.get("children") or []:
+                ctype = child.get("type")
+                if ctype == "tool":
+                    summary.append(
+                        {
+                            "type": "tool",
+                            "label": child.get("label") or _tool_label(child.get("tool_name")),
+                            "tool_name": child.get("tool_name"),
+                            "state": child.get("state") or "done",
+                        }
+                    )
+                elif ctype == "llm_response":
+                    label = str(child.get("label") or "LLM")
+                    step_type = "decision" if label.lower() == "decision" else "response"
+                    summary.append(
+                        {
+                            "type": step_type,
+                            "label": f"Turn {turn}: {label}",
+                            "turn": turn,
+                            "state": child.get("state") or "done",
+                        }
+                    )
+        elif ptype in ("hitl", "synthesis"):
+            summary.append(
+                {
+                    "type": ptype,
+                    "label": str(phase.get("label") or ptype),
+                    "state": phase.get("state") or "done",
+                }
+            )
+    return summary
 
 
 def _presentation_pending(run: AgentRun) -> bool:
@@ -418,6 +642,7 @@ def _apply_run_overlays(
                     "type": "presentation",
                     "label": "Visual summary",
                     "state": "running",
+                    "agent_steps": _agent_steps_from_phases(out),
                 }
             )
         else:
