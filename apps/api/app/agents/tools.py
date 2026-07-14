@@ -4,7 +4,6 @@ from typing import Any
 from langchain_core.tools import tool
 from sqlalchemy.orm import Session
 
-from app.agents.gen_ui import build_learning_ui
 from app.agents.profiles import get_profile
 from app.ingestion.retrieve import retrieve_chunks
 from app.models import Document, Note
@@ -65,32 +64,6 @@ def build_tools(
         return results
 
     @tool
-    def study_guide(
-        topic: str,
-        focus: str = "",
-        document_id: str = "",
-        document_filename: str = "",
-    ) -> dict[str, Any]:
-        """
-        Generate an easy-to-understand learning UI from uploaded documents.
-
-        Use when the user wants a simple overview, key points, glossary, FAQ,
-        or structured explanation of content in their workspace docs.
-        Prefer document_id (or document_filename from list_documents) when the
-        user names a specific file. Returns a generative_ui payload with
-        per-block source_indices for the frontend.
-        """
-        return build_learning_ui(
-            db,
-            workspace_id=workspace_id,
-            user_id=user_id,
-            topic=topic,
-            focus=focus or "",
-            document_id=document_id or None,
-            document_filename=document_filename or None,
-        )
-
-    @tool
     def create_note(title: str, body: str = "") -> dict[str, Any]:
         """
         Create a note in the workspace.
@@ -116,7 +89,6 @@ def build_tools(
     by_name = {
         "list_documents": list_documents,
         "search_documents": search_documents,
-        "study_guide": study_guide,
         "create_note": create_note,
     }
     return [by_name[name] for name in by_name if name in profile.tool_names]

@@ -28,6 +28,8 @@ class UserResponse(BaseModel):
 class WorkspaceResponse(BaseModel):
     id: uuid.UUID
     name: str
+    description: str | None = None
+    tags: list[str] | None = None
     role: str
 
     model_config = {"from_attributes": True}
@@ -107,6 +109,7 @@ class AgentRunResponse(BaseModel):
     user_id: uuid.UUID | None = None
     goal: str
     agent_type: str = "general"
+    presentation_spec: dict | None = None
     status: str
     final_answer: str | None
     error: str | None
@@ -133,10 +136,14 @@ class ChangePasswordRequest(BaseModel):
 
 class WorkspaceCreateRequest(BaseModel):
     name: str = Field(min_length=1, max_length=200)
+    description: str | None = Field(default=None, max_length=4000)
+    tags: list[str] | None = None
 
 
 class WorkspaceUpdateRequest(BaseModel):
-    name: str = Field(min_length=1, max_length=200)
+    name: str | None = Field(default=None, min_length=1, max_length=200)
+    description: str | None = Field(default=None, max_length=4000)
+    tags: list[str] | None = None
 
 
 class NoteUpdateRequest(BaseModel):

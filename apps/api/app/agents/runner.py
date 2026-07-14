@@ -18,7 +18,10 @@ from sqlalchemy.orm import Session
 from app.agents.profiles import get_profile
 from app.agents.tools import build_tools
 from app.config import settings
-from app.models import AgentRun, AgentStep
+from app.models import AgentRun, AgentStep, Document, Workspace
+from app.presentation.context import PresentationContext
+from app.presentation.engine import build_presentation
+from app.presentation.planner import should_render_presentation
 from app.usage import estimate_tokens, log_usage
 
 WRITE_TOOLS = frozenset({"create_note"})
@@ -122,6 +125,7 @@ def run_to_public_dict(run: AgentRun) -> dict[str, Any]:
         "user_id": str(run.user_id) if run.user_id else None,
         "goal": run.goal,
         "agent_type": run.agent_type or "general",
+        "presentation_spec": run.presentation_spec,
         "status": run.status,
         "final_answer": run.final_answer,
         "error": run.error,
@@ -243,7 +247,6 @@ def _deserialize_messages(raw: list[Any]) -> list[BaseMessage]:
 
 def _prefer_gen_ui_summary(messages: list[BaseMessage], fallback: str) -> str:
     if fallback and fallback not in ("(no final answer)",):
-        # Still upgrade empty-ish answers
         if len(fallback.strip()) > 20:
             return fallback
     for msg in reversed(messages):
@@ -261,6 +264,87 @@ def _prefer_gen_ui_summary(messages: list[BaseMessage], fallback: str) -> str:
             ):
                 return str(data["plain_summary"])
     return fallback or "(no final answer)"
+
+
+def _finalize_completed_run(
+    db: Session,
+    run: AgentRun,
+    *,
+    messages: list[BaseMessage],
+    fallback_answer: str,
+    step_index: int,
+    on_event: EventCallback = None,
+) -> int:
+    """Set final answer and attach auto-generated presentation when appropriate."""
+    run.final_answer = _prefer_gen_ui_summary(messages, fallback_answer)
+    return _attach_presentation_if_needed(
+        db,
+        run,
+        step_index=step_index,
+        on_event=on_event,
+    )
+
+
+def _attach_presentation_if_needed(
+    db: Session,
+    run: AgentRun,
+    *,
+    step_index: int,
+    on_event: EventCallback = None,
+) -> int:
+    """Auto-generate generative UI for completed explanatory agent runs."""
+    if run.presentation_spec or run.status != "completed":
+        return step_index
+    if not should_render_presentation(
+        goal=run.goal or "",
+        final_answer=run.final_answer,
+        status=run.status,
+    ):
+        return step_index
+
+    ws = db.get(Workspace, run.workspace_id)
+    filenames = [
+        row[0]
+        for row in db.query(Document.filename)
+        .filter(Document.workspace_id == run.workspace_id)
+        .order_by(Document.created_at.desc())
+        .limit(20)
+        .all()
+    ]
+    raw_tags = ws.tags if ws and isinstance(ws.tags, list) else []
+    tags = [str(t).strip() for t in raw_tags if t and str(t).strip()]
+
+    ctx = PresentationContext(
+        workspace_id=run.workspace_id,
+        user_id=run.user_id or uuid.UUID(int=0),
+        goal=run.goal or "",
+        final_answer=run.final_answer or "",
+        workspace_name=ws.name if ws else "",
+        workspace_description=(ws.description or "") if ws else "",
+        workspace_tags=tags,
+        document_filenames=filenames,
+    )
+    spec = build_presentation(db, ctx)
+    if not isinstance(spec, dict) or spec.get("error"):
+        return step_index
+
+    run.presentation_spec = spec
+    plain = spec.get("plain_summary")
+    if plain and (not run.final_answer or run.final_answer == "(no final answer)"):
+        run.final_answer = str(plain)
+
+    step_index += 1
+    _append_step(
+        db,
+        run,
+        step_index=step_index,
+        type="presentation",
+        tool_name="generative_ui",
+        output=spec,
+        on_event=on_event,
+    )
+    _emit(on_event, "presentation", run_id=str(run.id), presentation_profile=spec.get("presentation_profile"))
+    return step_index
 
 
 def _run_tool_loop(
@@ -348,11 +432,16 @@ def _run_tool_loop(
                     # Don't append ai (would orphan tool_calls), don't re-invoke LLM.
                     # Just exit — repeated calls waste tokens.
                     run.status = "completed"
-                    run.final_answer = _prefer_gen_ui_summary(
-                        messages, _content_str(ai.content) or "(no final answer)"
-                    )
                     run.token_usage = total_tokens_acc or None
                     run.pending_tool = None
+                    step_index = _finalize_completed_run(
+                        db,
+                        run,
+                        messages=messages,
+                        fallback_answer=_content_str(ai.content) or "(no final answer)",
+                        step_index=step_index,
+                        on_event=on_event,
+                    )
                     _log_agent_usage(
                         db,
                         run,
@@ -401,11 +490,16 @@ def _run_tool_loop(
 
             if not ai.tool_calls:
                 run.status = "completed"
-                run.final_answer = _prefer_gen_ui_summary(
-                    messages, content or "(no final answer)"
-                )
                 run.token_usage = total_tokens_acc or None
                 run.pending_tool = None
+                step_index = _finalize_completed_run(
+                    db,
+                    run,
+                    messages=messages,
+                    fallback_answer=content or "(no final answer)",
+                    step_index=step_index,
+                    on_event=on_event,
+                )
                 _log_agent_usage(
                     db,
                     run,
@@ -605,11 +699,18 @@ def _run_tool_loop(
                     )
 
         run.status = "completed"
-        run.final_answer = (
-            run.final_answer or "Stopped after max_steps without a final answer."
-        )
         run.token_usage = total_tokens_acc or None
         run.pending_tool = None
+        step_index = _finalize_completed_run(
+            db,
+            run,
+            messages=messages,
+            fallback_answer=(
+                run.final_answer or "Stopped after max_steps without a final answer."
+            ),
+            step_index=step_index,
+            on_event=on_event,
+        )
         _log_agent_usage(
             db,
             run,

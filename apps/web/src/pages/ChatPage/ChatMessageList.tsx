@@ -2,8 +2,7 @@ import { Link, useNavigate } from "react-router-dom";
 import { AlertCircle, Bot, Loader2, MessageCircle, Sparkles } from "lucide-react";
 import { TypingIndicator } from "@/components/chat/TypingIndicator";
 import { AgentRunPanel } from "@/components/agents/AgentRunPanel";
-import { GenerativeUIView } from "@/components/agents/GenerativeUI";
-import { extractGenerativeUIFromSteps } from "@/components/agents/generative-ui";
+
 import { CitationList } from "@/components/chat/CitationList";
 import { isDenialMessage, shouldShowSources } from "@/components/chat/citations";
 import { CopyButton } from "@/components/chat/CopyButton";
@@ -140,7 +139,7 @@ function AgentMessageItem({
 }: {
   item: AgentThreadItem;
 }) {
-  const { approving, savingNote, onApproveAgent, onSaveLearningNote } = useChatPage();
+  const { approving, onApproveAgent } = useChatPage();
   const isUser = item.role === "user";
   const showAgentsLink =
     !isUser &&
@@ -169,24 +168,6 @@ function AgentMessageItem({
           <CopyButton text={item.content} />
         </div>
       )}
-
-      {!isUser &&
-        (() => {
-          const gen = extractGenerativeUIFromSteps(
-            item.liveSteps ?? item.run?.steps ?? [],
-          );
-          return gen ? (
-            <div className="mt-2 w-full max-w-[min(100%,36rem)]">
-              <GenerativeUIView
-                payload={gen}
-                onSaveAsNote={(t, b) =>
-                  onSaveLearningNote(t, b)
-                }
-                savingNote={savingNote}
-              />
-            </div>
-          ) : null;
-        })()}
 
       {showAgentsLink && (
         <Link

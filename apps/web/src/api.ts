@@ -71,7 +71,13 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
 
 export type TokenResponse = { access_token: string; token_type: string };
 
-export type Workspace = { id: string; name: string; role: string };
+export type Workspace = {
+  id: string;
+  name: string;
+  description?: string | null;
+  tags?: string[] | null;
+  role: string;
+};
 
 export type Document = {
   id: string;
@@ -292,7 +298,7 @@ export const api = {
   startAgentRun: (
     workspaceId: string,
     goal: string,
-    options: { maxSteps?: number; agentType?: "general" | "study_guide" } = {},
+    options: { maxSteps?: number } = {},
   ) =>
     request<AgentRun>("/agents/runs", {
       method: "POST",
@@ -300,7 +306,7 @@ export const api = {
         workspace_id: workspaceId,
         goal,
         max_steps: options.maxSteps,
-        agent_type: options.agentType ?? "general",
+        agent_type: "general",
       }),
     }),
 
@@ -309,7 +315,7 @@ export const api = {
     workspaceId: string,
     goal: string,
     handlers: AgentStreamHandlers = {},
-    options: { maxSteps?: number; agentType?: "general" | "study_guide" } = {},
+    options: { maxSteps?: number } = {},
   ) =>
     streamAgentRun(
       "/agents/runs/stream",
@@ -317,17 +323,13 @@ export const api = {
         workspace_id: workspaceId,
         goal,
         max_steps: options.maxSteps,
-        agent_type: options.agentType ?? "general",
+        agent_type: "general",
       },
       handlers,
     ),
 
-  agentRuns: (
-    workspaceId: string,
-    agentType?: "general" | "study_guide",
-  ) => {
+  agentRuns: (workspaceId: string) => {
     const params = new URLSearchParams({ workspace_id: workspaceId });
-    if (agentType) params.set("agent_type", agentType);
     return request<AgentRun[]>(`/agents/runs?${params.toString()}`);
   },
 
@@ -377,10 +379,13 @@ export const api = {
       body: JSON.stringify({ name }),
     }),
 
-  updateWorkspace: (id: string, name: string) =>
+  updateWorkspace: (
+    id: string,
+    patch: { name?: string; description?: string | null; tags?: string[] | null },
+  ) =>
     request<Workspace>(`/workspaces/${id}`, {
       method: "PATCH",
-      body: JSON.stringify({ name }),
+      body: JSON.stringify(patch),
     }),
 
   deleteWorkspace: (id: string) =>
@@ -484,7 +489,8 @@ export type AgentRun = {
   workspace_id: string;
   user_id: string | null;
   goal: string;
-  agent_type?: "general" | "study_guide";
+  agent_type?: "general";
+  presentation_spec?: Record<string, unknown> | null;
   status: string;
   final_answer: string | null;
   error: string | null;

@@ -17,51 +17,23 @@ import { useAgentRuns, useNotes, useWorkspaces } from "@/hooks/queries";
 import { useLastWorkspace } from "@/hooks/useLastWorkspace";
 import type { AgentPageContextValue } from "@/types/agents";
 import { AgentPageContext } from "./agent-page-context";
-import {
-  AGENT_EXAMPLE_GOALS,
-  STUDY_GUIDE_EXAMPLE_GOALS,
-  type AgentType,
-} from "@/components/agents/agent-utils";
+import { AGENT_EXAMPLE_GOALS } from "@/components/agents/agent-utils";
 
-export type AgentWorkspaceConfig = {
-  agentType: AgentType;
-  documentTitle: string;
-  defaultGoal: string;
-  exampleGoals: string[];
-  maxSteps?: number;
-};
-
-const GENERAL_CONFIG: AgentWorkspaceConfig = {
-  agentType: "general",
-  documentTitle: "Agents",
-  defaultGoal: AGENT_EXAMPLE_GOALS[0],
-  exampleGoals: AGENT_EXAMPLE_GOALS,
-  maxSteps: 5,
-};
-
-export const STUDY_GUIDE_CONFIG: AgentWorkspaceConfig = {
-  agentType: "study_guide",
-  documentTitle: "Study Guide",
-  defaultGoal: STUDY_GUIDE_EXAMPLE_GOALS[0],
-  exampleGoals: STUDY_GUIDE_EXAMPLE_GOALS,
-  maxSteps: 4,
-};
+const DEFAULT_MAX_STEPS = 5;
 
 export function AgentPageProvider({
   children,
-  config = GENERAL_CONFIG,
 }: {
   children: ReactNode;
-  config?: AgentWorkspaceConfig;
 }) {
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const { success, error: toastError } = useToast();
   const queryClient = useQueryClient();
-  useDocumentTitle(config.documentTitle);
+  useDocumentTitle("Agents");
 
   const [selectedId, setSelectedId] = useState("");
-  const [goal, setGoal] = useState(config.defaultGoal);
+  const [goal, setGoal] = useState(AGENT_EXAMPLE_GOALS[0]);
   const [error, setError] = useState<string | null>(null);
   const [running, setRunning] = useState(false);
   const [approving, setApproving] = useState(false);
@@ -79,10 +51,7 @@ export function AgentPageProvider({
   const { data: workspaces = [], isLoading: loading } = useWorkspaces();
   const { workspaceId: effectiveWorkspaceId, setWorkspaceId: persistWorkspace } =
     useLastWorkspace(workspaces);
-  const { data: runs = [] } = useAgentRuns(
-    effectiveWorkspaceId,
-    config.agentType,
-  );
+  const { data: runs = [] } = useAgentRuns(effectiveWorkspaceId);
   const { data: notes = [] } = useNotes(effectiveWorkspaceId);
   const effectiveSelectedId = selectedId;
 
@@ -210,25 +179,18 @@ export function AgentPageProvider({
             setSelectedId(final.id);
           },
         ),
-        {
-          maxSteps: config.maxSteps,
-          agentType: config.agentType,
-        },
+        { maxSteps: DEFAULT_MAX_STEPS },
       );
       if (run) {
         setSelected(run);
         setSelectedId(run.id);
         await queryClient.invalidateQueries({
-          queryKey: ["agentRuns", effectiveWorkspaceId, config.agentType],
+          queryKey: ["agentRuns", effectiveWorkspaceId],
         });
         if (run.status === "waiting_approval") {
           success("Approval needed", "Review the write action below.");
         } else if (run.status === "completed") {
-          success(
-            config.agentType === "study_guide"
-              ? "Study guide ready"
-              : "Agent finished",
-          );
+          success("Agent finished");
         }
       }
     } catch (err) {
@@ -251,7 +213,7 @@ export function AgentPageProvider({
       if (!approve) {
         const run = await api.approveAgentRun(selected.id, false);
         await queryClient.invalidateQueries({
-          queryKey: ["agentRuns", effectiveWorkspaceId, config.agentType],
+          queryKey: ["agentRuns", effectiveWorkspaceId],
         });
         setSelected(run);
         success("Action rejected");
@@ -327,7 +289,7 @@ export function AgentPageProvider({
       if (run) {
         setSelected(run);
         await queryClient.invalidateQueries({
-          queryKey: ["agentRuns", effectiveWorkspaceId, config.agentType],
+          queryKey: ["agentRuns", effectiveWorkspaceId],
         });
         await queryClient.invalidateQueries({ queryKey: ["notes", effectiveWorkspaceId] });
         success("Action approved — agent continued");
@@ -351,11 +313,10 @@ export function AgentPageProvider({
       `Create a note titled ${JSON.stringify(title)} with body:\n${body}`;
     try {
       const run = await api.startAgentRun(effectiveWorkspaceId, goalText, {
-        maxSteps: config.maxSteps,
-        agentType: config.agentType,
+        maxSteps: DEFAULT_MAX_STEPS,
       });
       await queryClient.invalidateQueries({
-        queryKey: ["agentRuns", effectiveWorkspaceId, config.agentType],
+        queryKey: ["agentRuns", effectiveWorkspaceId],
       });
       setSelected(run);
       if (run.status === "waiting_approval") {
@@ -394,7 +355,7 @@ export function AgentPageProvider({
     try {
       await api.deleteAgentRun(id);
       await queryClient.invalidateQueries({
-        queryKey: ["agentRuns", effectiveWorkspaceId, config.agentType],
+        queryKey: ["agentRuns", effectiveWorkspaceId],
       });
       success("Run deleted");
     } catch (err) {
@@ -405,8 +366,8 @@ export function AgentPageProvider({
   }
 
   const value: AgentPageContextValue = {
-    agentType: config.agentType,
-    exampleGoals: config.exampleGoals,
+    agentType: "general" as const,
+    exampleGoals: AGENT_EXAMPLE_GOALS,
     workspaces,
     workspaceId: effectiveWorkspaceId,
     runs,
@@ -438,7 +399,7 @@ export function AgentPageProvider({
     onRefresh: () => {
       void queryClient.invalidateQueries({ queryKey: ["workspaces"] });
       void queryClient.invalidateQueries({
-        queryKey: ["agentRuns", effectiveWorkspaceId, config.agentType],
+        queryKey: ["agentRuns", effectiveWorkspaceId],
       });
       void queryClient.invalidateQueries({ queryKey: ["notes", effectiveWorkspaceId] });
     },
@@ -446,7 +407,7 @@ export function AgentPageProvider({
     onRetryError: () => {
       setError(null);
       void queryClient.invalidateQueries({
-        queryKey: ["agentRuns", effectiveWorkspaceId, config.agentType],
+        queryKey: ["agentRuns", effectiveWorkspaceId],
       });
       void queryClient.invalidateQueries({ queryKey: ["notes", effectiveWorkspaceId] });
       if (selectedId) void onSelect(selectedId);

@@ -74,7 +74,16 @@ def list_workspace(
         .all()
     )
 
-    return [WorkspaceResponse(id=ws.id, name=ws.name, role=role) for ws, role in rows]
+    return [
+        WorkspaceResponse(
+            id=ws.id,
+            name=ws.name,
+            description=ws.description,
+            tags=ws.tags if isinstance(ws.tags, list) else None,
+            role=role,
+        )
+        for ws, role in rows
+    ]
 
 
 @router.post("/workspaces", response_model=WorkspaceResponse, status_code=status.HTTP_201_CREATED)
@@ -83,13 +92,26 @@ def create_workspace(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    workspace = Workspace(name=body.name)
+    tags = None
+    if body.tags:
+        tags = [str(t).strip() for t in body.tags if t and str(t).strip()]
+    workspace = Workspace(
+        name=body.name,
+        description=(body.description or "").strip() or None,
+        tags=tags or None,
+    )
     db.add(workspace)
     db.flush()
     db.add(WorkspaceMember(user_id=current_user.id, workspace_id=workspace.id, role="owner"))
     db.commit()
     db.refresh(workspace)
-    return WorkspaceResponse(id=workspace.id, name=workspace.name, role="owner")
+    return WorkspaceResponse(
+        id=workspace.id,
+        name=workspace.name,
+        description=workspace.description,
+        tags=workspace.tags if isinstance(workspace.tags, list) else None,
+        role="owner",
+    )
 
 
 @router.patch("/workspaces/{workspace_id}", response_model=WorkspaceResponse)
@@ -110,14 +132,27 @@ def update_workspace(
     if not membership:
         raise HTTPException(status_code=404, detail="Workspace not found")
     if membership.role != "owner":
-        raise HTTPException(status_code=403, detail="Only workspace owners can rename")
+        raise HTTPException(status_code=403, detail="Only workspace owners can edit")
     workspace = db.get(Workspace, workspace_id)
     if not workspace:
         raise HTTPException(status_code=404, detail="Workspace not found")
-    workspace.name = body.name
+    if body.name is not None:
+        workspace.name = body.name
+    if body.description is not None:
+        workspace.description = body.description.strip() or None
+    if body.tags is not None:
+        workspace.tags = [
+            str(t).strip() for t in body.tags if t and str(t).strip()
+        ] or None
     db.commit()
     db.refresh(workspace)
-    return WorkspaceResponse(id=workspace.id, name=workspace.name, role=membership.role)
+    return WorkspaceResponse(
+        id=workspace.id,
+        name=workspace.name,
+        description=workspace.description,
+        tags=workspace.tags if isinstance(workspace.tags, list) else None,
+        role=membership.role,
+    )
 
 
 @router.delete("/workspaces/{workspace_id}", status_code=status.HTTP_204_NO_CONTENT)

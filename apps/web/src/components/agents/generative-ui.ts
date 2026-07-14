@@ -21,6 +21,8 @@ export type GenerativeUIPayload = {
   type: "generative_ui";
   title: string;
   plain_summary?: string;
+  presentation_profile?: string;
+  version?: number;
   blocks?: GenUIBlock[];
   source_files?: string[];
   sources?: GenUISource[];
@@ -108,7 +110,9 @@ export function normalizeGenerativeUI(raw: GenerativeUIPayload): GenerativeUIPay
         (b.body && b.body.trim()) ||
         (b.items && b.items.length) ||
         (b.terms && b.terms.length) ||
-        (b.faqs && b.faqs.length)
+        (b.faqs && b.faqs.length) ||
+        b.type === "chips" ||
+        b.type === "table"
       ),
   );
 
@@ -123,21 +127,39 @@ export function normalizeGenerativeUI(raw: GenerativeUIPayload): GenerativeUIPay
   };
 }
 
+function extractFromValue(value: unknown): GenerativeUIPayload | null {
+  if (isGenerativeUI(value)) return normalizeGenerativeUI(value);
+  if (typeof value === "string") {
+    try {
+      const parsed = JSON.parse(value) as unknown;
+      if (isGenerativeUI(parsed)) return normalizeGenerativeUI(parsed);
+    } catch {
+      /* ignore */
+    }
+  }
+  return null;
+}
+
+export function extractGenerativeUIFromRun(
+  run: {
+    presentation_spec?: unknown;
+    steps?: { type: string; tool_name?: string | null; output?: unknown }[];
+  } | null | undefined,
+): GenerativeUIPayload | null {
+  if (!run) return null;
+  const fromSpec = extractFromValue(run.presentation_spec);
+  if (fromSpec) return fromSpec;
+  return extractGenerativeUIFromSteps(run.steps ?? []);
+}
+
 export function extractGenerativeUIFromSteps(
   steps: { type: string; tool_name?: string | null; output?: unknown }[],
 ): GenerativeUIPayload | null {
   for (let i = steps.length - 1; i >= 0; i--) {
     const s = steps[i];
     const out = s.output;
-    if (isGenerativeUI(out)) return normalizeGenerativeUI(out);
-    if (typeof out === "string") {
-      try {
-        const parsed = JSON.parse(out) as unknown;
-        if (isGenerativeUI(parsed)) return normalizeGenerativeUI(parsed);
-      } catch {
-        /* ignore */
-      }
-    }
+    const gen = extractFromValue(out);
+    if (gen) return gen;
   }
   return null;
 }
@@ -154,7 +176,13 @@ export function generativeUIToNoteBody(payload: GenerativeUIPayload): string {
     const t = b.title || b.type.replace(/_/g, " ");
     lines.push("", `## ${t}`);
     if (b.body) lines.push(b.body);
-    for (const item of b.items ?? []) lines.push(`- ${item}`);
+    for (const item of b.items ?? []) {
+      if (b.type === "table" && item.includes("|")) {
+        lines.push(`| ${item.split("|").map((c) => c.trim()).join(" | ")} |`);
+      } else {
+        lines.push(`- ${item}`);
+      }
+    }
     for (const term of b.terms ?? []) {
       lines.push(`- **${term.term}**: ${term.definition}`);
     }

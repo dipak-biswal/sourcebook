@@ -24,6 +24,8 @@ BlockType = Literal[
     "faq",
     "callout",
     "steps",
+    "chips",
+    "table",
 ]
 
 
@@ -160,7 +162,7 @@ def _normalize_block_dict(raw: Any) -> dict[str, Any] | None:
         "important": "callout",
     }
     b["type"] = type_map.get(t, t if t in {
-        "summary", "key_points", "key_terms", "faq", "callout", "steps"
+        "summary", "key_points", "key_terms", "faq", "callout", "steps", "chips", "table"
     } else "summary")
 
     # title

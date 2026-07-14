@@ -6,6 +6,7 @@ import {
   Plus,
   Save,
   Trash2,
+  X,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { FieldError } from "@/components/ui/field-error";
@@ -16,13 +17,14 @@ import { useSettingsPage } from "./settings-page-context";
 export function SettingsWorkspaces() {
   const {
     workspaces, newWsName, creatingWs,
-    renamingId, renameValue, savingRename,
+    editingId, editName, editDescription, editTags, savingEdit,
     onNewWsNameChange, onCreateWorkspace,
-    onStartRename, onRenameValueChange, onCancelRename, onSaveRename,
+    onStartEdit, onEditNameChange, onEditDescriptionChange, onEditTagsChange,
+    onCancelEdit, onSaveEdit,
     onDeleteWorkspace,
   } = useSettingsPage();
   const [wsError, setWsError] = useState<string | null>(null);
-  const [renameErrors, setRenameErrors] = useState<{ name?: string }>({});
+  const [editErrors, setEditErrors] = useState<{ name?: string }>({});
 
   function handleCreateWs() {
     const err = validateWorkspaceName(newWsName);
@@ -37,17 +39,18 @@ export function SettingsWorkspaces() {
     }
   }
 
-  function handleRenameSubmit(id: string) {
-    const err = validateWorkspaceName(renameValue);
-    setRenameErrors({ name: err ?? undefined });
-    if (!err) void onSaveRename(id);
+  function handleEditSubmit(id: string) {
+    const err = validateWorkspaceName(editName);
+    setEditErrors({ name: err ?? undefined });
+    if (!err) void onSaveEdit(id);
   }
 
   return (
     <div className="rounded-vercel-md border border-hairline bg-canvas p-4">
       <h2 className="text-sm font-semibold text-ink">Workspaces</h2>
       <p className="mt-1 text-xs text-mute">
-        Create, rename, or delete workspaces. Deleting removes all associated data.
+        Create, edit, or delete workspaces. Description and tags help the agent
+        tailor structured presentations to your workspace.
       </p>
 
       <div className="mt-3">
@@ -86,53 +89,89 @@ export function SettingsWorkspaces() {
           workspaces.map((ws) => (
             <div
               key={ws.id}
-              className="flex items-center gap-2 rounded-[6px] border border-hairline px-3 py-2"
+              className="rounded-[6px] border border-hairline px-3 py-2"
             >
-              <LayoutGrid className="h-3.5 w-3.5 shrink-0 text-mute" strokeWidth={1.5} />
-              {renamingId === ws.id ? (
-                <div className="flex flex-1 items-center gap-1">
-                  <div className="flex-1">
-                    <Input
-                      value={renameValue}
-                      onChange={(e) => { onRenameValueChange(e.target.value); setRenameErrors({}); }}
-                      className="h-7 text-xs"
-                      autoFocus
-                      aria-invalid={!!renameErrors.name || undefined}
-                      onKeyDown={(e) => {
-                        if (e.key === "Enter") { e.preventDefault(); handleRenameSubmit(ws.id); }
-                        if (e.key === "Escape") { onCancelRename(); }
-                      }}
-                    />
-                    <FieldError error={renameErrors.name} />
+              {editingId === ws.id ? (
+                <div className="space-y-2">
+                  <div className="flex items-center gap-2">
+                    <LayoutGrid className="h-3.5 w-3.5 shrink-0 text-mute" strokeWidth={1.5} />
+                    <span className="text-[10px] uppercase text-mute">{ws.role}</span>
+                    <div className="ml-auto flex gap-1">
+                      <Button
+                        type="button"
+                        variant="secondary"
+                        size="icon"
+                        className="h-7 w-7"
+                        disabled={!editName.trim() || savingEdit}
+                        onClick={() => handleEditSubmit(ws.id)}
+                      >
+                        {savingEdit ? (
+                          <Loader2 className="h-3 w-3 animate-spin" />
+                        ) : (
+                          <Save className="h-3 w-3" strokeWidth={1.5} />
+                        )}
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="secondary"
+                        size="icon"
+                        className="h-7 w-7"
+                        onClick={onCancelEdit}
+                      >
+                        <X className="h-3 w-3" strokeWidth={1.5} />
+                      </Button>
+                    </div>
                   </div>
-                  <Button
-                    type="button"
-                    variant="secondary"
-                    size="icon"
-                    className="h-7 w-7"
-                    disabled={!renameValue.trim() || savingRename}
-                    onClick={() => handleRenameSubmit(ws.id)}
-                  >
-                    {savingRename ? (
-                      <Loader2 className="h-3 w-3 animate-spin" />
-                    ) : (
-                      <Save className="h-3 w-3" strokeWidth={1.5} />
-                    )}
-                  </Button>
+                  <Input
+                    value={editName}
+                    onChange={(e) => { onEditNameChange(e.target.value); setEditErrors({}); }}
+                    className="h-7 text-xs"
+                    autoFocus
+                    aria-invalid={!!editErrors.name || undefined}
+                    placeholder="Workspace name"
+                  />
+                  <FieldError error={editErrors.name} />
+                  <textarea
+                    value={editDescription}
+                    onChange={(e) => onEditDescriptionChange(e.target.value)}
+                    className="min-h-[4rem] w-full rounded-[6px] border border-hairline bg-canvas px-2.5 py-2 text-xs text-body"
+                    placeholder="What is this workspace for? (optional)"
+                  />
+                  <Input
+                    value={editTags}
+                    onChange={(e) => onEditTagsChange(e.target.value)}
+                    className="h-7 text-xs"
+                    placeholder="Tags, comma-separated (optional)"
+                  />
                 </div>
               ) : (
-                <>
-                  <span className="min-w-0 flex-1 truncate text-sm text-ink">
-                    {ws.name}
-                  </span>
-                  <span className="text-[10px] uppercase text-mute">{ws.role}</span>
+                <div className="flex items-start gap-2">
+                  <LayoutGrid className="mt-0.5 h-3.5 w-3.5 shrink-0 text-mute" strokeWidth={1.5} />
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-2">
+                      <span className="truncate text-sm font-medium text-ink">
+                        {ws.name}
+                      </span>
+                      <span className="text-[10px] uppercase text-mute">{ws.role}</span>
+                    </div>
+                    {ws.description && (
+                      <p className="mt-0.5 line-clamp-2 text-xs text-mute">
+                        {ws.description}
+                      </p>
+                    )}
+                    {ws.tags && ws.tags.length > 0 && (
+                      <p className="mt-0.5 text-[10px] text-mute">
+                        {ws.tags.join(" · ")}
+                      </p>
+                    )}
+                  </div>
                   {ws.role === "owner" && (
-                    <>
+                    <div className="flex shrink-0 gap-0.5">
                       <button
                         type="button"
                         className="rounded p-1 text-mute hover:bg-canvas-soft-2 hover:text-ink"
-                        title="Rename"
-                        onClick={() => onStartRename(ws.id, ws.name)}
+                        title="Edit workspace"
+                        onClick={() => onStartEdit(ws)}
                       >
                         <Pen className="h-3 w-3" strokeWidth={1.5} />
                       </button>
@@ -144,9 +183,9 @@ export function SettingsWorkspaces() {
                       >
                         <Trash2 className="h-3 w-3" strokeWidth={1.5} />
                       </button>
-                    </>
+                    </div>
                   )}
-                </>
+                </div>
               )}
             </div>
           ))

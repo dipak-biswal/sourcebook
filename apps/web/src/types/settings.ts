@@ -1,3 +1,5 @@
+import type { Workspace } from "@/api";
+
 export type SettingsPageContextValue = {
   email: string;
   error: string | null;
@@ -9,9 +11,11 @@ export type SettingsPageContextValue = {
   workspaces: Workspace[];
   newWsName: string;
   creatingWs: boolean;
-  renamingId: string | null;
-  renameValue: string;
-  savingRename: boolean;
+  editingId: string | null;
+  editName: string;
+  editDescription: string;
+  editTags: string;
+  savingEdit: boolean;
   onEmailChange: (v: string) => void;
   onUpdateProfile: () => Promise<void>;
   onCurrentPasswordChange: (v: string) => void;
@@ -20,14 +24,14 @@ export type SettingsPageContextValue = {
   onChangePassword: () => Promise<void>;
   onNewWsNameChange: (v: string) => void;
   onCreateWorkspace: () => Promise<void>;
-  onStartRename: (id: string, name: string) => void;
-  onRenameValueChange: (v: string) => void;
-  onCancelRename: () => void;
-  onSaveRename: (id: string) => Promise<void>;
+  onStartEdit: (ws: Workspace) => void;
+  onEditNameChange: (v: string) => void;
+  onEditDescriptionChange: (v: string) => void;
+  onEditTagsChange: (v: string) => void;
+  onCancelEdit: () => void;
+  onSaveEdit: (id: string) => Promise<void>;
   onDeleteWorkspace: (id: string) => Promise<void>;
   onDismissError: () => void;
   onRetryError: () => void;
   onLogout: () => void;
 };
-
-type Workspace = { id: string; name: string; role: string };

@@ -30,9 +30,11 @@ export function SettingsPageProvider({ children }: { children: ReactNode }) {
 
   const [newWsName, setNewWsName] = useState("");
   const [creatingWs, setCreatingWs] = useState(false);
-  const [renamingId, setRenamingId] = useState<string | null>(null);
-  const [renameValue, setRenameValue] = useState("");
-  const [savingRename, setSavingRename] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editName, setEditName] = useState("");
+  const [editDescription, setEditDescription] = useState("");
+  const [editTags, setEditTags] = useState("");
+  const [savingEdit, setSavingEdit] = useState(false);
 
   useEffect(() => {
     if (user?.email) setEmail(user.email);
@@ -97,23 +99,33 @@ export function SettingsPageProvider({ children }: { children: ReactNode }) {
     }
   }
 
-  async function onSaveRename(id: string) {
-    const name = renameValue.trim();
-    if (!name || savingRename) return;
-    setSavingRename(true);
+  async function onSaveEdit(id: string) {
+    const name = editName.trim();
+    if (!name || savingEdit) return;
+    setSavingEdit(true);
     setError(null);
     try {
-      await api.updateWorkspace(id, name);
-      setRenamingId(null);
-      setRenameValue("");
-      success("Workspace renamed");
+      const tags = editTags
+        .split(",")
+        .map((t) => t.trim())
+        .filter(Boolean);
+      await api.updateWorkspace(id, {
+        name,
+        description: editDescription.trim() || null,
+        tags: tags.length ? tags : null,
+      });
+      setEditingId(null);
+      setEditName("");
+      setEditDescription("");
+      setEditTags("");
+      success("Workspace updated");
       invalidateWorkspaces();
     } catch (err) {
       const msg = formatError(err);
       setError(msg);
-      toastError("Rename failed", msg);
+      toastError("Update failed", msg);
     } finally {
-      setSavingRename(false);
+      setSavingEdit(false);
     }
   }
 
@@ -146,7 +158,7 @@ export function SettingsPageProvider({ children }: { children: ReactNode }) {
   const value: SettingsPageContextValue = {
     email, error, savingProfile, savingPassword,
     currentPassword, newPassword, confirmPassword,
-    workspaces, newWsName, creatingWs, renamingId, renameValue, savingRename,
+    workspaces, newWsName, creatingWs, editingId, editName, editDescription, editTags, savingEdit,
     onEmailChange: setEmail,
     onUpdateProfile,
     onCurrentPasswordChange: setCurrentPassword,
@@ -155,10 +167,17 @@ export function SettingsPageProvider({ children }: { children: ReactNode }) {
     onChangePassword,
     onNewWsNameChange: setNewWsName,
     onCreateWorkspace,
-    onStartRename: (id, name) => { setRenamingId(id); setRenameValue(name); },
-    onRenameValueChange: setRenameValue,
-    onCancelRename: () => setRenamingId(null),
-    onSaveRename,
+    onStartEdit: (ws) => {
+      setEditingId(ws.id);
+      setEditName(ws.name);
+      setEditDescription(ws.description ?? "");
+      setEditTags((ws.tags ?? []).join(", "));
+    },
+    onEditNameChange: setEditName,
+    onEditDescriptionChange: setEditDescription,
+    onEditTagsChange: setEditTags,
+    onCancelEdit: () => setEditingId(null),
+    onSaveEdit,
     onDeleteWorkspace,
     onDismissError: () => setError(null),
     onRetryError: () => {

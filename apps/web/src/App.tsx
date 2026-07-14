@@ -48,9 +48,6 @@ const UsagePage = lazyWithRetry(() =>
 const AgentsPage = lazyWithRetry(() =>
   import("@/pages/AgentsPage").then((m) => ({ default: m.AgentsPage })),
 );
-const StudyGuidePage = lazyWithRetry(() =>
-  import("@/pages/StudyGuidePage").then((m) => ({ default: m.StudyGuidePage })),
-);
 const SettingsPage = lazyWithRetry(() =>
   import("@/pages/SettingsPage").then((m) => ({ default: m.SettingsPage })),
 );
@@ -118,14 +115,6 @@ function AppRoutes() {
           element={
             <LazyRoute>
               <AgentsPage />
-            </LazyRoute>
-          }
-        />
-        <Route
-          path="/study"
-          element={
-            <LazyRoute>
-              <StudyGuidePage />
             </LazyRoute>
           }
         />

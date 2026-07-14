@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { Activity, AlertTriangle, Loader2, MessageCircle, Sparkles } from "lucide-react";
 import { AgentRunPanel } from "@/components/agents/AgentRunPanel";
 import { GenerativeUIView } from "@/components/agents/GenerativeUI";
-import { extractGenerativeUIFromSteps } from "@/components/agents/generative-ui";
+import { extractGenerativeUIFromRun } from "@/components/agents/generative-ui";
 import { MarkdownContent } from "@/components/chat/MarkdownContent";
 import { formatDate } from "@/lib/utils";
 import { cn } from "@/lib/utils";
@@ -56,8 +56,13 @@ export function AgentRunDisplay() {
   } = useAgentPage();
 
   const steps = selected?.steps ?? [];
-  const gen = extractGenerativeUIFromSteps(
-    liveSteps.length ? liveSteps : steps,
+  const gen = extractGenerativeUIFromRun(
+    selected
+      ? {
+          presentation_spec: selected.presentation_spec,
+          steps: liveSteps.length ? liveSteps : steps,
+        }
+      : null,
   );
   const [activeTab, setActiveTab] = useState<TabKey>(running ? "trace" : "answer");
 

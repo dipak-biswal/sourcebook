@@ -224,7 +224,7 @@ export function useAgentThread(
             }
           },
         ),
-        { maxSteps: 5, agentType: "general" },
+        { maxSteps: 5 },
       );
       if (run) {
         applyRunToThread(asstId, run);

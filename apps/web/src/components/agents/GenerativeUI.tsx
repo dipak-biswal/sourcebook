@@ -9,6 +9,8 @@ import {
   Loader2,
   Sparkles,
   StickyNote,
+  Table2,
+  Tags,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -27,6 +29,10 @@ function BlockIcon({ type }: { type: string }) {
       return <HelpCircle className={cls} strokeWidth={1.5} />;
     case "steps":
       return <ListOrdered className={cls} strokeWidth={1.5} />;
+    case "chips":
+      return <Tags className={cls} strokeWidth={1.5} />;
+    case "table":
+      return <Table2 className={cls} strokeWidth={1.5} />;
     default:
       return <Sparkles className={cls} strokeWidth={1.5} />;
   }
@@ -116,7 +122,10 @@ export function GenerativeUIView({
             </h3>
           </div>
           <p className="mt-0.5 text-[11px] text-mute">
-            Learning view · generated from your documents
+            {payload.presentation_profile
+              ? `${payload.presentation_profile} · `
+              : ""}
+            Generated from your workspace
             {payload.document_filename
               ? ` · ${payload.document_filename}`
               : ""}
@@ -191,7 +200,48 @@ export function GenerativeUIView({
                 <p className="text-xs leading-relaxed text-body">{b.body}</p>
               )}
 
-              {b.items && b.items.length > 0 && (
+              {b.type === "chips" && b.items && b.items.length > 0 && (
+                <div className="mt-1 flex flex-wrap gap-1">
+                  {b.items.map((item, j) => (
+                    <Badge key={j} variant="outline" className="text-[10px] font-normal">
+                      {item}
+                    </Badge>
+                  ))}
+                </div>
+              )}
+
+              {b.type === "table" && b.items && b.items.length > 0 && (
+                <div className="mt-1 overflow-x-auto">
+                  <table className="w-full min-w-[12rem] border-collapse text-left text-xs text-body">
+                    <tbody>
+                      {b.items.map((row, j) => {
+                        const cells = row.split("|").map((c) => c.trim());
+                        const CellTag = j === 0 ? "th" : "td";
+                        return (
+                          <tr key={j} className="border-b border-hairline last:border-0">
+                            {cells.map((cell, k) => (
+                              <CellTag
+                                key={k}
+                                className={cn(
+                                  "px-2 py-1.5 align-top",
+                                  j === 0 && "font-semibold text-ink",
+                                )}
+                              >
+                                {cell}
+                              </CellTag>
+                            ))}
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+
+              {b.type !== "chips" &&
+                b.type !== "table" &&
+                b.items &&
+                b.items.length > 0 && (
                 <ul className="mt-1 list-disc space-y-1 pl-4 text-xs text-body">
                   {b.items.map((item, j) => (
                     <li key={j} className="leading-relaxed">
@@ -236,8 +286,7 @@ export function GenerativeUIView({
                 !(b.terms && b.terms.length) &&
                 !(b.faqs && b.faqs.length) && (
                   <p className="text-xs text-mute">
-                    No details in this section. Try regenerating the learning
-                    view or re-ingest the document.
+                    No details in this section.
                   </p>
                 )}
 
@@ -249,8 +298,7 @@ export function GenerativeUIView({
 
       {blocks.length === 0 && (
         <p className="text-xs text-mute">
-          Learning view has no sections yet. Re-run the agent with “explain
-          simply” after documents are ready.
+          Presentation has no sections yet.
         </p>
       )}
     </div>

@@ -72,30 +72,60 @@ if settings.dev_mode:
     app.include_router(dev.router)
 
 
-def _ensure_agent_type_column() -> None:
-    """Add agent_runs.agent_type on DBs created before the study-guide agent split."""
+def _ensure_column(table: str, column: str, ddl: str) -> None:
     from sqlalchemy import inspect, text
 
     insp = inspect(engine)
-    if "agent_runs" not in insp.get_table_names():
+    if table not in insp.get_table_names():
         return
-    cols = {c["name"] for c in insp.get_columns("agent_runs")}
-    if "agent_type" in cols:
+    cols = {c["name"] for c in insp.get_columns(table)}
+    if column in cols:
         return
     with engine.begin() as conn:
-        conn.execute(
-            text(
-                "ALTER TABLE agent_runs "
-                "ADD COLUMN agent_type VARCHAR(32) NOT NULL DEFAULT 'general'"
-            )
-        )
-        conn.execute(
-            text(
-                "CREATE INDEX IF NOT EXISTS ix_agent_runs_agent_type "
-                "ON agent_runs (agent_type)"
-            )
-        )
-    logger.info("db_agent_type_column_added", extra={"event": "db_migrate"})
+        conn.execute(text(ddl))
+    logger.info(
+        "db_column_added",
+        extra={"event": "db_migrate", "table": table, "column": column},
+    )
+
+
+def _run_schema_migrations() -> None:
+    """Lightweight migrations for DBs created before newer columns."""
+    _ensure_column(
+        "agent_runs",
+        "agent_type",
+        "ALTER TABLE agent_runs "
+        "ADD COLUMN agent_type VARCHAR(32) NOT NULL DEFAULT 'general'",
+    )
+    _ensure_column(
+        "agent_runs",
+        "presentation_spec",
+        "ALTER TABLE agent_runs ADD COLUMN presentation_spec JSON",
+    )
+    _ensure_column(
+        "workspaces",
+        "description",
+        "ALTER TABLE workspaces ADD COLUMN description TEXT",
+    )
+    _ensure_column(
+        "workspaces",
+        "tags",
+        "ALTER TABLE workspaces ADD COLUMN tags JSON",
+    )
+
+    from sqlalchemy import inspect, text
+
+    insp = inspect(engine)
+    if "agent_runs" in insp.get_table_names():
+        cols = {c["name"] for c in insp.get_columns("agent_runs")}
+        if "agent_type" in cols:
+            with engine.begin() as conn:
+                conn.execute(
+                    text(
+                        "CREATE INDEX IF NOT EXISTS ix_agent_runs_agent_type "
+                        "ON agent_runs (agent_type)"
+                    )
+                )
 
 
 @app.on_event("startup")
@@ -103,7 +133,7 @@ def on_startup() -> None:
     # Fresh cloud DBs need tables; local already has them (create_all is idempotent).
     try:
         Base.metadata.create_all(bind=engine)
-        _ensure_agent_type_column()
+        _run_schema_migrations()
         logger.info("db_tables_ready", extra={"event": "db_init"})
     except Exception:
         logger.exception("db_init_failed", extra={"event": "db_init_failed"})

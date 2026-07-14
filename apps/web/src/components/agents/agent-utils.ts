@@ -1,16 +1,11 @@
-export type AgentType = "general" | "study_guide";
+export type AgentType = "general";
 
 export const AGENT_EXAMPLE_GOALS = [
+  "Explain my documents simply with key points and a short FAQ.",
   "Search documents for the main themes and summarize in bullets.",
   "List all ready documents and describe what each file covers.",
+  "Compare themes across my uploads in a scannable table.",
   "Create a note titled Demo Approval with body hello from HITL agent.",
-];
-
-export const STUDY_GUIDE_EXAMPLE_GOALS = [
-  "Explain my documents simply with key points and a short FAQ for beginners.",
-  "List documents, then explain the first ready file simply with citations.",
-  "Make a study guide with glossary and key terms from my uploads.",
-  "Summarize the onboarding PDF with steps and a short FAQ.",
 ];
 
 export function agentStatusVariant(
@@ -39,5 +34,3 @@ export function prettyJson(value: unknown): string {
     return String(value);
   }
 }
-
-

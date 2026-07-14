@@ -59,13 +59,10 @@ export function useMessages(conversationId: string | undefined) {
   });
 }
 
-export function useAgentRuns(
-  workspaceId: string | undefined,
-  agentType?: "general" | "study_guide",
-) {
+export function useAgentRuns(workspaceId: string | undefined) {
   return useQuery<AgentRun[]>({
-    queryKey: ["agentRuns", workspaceId, agentType ?? "all"],
-    queryFn: () => api.agentRuns(workspaceId!, agentType),
+    queryKey: ["agentRuns", workspaceId],
+    queryFn: () => api.agentRuns(workspaceId!),
     enabled: !!workspaceId,
   });
 }
