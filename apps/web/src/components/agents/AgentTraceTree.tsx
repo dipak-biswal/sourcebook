@@ -19,6 +19,7 @@ import {
   prettyJson,
   toolDisplayName,
 } from "@/components/agents/agent-utils";
+import { isGenerativeUI } from "@/components/agents/generative-ui";
 import { AgentApprovalCard } from "@/components/agents/shared";
 import { WebSearchResults } from "@/components/agents/WebSearchResults";
 import { MarkdownContent } from "@/components/chat/MarkdownContent";
@@ -298,6 +299,150 @@ function turnStatusLabel(turn: TraceAgentTurn): string | undefined {
   return undefined;
 }
 
+function approvalOutput(
+  step?: AgentStep,
+): { status?: string; kind?: string } | null {
+  if (!step?.output || typeof step.output !== "object") return null;
+  return step.output as { status?: string; kind?: string };
+}
+
+function presentationTitle(
+  run: AgentRun | null | undefined,
+  tree: TraceTreeItem[],
+): string | undefined {
+  const fromRun = run?.presentation_spec;
+  if (isGenerativeUI(fromRun)) return fromRun.title;
+  for (const item of tree) {
+    if (item.kind === "presentation" && isGenerativeUI(item.step?.output)) {
+      return item.step.output.title;
+    }
+  }
+  return undefined;
+}
+
+function HitlTraceBody({
+  hitl,
+  run,
+  presentationTitle: presTitle,
+  approving,
+  onApprove,
+  onReject,
+}: {
+  hitl: Extract<TraceTreeItem, { kind: "hitl" }>;
+  run: AgentRun | null | undefined;
+  presentationTitle?: string;
+  approving?: boolean;
+  onApprove?: () => void;
+  onReject?: () => void;
+}) {
+  const output = approvalOutput(hitl.step);
+
+  if (hitl.pending && run?.pending_tool && onApprove && onReject) {
+    return (
+      <AgentApprovalCard
+        pendingTool={run.pending_tool}
+        approving={approving}
+        onApprove={onApprove}
+        onReject={onReject}
+        className="border-warning-border/60 bg-warning-soft/40"
+      />
+    );
+  }
+
+  if (hitl.building && output?.status !== "approved") {
+    return (
+      <div className="flex items-center gap-2 text-[11px] text-warning-text">
+        <Loader2 className="h-3 w-3 animate-spin" />
+        Building visual summary…
+      </div>
+    );
+  }
+
+  if (output?.status === "approved") {
+    return (
+      <div className="space-y-1.5">
+        <p className="font-medium text-ink">Approved — visual summary generated</p>
+        {presTitle && (
+          <p className="text-mute">
+            Title: <span className="text-body">{presTitle}</span>
+          </p>
+        )}
+        <p className="text-mute">Open the Visual summary tab to view the full layout.</p>
+      </div>
+    );
+  }
+
+  if (output?.status === "rejected") {
+    return (
+      <p className="text-body">
+        Rejected — answer kept as text only (no visual summary).
+      </p>
+    );
+  }
+
+  if (output?.status === "waiting_approval") {
+    return <p className="text-mute">Waiting for your decision…</p>;
+  }
+
+  if (hitl.step?.input) {
+    return (
+      <pre className="max-h-32 overflow-auto rounded border border-hairline bg-canvas p-2 font-mono text-[11px]">
+        {prettyJson(hitl.step.input)}
+      </pre>
+    );
+  }
+
+  return <p className="text-mute">Completed</p>;
+}
+
+function PresentationTraceBody({
+  pres,
+  presTitle,
+}: {
+  pres: Extract<TraceTreeItem, { kind: "presentation" }>;
+  presTitle?: string;
+}) {
+  if (pres.state === "running") {
+    return (
+      <div className="flex items-center gap-2 text-[11px] text-warning-text">
+        <Loader2 className="h-3 w-3 animate-spin" />
+        Building UI blocks from answer + evidence…
+      </div>
+    );
+  }
+
+  if (pres.step?.output && isGenerativeUI(pres.step.output)) {
+    const payload = pres.step.output;
+    return (
+      <div className="space-y-1.5">
+        <p className="font-medium text-ink">{payload.title}</p>
+        {payload.plain_summary && (
+          <p className="line-clamp-4 text-mute">{payload.plain_summary}</p>
+        )}
+        {payload.blocks?.length != null && (
+          <p className="text-mute">
+            {payload.blocks.length} block{payload.blocks.length === 1 ? "" : "s"} ·{" "}
+            {payload.presentation_profile?.replace(/_/g, " ") ?? "layout"}
+          </p>
+        )}
+        <p className="text-mute">Open the Visual summary tab for the full view.</p>
+      </div>
+    );
+  }
+
+  if (presTitle) {
+    return (
+      <p>
+        <span className="font-medium text-ink">{presTitle}</span>
+        {" — "}
+        open the <strong className="text-ink">Visual summary</strong> tab.
+      </p>
+    );
+  }
+
+  return <p className="text-mute">Runs after you approve View in UI.</p>;
+}
+
 export function AgentTraceTree({
   run,
   goal,
@@ -365,6 +510,7 @@ export function AgentTraceTree({
   const activeId = findActiveTraceId(tree);
   const progress = traceProgress(tree);
   const tokens = liveTokenUsage ?? run?.token_usage ?? null;
+  const visualSummaryTitle = presentationTitle(run, tree);
 
   useEffect(() => {
     if (!running || !activeRef.current) return;
@@ -552,26 +698,14 @@ export function AgentTraceTree({
                   state={hitl.state}
                   isLast={row.isLast}
                 >
-                  {hitl.pending && run?.pending_tool && onApprove && onReject ? (
-                    <AgentApprovalCard
-                      pendingTool={run.pending_tool}
-                      approving={approving}
-                      onApprove={onApprove}
-                      onReject={onReject}
-                      className="border-warning-border/60 bg-warning-soft/40"
-                    />
-                  ) : hitl.building ? (
-                    <div className="flex items-center gap-2 text-[11px] text-warning-text">
-                      <Loader2 className="h-3 w-3 animate-spin" />
-                      Building visual summary…
-                    </div>
-                  ) : hitl.step?.input ? (
-                    <pre className="max-h-32 overflow-auto rounded border border-hairline bg-canvas p-2 font-mono text-[11px]">
-                      {prettyJson(hitl.step.input)}
-                    </pre>
-                  ) : (
-                    <p className="text-mute">Approved</p>
-                  )}
+                  <HitlTraceBody
+                    hitl={hitl}
+                    run={run}
+                    presentationTitle={visualSummaryTitle}
+                    approving={approving}
+                    onApprove={onApprove}
+                    onReject={onReject}
+                  />
                 </ExpandableTraceRow>
               );
             }
@@ -591,19 +725,10 @@ export function AgentTraceTree({
                   state={pres.state}
                   isLast={row.isLast}
                 >
-                  {pres.state === "running" ? (
-                    <div className="flex items-center gap-2 text-[11px] text-warning-text">
-                      <Loader2 className="h-3 w-3 animate-spin" />
-                      Building UI blocks from answer + evidence…
-                    </div>
-                  ) : pres.step?.output ? (
-                    <p>
-                      Visual summary attached — open the{" "}
-                      <strong className="text-ink">Visual summary</strong> tab.
-                    </p>
-                  ) : (
-                    <p className="text-mute">Runs after you approve View in UI.</p>
-                  )}
+                  <PresentationTraceBody
+                    pres={pres}
+                    presTitle={visualSummaryTitle}
+                  />
                 </ExpandableTraceRow>
               );
             }

@@ -73,12 +73,54 @@ function finishTurn(
   };
 }
 
+const PRESENTATION_TOOL = "generative_ui";
+
+function isPresentationApproval(step: AgentStep): boolean {
+  return step.type === "approval" && step.tool_name === PRESENTATION_TOOL;
+}
+
+function approvalStatus(step: AgentStep): string | undefined {
+  if (!step.output || typeof step.output !== "object") return undefined;
+  return (step.output as { status?: string }).status;
+}
+
+function pushPresentationHitl(
+  tail: TraceTreeItem[],
+  approvalSteps: AgentStep[],
+): void {
+  if (!approvalSteps.length) return;
+
+  const last = approvalSteps[approvalSteps.length - 1]!;
+  const approved = approvalSteps.some((s) => approvalStatus(s) === "approved");
+  const rejected = approvalSteps.some((s) => approvalStatus(s) === "rejected");
+  const waiting = !approved && !rejected;
+
+  tail.push({
+    id: `hitl-${last.id}`,
+    kind: "hitl",
+    step: last,
+    pending: waiting,
+    building: false,
+    state: waiting ? "running" : "done",
+  });
+
+  const hasPresentation = tail.some((t) => t.kind === "presentation");
+  if (waiting && !hasPresentation) {
+    tail.push({
+      id: `presentation-${last.id}`,
+      kind: "presentation",
+      state: "pending",
+    });
+  }
+}
+
 function buildTurnsFromSteps(
   steps: AgentStep[],
   runningToolNames?: Set<string>,
 ): { turns: TraceAgentTurn[]; tail: TraceTreeItem[] } {
   const turns: TraceAgentTurn[] = [];
   const tail: TraceTreeItem[] = [];
+  const presentationApprovals: AgentStep[] = [];
   let current: TraceAgentTurn | null = null;
   let turnIndex = 0;
 
@@ -116,26 +158,17 @@ function buildTurnsFromSteps(
         turns.push(finishTurn(current, undefined, true));
         current = null;
       }
-      const presentation = step.tool_name === "generative_ui";
-      tail.push({
-        id: step.id,
-        kind: "hitl",
-        step,
-        pending: step.output
-          ? (step.output as { status?: string }).status === "waiting_approval"
-          : false,
-        state:
-          step.output &&
-          (step.output as { status?: string }).status === "waiting_approval"
-            ? "running"
-            : "done",
-        building: false,
-      });
-      if (presentation && step.output) {
+      if (isPresentationApproval(step)) {
+        presentationApprovals.push(step);
+      } else {
+        const waiting = approvalStatus(step) === "waiting_approval";
         tail.push({
-          id: `${step.id}-presentation`,
-          kind: "presentation",
-          state: "pending",
+          id: step.id,
+          kind: "hitl",
+          step,
+          pending: waiting,
+          state: waiting ? "running" : "done",
+          building: false,
         });
       }
       continue;
@@ -168,6 +201,8 @@ function buildTurnsFromSteps(
       ),
     );
   }
+
+  pushPresentationHitl(tail, presentationApprovals);
 
   return { turns, tail };
 }
@@ -289,12 +324,12 @@ export function buildAgentTraceTree(params: {
     items.push({ id: turn.id, kind: "turn", turn });
   }
 
-  const hasHitl = tail.some((t) => t.kind === "hitl");
+  const hasPendingHitl = tail.some((t) => t.kind === "hitl" && t.pending);
   if (
     presentationPending &&
     pendingTool &&
     isPresentationPending(pendingTool) &&
-    !hasHitl
+    !hasPendingHitl
   ) {
     tail.push({
       id: "hitl-pending",
@@ -308,7 +343,7 @@ export function buildAgentTraceTree(params: {
       kind: "presentation",
       state: approving ? "running" : "pending",
     });
-  } else if (presentationPending && pendingTool && !hasHitl) {
+  } else if (presentationPending && pendingTool && !hasPendingHitl) {
     tail.push({
       id: "hitl-pending",
       kind: "hitl",
@@ -318,9 +353,14 @@ export function buildAgentTraceTree(params: {
   }
 
   for (const t of tail) {
-    if (t.kind === "hitl" && approving && presentationPending) {
+    if (t.kind === "hitl" && approving && presentationPending && t.pending) {
       items.push({ ...t, building: true, state: "running" });
-    } else if (t.kind === "presentation" && approving && presentationPending) {
+    } else if (
+      t.kind === "presentation" &&
+      approving &&
+      presentationPending &&
+      t.state !== "done"
+    ) {
       items.push({ ...t, state: "running" });
     } else {
       items.push(t);
