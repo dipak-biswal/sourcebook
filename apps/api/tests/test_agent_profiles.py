@@ -14,12 +14,13 @@ def test_general_profile_has_workspace_tools():
     assert "search_documents" in profile.tool_names
     assert "web_search" in profile.tool_names
     assert "create_note" in profile.tool_names
+    assert "get_current_date" in profile.tool_names
 
 
-def test_agent_system_prompt_includes_current_year():
+def test_agent_system_prompt_uses_date_tool_not_hardcoded_header():
     prompt = agent_system_prompt()
-    assert "TODAY:" in prompt
-    assert "current year:" in prompt
+    assert "TODAY:" not in prompt
+    assert "get_current_date" in prompt
     assert "never outdated years" in prompt
 
 
@@ -32,7 +33,9 @@ def test_normalize_agent_type_always_general():
 def test_visual_summary_profile_has_layout_tools():
     profile = get_profile("visual_summary")
     assert profile.agent_type == "visual_summary"
-    assert profile.tool_names == frozenset({"plan_layout", "render_ui"})
+    assert profile.tool_names == frozenset(
+        {"plan_layout", "render_ui", "get_current_date"}
+    )
 
 
 def test_build_tools_single_profile():
@@ -55,3 +58,4 @@ def test_build_tools_single_profile():
     assert general == legacy
     assert "web_search" in general
     assert "create_note" in general
+    assert "get_current_date" in general

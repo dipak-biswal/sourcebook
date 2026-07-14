@@ -3,10 +3,17 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime, timezone
+
+from app.agents.date_tools import DATE_TOOL_NAMES
 
 GENERAL_TOOL_NAMES = frozenset(
-    {"list_documents", "search_documents", "web_search", "create_note"}
+    {
+        "list_documents",
+        "search_documents",
+        "web_search",
+        "create_note",
+        *DATE_TOOL_NAMES,
+    }
 )
 
 GENERAL_SYSTEM_PROMPT = (
@@ -16,8 +23,8 @@ GENERAL_SYSTEM_PROMPT = (
     "- Use search_documents for facts in uploaded workspace files (resumes, notes, PDFs).\n"
     "- Use web_search for external context: job/role requirements, industry benchmarks, "
     "definitions, or market trends when the goal compares a document to real-world expectations.\n"
-    "- web_search queries for skills, requirements, or market data must use the CURRENT YEAR "
-    "from the date header above — never outdated years (e.g. 2023).\n"
+    "- For time-sensitive web_search queries, call get_current_date first and use that "
+    "year/month — never outdated years (e.g. 2023).\n"
     "- Prefer workspace evidence first; add web_search only when external context helps "
     "(e.g. gap analysis vs a target role).\n"
     "- Use at most 1–2 search_documents calls and at most 1 web_search call per run, "
@@ -53,7 +60,7 @@ GENERAL_PROFILE = AgentProfile(
     default_max_steps=6,
 )
 
-VISUAL_SUMMARY_TOOL_NAMES = frozenset({"plan_layout", "render_ui"})
+VISUAL_SUMMARY_TOOL_NAMES = frozenset({"plan_layout", "render_ui", *DATE_TOOL_NAMES})
 
 VISUAL_SUMMARY_SYSTEM_PROMPT = (
     "You are the Visual Summary Agent. You receive a handoff from the workspace agent: "
@@ -63,6 +70,7 @@ VISUAL_SUMMARY_SYSTEM_PROMPT = (
     "- Review the plan; call plan_layout again only if you need to adjust structure.\n"
     "- When the plan is ready, call render_ui with the layout plan as a JSON string.\n"
     "- Do not invent facts; layout only what the main agent already established.\n"
+    "- Call get_current_date when you need today's date, month, or year for labels or timelines.\n"
     "- After render_ui succeeds, reply briefly that the visual summary is ready — no more tools."
 )
 
@@ -85,13 +93,8 @@ def normalize_agent_type(value: str | None) -> str:
 
 
 def agent_system_prompt(base: str | None = None) -> str:
-    """Inject current date/year so web_search queries stay up to date."""
-    text = base or GENERAL_SYSTEM_PROMPT
-    now = datetime.now(timezone.utc)
-    header = (
-        f"TODAY: {now.date().isoformat()} (current year: {now.year}).\n"
-    )
-    return header + text
+    """Return the agent system prompt (date comes from get_current_date tool)."""
+    return base or GENERAL_SYSTEM_PROMPT
 
 
 def get_profile(agent_type: str | None = None) -> AgentProfile:

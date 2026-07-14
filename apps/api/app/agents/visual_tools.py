@@ -10,6 +10,7 @@ from langchain_core.tools import tool
 from openai import OpenAI
 from sqlalchemy.orm import Session
 
+from app.agents.date_tools import get_current_date
 from app.config import settings
 from app.presentation.context import PresentationContext
 from app.presentation.engine import build_presentation
@@ -181,4 +182,4 @@ def build_visual_tools(
             "total_tokens": meta.get("total_tokens"),
         }
 
-    return [plan_layout, render_ui]
+    return [get_current_date, plan_layout, render_ui]

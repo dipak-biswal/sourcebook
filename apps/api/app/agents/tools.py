@@ -4,6 +4,7 @@ from typing import Any
 from langchain_core.tools import tool
 from sqlalchemy.orm import Session
 
+from app.agents.date_tools import get_current_date
 from app.agents.profiles import get_profile
 from app.agents.visual_tools import build_visual_tools
 from app.presentation.context import PresentationContext
@@ -82,7 +83,7 @@ def build_tools(
         """
         Search the public web via DuckDuckGo for role requirements, market context,
         benchmarks, or definitions not found in workspace documents.
-        Use the current year for time-sensitive queries (skills, requirements, hiring).
+        For time-sensitive queries, call get_current_date first and use that year.
         """
 
         return search_web(query, max_results=max_results)
@@ -115,5 +116,6 @@ def build_tools(
         "search_documents": search_documents,
         "web_search": web_search,
         "create_note": create_note,
+        "get_current_date": get_current_date,
     }
     return [by_name[name] for name in by_name if name in profile.tool_names]

@@ -20,6 +20,7 @@ TOOL_LABELS: dict[str, str] = {
     "generative_ui": "Visual summary",
     "plan_layout": "Plan layout",
     "render_ui": "Render UI",
+    "get_current_date": "Current date",
 }
 
 VISUAL_SUMMARY_AGENT_LABEL = "Visual Summary Agent"

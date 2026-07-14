@@ -15,6 +15,9 @@ const TOOL_LABELS: Record<string, string> = {
   web_search: "Web search",
   create_note: "Create note",
   generative_ui: "Visual summary",
+  get_current_date: "Current date",
+  plan_layout: "Plan layout",
+  render_ui: "Render UI",
 };
 
 export function toolDisplayName(toolName: string | null | undefined): string {
