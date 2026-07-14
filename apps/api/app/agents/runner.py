@@ -248,7 +248,10 @@ def _process_read_tool_calls(
         is_main_agent=is_main,
     )
     if is_main and any(tc.get("name") != DATE_TOOL_NAME for tc in read_calls):
-        if not messages_have_date_result(messages):
+        model_requested_date = any(
+            tc.get("name") == DATE_TOOL_NAME for tc in read_calls
+        )
+        if not messages_have_date_result(messages) and not model_requested_date:
             messages, step_index = _auto_seed_current_date(
                 db,
                 run,
@@ -257,11 +260,11 @@ def _process_read_tool_calls(
                 step_index=step_index,
                 on_event=on_event,
             )
-            messages, read_calls, date_first = prepare_read_tool_calls(
-                read_calls,
-                messages=messages,
-                is_main_agent=is_main,
-            )
+        messages, read_calls, date_first = prepare_read_tool_calls(
+            read_calls,
+            messages=messages,
+            is_main_agent=is_main,
+        )
 
     if emit_parallel_group:
         _emit(

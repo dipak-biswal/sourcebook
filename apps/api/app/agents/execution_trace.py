@@ -889,9 +889,10 @@ def _apply_run_overlays(
 
     if live and live.running_tool_names and out:
         running_set = set(live.running_tool_names)
-        for i, phase in enumerate(out):
-            if phase.get("type") != "agent_turn":
-                continue
+        agent_indices = [i for i, p in enumerate(out) if p.get("type") == "agent_turn"]
+        if agent_indices:
+            i = agent_indices[-1]
+            phase = dict(out[i])
             children = []
             for child in phase.get("children") or []:
                 if child.get("type") == "tool" and child.get("tool_name") in running_set:

@@ -1,6 +1,10 @@
 import uuid
 
-from app.agents.execution_trace import build_execution_trace, emit_execution_trace
+from app.agents.execution_trace import (
+    LiveTraceContext,
+    build_execution_trace,
+    emit_execution_trace,
+)
 from app.models import AgentRun, AgentStep
 
 
@@ -436,6 +440,30 @@ def test_hitl_before_presentation():
     trace = build_execution_trace(run)
     types = [p["type"] for p in trace["phases"]]
     assert types.index("hitl") < types.index("presentation")
+
+
+def test_running_tools_only_mark_active_agent_turn():
+    """Earlier completed turns must not spin when tools run on a later turn."""
+    run = _run_with_steps(
+        "Explain documents",
+        [
+            {"type": "tool_call", "tool_name": "list_documents", "input": {}},
+            {
+                "type": "tool_result",
+                "tool_name": "list_documents",
+                "output": {"documents": []},
+            },
+            {"type": "final", "output": "Listed docs."},
+            {"type": "tool_call", "tool_name": "search_documents", "input": {"query": "RAG"}},
+        ],
+    )
+    run.status = "running"
+    live = LiveTraceContext(running_tool_names=["search_documents"])
+    trace = build_execution_trace(run, live=live, workspace_name="Job Search")
+    turns = [p for p in trace["phases"] if p["type"] == "agent_turn"]
+    assert len(turns) == 2
+    assert turns[0]["state"] == "done"
+    assert turns[1]["state"] == "running"
 
 
 def test_emit_execution_trace_uses_payload_dict():

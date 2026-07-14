@@ -66,6 +66,11 @@ def prepare_read_tool_calls(
         # Caller must invoke get_current_date and append HumanMessage before executing.
         return updated_messages, read_calls, False
 
+    if has_date and date_calls:
+        # Date context already exists — skip redundant get_current_date calls.
+        read_calls = other_calls
+        date_calls = []
+
     if date_calls and other_calls:
         # Satisfy date tool_call first; other tools run after date ToolMessage exists.
         return updated_messages, read_calls, True
