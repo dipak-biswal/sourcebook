@@ -18,8 +18,11 @@ _COMPONENT_RULES: tuple[tuple[re.Pattern[str], str], ...] = (
 
 _COMPONENT_GUIDE: dict[str, str] = {
     "table": "Pipe-separated rows; first row = column headers (e.g. Skill | Level | Gap)",
-    "progress": "At least 4 items as Label | 0-100 scores from answer evidence",
-    "chart": "Ranked horizontal bars as Label | score",
+    "progress": (
+        "Items as Label | Level using Strong, Growing, Foundational, Gap, etc. "
+        "— NOT numeric % unless the answer states a number"
+    ),
+    "chart": "Same qualitative levels as progress (Label | Strong), ranked by fit",
     "chips": "Theme labels as Label|slug; tag related blocks with tags: [slug]",
     "callout": "body = main gap or key insight; short title",
     "timeline": "Only if answer lists explicit dates/roles; Period | Role | Detail",

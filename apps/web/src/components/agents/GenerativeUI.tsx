@@ -27,18 +27,14 @@ import {
 } from "@/components/ui/table";
 import { cn } from "@/lib/utils";
 import type { GenUIBlock, GenerativeUIPayload } from "./generative-ui";
-import { coerceTableRows, generativeUIToNoteBody } from "./generative-ui";
+import {
+  coerceTableRows,
+  generativeUIToNoteBody,
+  parseProgressValue,
+} from "./generative-ui";
 
 function parsePipeRow(row: string): string[] {
   return row.split("|").map((c) => c.trim());
-}
-
-function parsePercent(value: string): number {
-  const match = value.match(/(\d+(?:\.\d+)?)/);
-  if (!match) return 0;
-  const n = parseFloat(match[1]);
-  if (n <= 1) return Math.round(n * 100);
-  return Math.min(100, Math.max(0, Math.round(n)));
 }
 
 function slugify(value: string): string {
@@ -246,12 +242,19 @@ function ProgressBlock({ block }: { block: GenUIBlock }) {
       <div className="space-y-2.5">
         {items.map((item, j) => {
           const [label, raw] = parsePipeRow(item);
-          const pct = parsePercent(raw || "0");
+          const { pct, display } = parseProgressValue(raw || "");
           return (
             <div key={j}>
               <div className="mb-1 flex items-center justify-between gap-2 text-xs">
                 <span className="font-medium text-ink">{label || item}</span>
-                <span className="tabular-nums text-mute">{pct}%</span>
+                <span
+                  className={cn(
+                    "text-mute",
+                    display.endsWith("%") && "tabular-nums",
+                  )}
+                >
+                  {display}
+                </span>
               </div>
               <div className="h-2 overflow-hidden rounded-full bg-canvas-soft">
                 <div
@@ -272,7 +275,8 @@ function ChartBlock({ block }: { block: GenUIBlock }) {
   if (!items.length) return null;
   const rows = items.map((item) => {
     const [label, raw] = parsePipeRow(item);
-    return { label: label || item, pct: parsePercent(raw || "0") };
+    const parsed = parseProgressValue(raw || "");
+    return { label: label || item, ...parsed };
   });
   const max = Math.max(...rows.map((r) => r.pct), 1);
 
@@ -290,8 +294,13 @@ function ChartBlock({ block }: { block: GenUIBlock }) {
                 className="absolute inset-y-0 left-0 rounded-[4px] bg-ink/80 transition-all duration-300"
                 style={{ width: `${(row.pct / max) * 100}%` }}
               />
-              <span className="relative z-10 flex h-full items-center px-2 text-[10px] font-semibold tabular-nums text-ink">
-                {row.pct}%
+              <span
+                className={cn(
+                  "relative z-10 flex h-full items-center px-2 text-[10px] font-semibold text-ink",
+                  row.display.endsWith("%") && "tabular-nums",
+                )}
+              >
+                {row.display}
               </span>
             </div>
           </div>

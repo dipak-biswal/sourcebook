@@ -149,6 +149,94 @@ def _ensure_requested_layout(
     return out
 
 
+def _numeric_stated_in_answer(value: str, answer: str) -> bool:
+    v = value.rstrip("%").strip()
+    if not v.isdigit():
+        return False
+    return v in answer or f"{v}%" in answer
+
+
+def _infer_qualitative_level(label: str, answer: str) -> str:
+    """Map a skill label to a level using wording in the agent answer."""
+    lower = answer.lower()
+    lbl = label.lower()
+    gap_terms = ("ai depth", "backend", "leadership", "machine learning")
+    if any(t in lbl for t in gap_terms):
+        if any(
+            g in lower
+            for g in (
+                "gap",
+                "lacking",
+                "lacks",
+                "weakness",
+                "foundational understanding",
+                "further depth",
+            )
+        ):
+            return "Gap"
+    if "frontend" in lbl and "strong" in lower:
+        return "Strong"
+    if "ai" in lbl and any(
+        w in lower for w in ("expanding", "foundational", "hands-on", "rag")
+    ):
+        return "Growing"
+    if "testing" in lbl or "optimization" in lbl:
+        if "proficient" in lower:
+            return "Strong"
+    if "domain" in lbl or "experience" in lbl:
+        return "Moderate"
+    if "strong" in lower:
+        return "Strong"
+    return "Moderate"
+
+
+def _normalize_qualitative_progress(
+    blocks: list[GenUIBlock],
+    *,
+    answer: str,
+) -> list[GenUIBlock]:
+    """Replace invented numeric scores with qualitative levels from the answer."""
+    out: list[GenUIBlock] = []
+    for block in blocks:
+        if block.type not in ("progress", "chart") or not block.items:
+            out.append(block)
+            continue
+        new_items: list[str] = []
+        for item in block.items:
+            if "|" not in item:
+                new_items.append(item)
+                continue
+            label, val = [p.strip() for p in item.split("|", 1)]
+            if re.match(r"^\d{1,3}%?$", val) and not _numeric_stated_in_answer(
+                val, answer
+            ):
+                level = _infer_qualitative_level(label, answer)
+                new_items.append(f"{label} | {level}")
+            elif val.lower() in (
+                "high",
+                "medium",
+                "low",
+                "excellent",
+                "good",
+                "fair",
+                "poor",
+            ):
+                mapping = {
+                    "high": "Strong",
+                    "excellent": "Strong",
+                    "good": "Moderate",
+                    "medium": "Moderate",
+                    "fair": "Growing",
+                    "low": "Gap",
+                    "poor": "Gap",
+                }
+                new_items.append(f"{label} | {mapping.get(val.lower(), val)}")
+            else:
+                new_items.append(item)
+        out.append(block.model_copy(update={"items": new_items}))
+    return out
+
+
 def _sanitize_blocks_for_grounding(
     blocks: list[GenUIBlock],
     *,
@@ -271,18 +359,18 @@ GROUNDING RULES (MANDATORY):
 - NEVER invent employers, job titles with fake companies, dates, projects, scores, or metrics.
 - NEVER use placeholder names (XYZ Corp, ABC Inc, DEF Ltd, GHI Co, Acme, Example Company, etc.).
 - timeline: ONLY if AGENT TEXT ANSWER or EXCERPTS list explicit roles/dates/employers. If unclear, OMIT timeline entirely.
-- progress/chart percentages: only when reasonably supported by stated experience; prefer qualitative table rows otherwise.
+- progress/chart: use qualitative levels (Strong, Growing, Foundational, Gap, Moderate) — NEVER invent numeric percentages unless the answer explicitly states that number for that skill.
 - If the user requests a component but grounded data is missing, SKIP that block — do not fabricate filler.
 - Rephrase and structure existing facts; do not hallucinate new ones.
 
 CONTEXT → COMPONENT MAP (use at least 3 DIFFERENT types; avoid summary+key_points+chips only):
-- Resume / profile / skills → progress (Skill | 85 percent items) + chart (same shape, ranked bars) + chips (filter tags) + table
+- Resume / profile / skills → progress (Skill | Strong/Growing/Gap) + chart (same qualitative levels) + chips + table
 - Career / history → timeline ONLY with verbatim employers/dates from ANSWER/EXCERPTS; else use key_points or table
 - Compare / gap analysis / vs → comparison (Aspect | Option A | Option B) OR table with header row
 - Teach / explain concepts → key_terms + faq + steps (ordered items)
 - Risks / caveats / important → callout (body required; use title like "Watch out")
 - Memorable insight / testimonial line → quote (body=quote text, title=attribution or topic)
-- Skill fit / readiness / scores → progress or chart (Label | 0-100 or Label | 85%)
+- Skill fit / readiness → progress or chart with qualitative levels (Label | Strong), not fake %
 - Quick scan / themes → chips (items as "Theme|slug") + tag other blocks with matching tags: ["slug"]
 - Process / how-to → steps (ordered items) — not bullets in key_points
 - Narrative only → at most ONE summary block; pair with specialized types above
@@ -292,7 +380,7 @@ FIELD SHAPES:
   - table/comparison: "Col1 | Col2 | Col3" (first row may be headers)
   - metrics: "Label | Value" per item
   - timeline: "Period | Title | Detail" per item
-  - progress/chart: "Label | 85" or "Label | 72%" (0-100 skill/fit scores)
+  - progress/chart: "Label | Strong" or "Label | Growing" or "Label | Gap" (qualitative; numbers only if in answer)
   - chips: "Visible label|filter-slug" — tag related blocks with tags: ["filter-slug"]
 - tags: optional string array on ANY block (lowercase slugs) for chip filtering
 - key_terms: [{{"term":"","definition":""}}]
@@ -412,6 +500,8 @@ EXCERPTS:
             break
 
     blocks = _ensure_requested_layout(blocks, layout_components, answer=answer)
+
+    blocks = _normalize_qualitative_progress(blocks, answer=answer)
 
     blocks = _sanitize_blocks_for_grounding(
         blocks,

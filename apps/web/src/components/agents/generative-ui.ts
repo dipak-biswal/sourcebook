@@ -120,6 +120,54 @@ function itemsToRowMatrix(items: string[]): string[][] {
 }
 
 /** Normalize table blocks from pipes, markdown body, or row objects. */
+const QUALITATIVE_LEVELS: Record<string, { pct: number; label: string }> = {
+  expert: { pct: 92, label: "Expert" },
+  strong: { pct: 82, label: "Strong" },
+  advanced: { pct: 78, label: "Advanced" },
+  proficient: { pct: 72, label: "Proficient" },
+  solid: { pct: 68, label: "Solid" },
+  diverse: { pct: 65, label: "Diverse" },
+  moderate: { pct: 55, label: "Moderate" },
+  growing: { pct: 52, label: "Growing" },
+  developing: { pct: 48, label: "Developing" },
+  foundational: { pct: 42, label: "Foundational" },
+  basic: { pct: 38, label: "Basic" },
+  gap: { pct: 28, label: "Gap" },
+  weak: { pct: 22, label: "Weak" },
+  lacking: { pct: 18, label: "Lacking" },
+};
+
+export type ProgressDisplay = {
+  pct: number;
+  display: string;
+  qualitative: boolean;
+};
+
+/** Map progress/chart values to bar width; prefer qualitative labels over fake %. */
+export function parseProgressValue(raw: string): ProgressDisplay {
+  const trimmed = (raw || "").trim();
+  if (!trimmed) {
+    return { pct: 0, display: "—", qualitative: true };
+  }
+
+  const lower = trimmed.toLowerCase();
+  for (const [key, meta] of Object.entries(QUALITATIVE_LEVELS)) {
+    if (lower === key || lower.includes(key)) {
+      return { pct: meta.pct, display: meta.label, qualitative: true };
+    }
+  }
+
+  const hasExplicitPercent = /%/.test(trimmed);
+  const isBareNumber = /^\d{1,3}$/.test(trimmed);
+  if (hasExplicitPercent || isBareNumber) {
+    const pct = parseInt(trimmed.replace("%", ""), 10);
+    const safe = Math.min(100, Math.max(0, pct));
+    return { pct: safe, display: `${safe}%`, qualitative: false };
+  }
+
+  return { pct: 50, display: trimmed, qualitative: true };
+}
+
 export function coerceTableRows(block: GenUIBlock): string[][] {
   const anyB = block as GenUIBlock & Record<string, unknown>;
 
