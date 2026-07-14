@@ -25,6 +25,20 @@ export function agentStatusVariant(
   }
 }
 
+export type PendingTool = {
+  id?: string;
+  name?: string;
+  kind?: string;
+  args?: Record<string, unknown>;
+};
+
+export function isPresentationPending(
+  pending: PendingTool | null | undefined,
+): boolean {
+  if (!pending) return false;
+  return pending.name === "generative_ui" || pending.kind === "presentation";
+}
+
 export function prettyJson(value: unknown): string {
   if (value == null) return "—";
   if (typeof value === "string") return value;

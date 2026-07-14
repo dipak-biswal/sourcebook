@@ -21,10 +21,11 @@ from app.config import settings
 from app.models import AgentRun, AgentStep, Document, Workspace
 from app.presentation.context import PresentationContext
 from app.presentation.engine import build_presentation
-from app.presentation.planner import should_render_presentation
+from app.presentation.planner import should_offer_presentation
 from app.usage import estimate_tokens, log_usage
 
 WRITE_TOOLS = frozenset({"create_note"})
+PRESENTATION_TOOL = "generative_ui"
 
 # on_event(event_type, payload) — used for LangSmith-style live traces (SSE)
 EventCallback = Callable[[str, dict[str, Any]], None] | None
@@ -393,7 +394,8 @@ def _finalize_completed_run(
                 on_event=on_event,
             )
     run.final_answer = answer
-    return _attach_presentation_if_needed(
+    run.status = "completed"
+    return _offer_presentation_if_needed(
         db,
         run,
         step_index=step_index,
@@ -401,21 +403,76 @@ def _finalize_completed_run(
     )
 
 
-def _attach_presentation_if_needed(
+def _is_presentation_pending(pending: dict[str, Any] | None) -> bool:
+    if not pending:
+        return False
+    return (
+        pending.get("name") == PRESENTATION_TOOL
+        or pending.get("kind") == "presentation"
+    )
+
+
+def _offer_presentation_if_needed(
     db: Session,
     run: AgentRun,
     *,
     step_index: int,
     on_event: EventCallback = None,
 ) -> int:
-    """Auto-generate generative UI for completed explanatory agent runs."""
-    if run.presentation_spec or run.status != "completed":
+    """Pause for human-in-the-loop before building generative UI."""
+    if run.presentation_spec:
         return step_index
-    if not should_render_presentation(
+    if not should_offer_presentation(
         goal=run.goal or "",
         final_answer=run.final_answer,
         status=run.status,
     ):
+        return step_index
+
+    run.status = "waiting_approval"
+    run.pending_tool = {
+        "id": str(uuid.uuid4()),
+        "name": PRESENTATION_TOOL,
+        "kind": "presentation",
+        "args": {
+            "goal": run.goal,
+            "answer_preview": (run.final_answer or "")[:240],
+        },
+    }
+    step_index += 1
+    _append_step(
+        db,
+        run,
+        step_index=step_index,
+        type="approval",
+        tool_name=PRESENTATION_TOOL,
+        input=run.pending_tool.get("args"),
+        output={
+            "status": "waiting_approval",
+            "kind": "presentation",
+        },
+        on_event=on_event,
+    )
+    _emit(
+        on_event,
+        "presentation_offer",
+        run_id=str(run.id),
+        status="waiting_approval",
+        pending_tool=run.pending_tool,
+        final_answer=run.final_answer,
+    )
+    return step_index
+
+
+def _build_and_attach_presentation(
+    db: Session,
+    run: AgentRun,
+    *,
+    step_index: int,
+    on_event: EventCallback = None,
+) -> int:
+    """Build generative UI spec and attach to the run (after user approves)."""
+    if run.presentation_spec:
         return step_index
 
     ws = db.get(Workspace, run.workspace_id)
@@ -577,6 +634,7 @@ def _run_tool_loop(
                         run_id=str(run.id),
                         status=run.status,
                         token_usage=run.token_usage,
+                        pending_tool=run.pending_tool,
                         final_answer=run.final_answer,
                     )
                     return run
@@ -635,6 +693,7 @@ def _run_tool_loop(
                     run_id=str(run.id),
                     status=run.status,
                     token_usage=run.token_usage,
+                    pending_tool=run.pending_tool,
                     final_answer=run.final_answer,
                 )
                 return run
@@ -846,6 +905,7 @@ def _run_tool_loop(
             run_id=str(run.id),
             status=run.status,
             token_usage=run.token_usage,
+            pending_tool=run.pending_tool,
             final_answer=run.final_answer,
         )
         return run
@@ -960,11 +1020,47 @@ def approve_agent_run(
             output={"status": "rejected"},
             on_event=on_event,
         )
-        run.status = "cancelled"
-        run.pending_tool = None
-        run.final_answer = f"Write action `{name}` was rejected by the user."
+        if _is_presentation_pending(pending):
+            run.status = "completed"
+            run.pending_tool = None
+        else:
+            run.status = "cancelled"
+            run.pending_tool = None
+            run.final_answer = f"Write action `{name}` was rejected by the user."
         db.commit()
         db.refresh(run)
+        return run
+
+    if _is_presentation_pending(pending):
+        _append_step(
+            db,
+            run,
+            step_index=step_index,
+            type="approval",
+            tool_name=name,
+            input=args,
+            output={"status": "approved"},
+            on_event=on_event,
+        )
+        step_index += 1
+        step_index = _build_and_attach_presentation(
+            db,
+            run,
+            step_index=step_index,
+            on_event=on_event,
+        )
+        run.status = "completed"
+        run.pending_tool = None
+        db.commit()
+        db.refresh(run)
+        _emit(
+            on_event,
+            "status",
+            run_id=str(run.id),
+            status=run.status,
+            final_answer=run.final_answer,
+            presentation_spec=run.presentation_spec,
+        )
         return run
 
     if name not in WRITE_TOOLS:

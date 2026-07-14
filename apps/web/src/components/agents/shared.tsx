@@ -2,7 +2,12 @@ import { useState } from "react";
 import { Check, ChevronDown, ChevronRight, Loader2, X } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { agentStatusVariant, prettyJson } from "./agent-utils";
+import {
+  agentStatusVariant,
+  isPresentationPending,
+  prettyJson,
+  type PendingTool,
+} from "./agent-utils";
 import type { AgentStep } from "@/api";
 
 export function AgentStatusBadge({ status }: { status: string }) {
@@ -106,12 +111,6 @@ export function AgentStepList({
   );
 }
 
-type PendingTool = {
-  id?: string;
-  name?: string;
-  args?: Record<string, unknown>;
-};
-
 export function AgentApprovalCard({
   pendingTool,
   approving,
@@ -125,6 +124,8 @@ export function AgentApprovalCard({
   onReject: () => void;
   className?: string;
 }) {
+  const presentation = isPresentationPending(pendingTool);
+
   return (
     <div
       className={
@@ -132,21 +133,32 @@ export function AgentApprovalCard({
         "rounded-[6px] border border-warning-border bg-warning-soft p-3"
       }
     >
-      <div className="text-sm font-semibold text-ink">Approval required</div>
-      <p className="mt-1 text-xs text-body">
-        Write tool{" "}
-        <code className="rounded bg-canvas px-1">
-          {pendingTool.name ?? "unknown"}
-        </code>
-        . Review args, then approve or reject.{" "}
-        <span className="font-medium text-ink">
-          After approve, the agent continues
-        </span>{" "}
-        (confirm + next steps)—it does not stop at the write.
-      </p>
-      <pre className="mt-2 max-h-40 overflow-auto rounded border border-hairline bg-canvas p-2 text-xs text-body">
-        {prettyJson(pendingTool.args ?? {})}
-      </pre>
+      <div className="text-sm font-semibold text-ink">
+        {presentation ? "View in UI?" : "Approval required"}
+      </div>
+      {presentation ? (
+        <p className="mt-1 text-xs text-body">
+          The agent finished with a text answer. Generate a structured learning
+          view with sections, chips, and tables—or keep the text-only answer.
+        </p>
+      ) : (
+        <>
+          <p className="mt-1 text-xs text-body">
+            Write tool{" "}
+            <code className="rounded bg-canvas px-1">
+              {pendingTool.name ?? "unknown"}
+            </code>
+            . Review args, then approve or reject.{" "}
+            <span className="font-medium text-ink">
+              After approve, the agent continues
+            </span>{" "}
+            (confirm + next steps)—it does not stop at the write.
+          </p>
+          <pre className="mt-2 max-h-40 overflow-auto rounded border border-hairline bg-canvas p-2 text-xs text-body">
+            {prettyJson(pendingTool.args ?? {})}
+          </pre>
+        </>
+      )}
       <div className="mt-3 flex flex-wrap gap-2">
         <Button
           type="button"
@@ -160,7 +172,7 @@ export function AgentApprovalCard({
           ) : (
             <Check className="h-3.5 w-3.5" strokeWidth={1.5} />
           )}
-          Approve
+          {presentation ? "View in UI" : "Approve"}
         </Button>
         <Button
           type="button"
@@ -170,7 +182,7 @@ export function AgentApprovalCard({
           onClick={onReject}
         >
           <X className="h-3.5 w-3.5" strokeWidth={1.5} />
-          Reject
+          {presentation ? "Text only" : "Reject"}
         </Button>
       </div>
     </div>

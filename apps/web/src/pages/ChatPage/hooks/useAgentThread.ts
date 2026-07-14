@@ -13,6 +13,7 @@ import {
   upsertTraceStep,
   makeLlmEndPatch,
 } from "@/hooks/useAgentStream";
+import { isPresentationPending } from "@/components/agents/agent-utils";
 import type { AgentThreadItem } from "@/types/chat";
 
 export function useAgentThread(
@@ -215,10 +216,14 @@ export function useAgentThread(
             applyRunToThread(asstId, final);
             setAgentRunId(final.id);
             void queryClient.invalidateQueries({
-              queryKey: ["agentRuns", workspaceId, "general"],
+              queryKey: ["agentRuns", workspaceId],
             });
             if (final.status === "waiting_approval") {
-              success("Approval needed", "Review the write action below.");
+              if (isPresentationPending(final.pending_tool)) {
+                success("Answer ready", "Choose whether to view it in the UI.");
+              } else {
+                success("Approval needed", "Review the write action below.");
+              }
             } else if (final.status === "completed") {
               success("Agent finished");
             }
@@ -230,7 +235,7 @@ export function useAgentThread(
         applyRunToThread(asstId, run);
         setAgentRunId(run.id);
         void queryClient.invalidateQueries({
-          queryKey: ["agentRuns", workspaceId, "general"],
+          queryKey: ["agentRuns", workspaceId],
         });
       }
       requestAnimationFrame(() => {
@@ -249,22 +254,37 @@ export function useAgentThread(
 
   async function onApproveAgent(asstId: string, runId: string, approve: boolean) {
     if (approving) return;
+    const threadItem = agentThread.find((item) => item.id === asstId);
+    const presentationPending = isPresentationPending(threadItem?.run?.pending_tool);
     setApproving(true);
     setError(null);
-    setAgentThread((prev) =>
-      prev.map((item) =>
-        item.id === asstId
-          ? {
-              ...item,
-              pending: true,
-              content: approve
-                ? "Approved — agent is continuing…"
-                : "Rejecting…",
-            }
-          : item,
-      ),
-    );
+    if (!presentationPending) {
+      setAgentThread((prev) =>
+        prev.map((item) =>
+          item.id === asstId
+            ? {
+                ...item,
+                pending: true,
+                content: approve
+                  ? "Approved — agent is continuing…"
+                  : "Rejecting…",
+              }
+            : item,
+        ),
+      );
+    }
     try {
+      if (presentationPending) {
+        const run = await api.approveAgentRun(runId, approve);
+        applyRunToThread(asstId, run);
+        void queryClient.invalidateQueries({ queryKey: ["agentRuns", workspaceId] });
+        if (approve) {
+          success("Learning view ready", "Open the agent trace panel.");
+        } else {
+          success("Keeping text answer");
+        }
+        return;
+      }
       if (!approve) {
         const run = await api.approveAgentRun(runId, false);
         applyRunToThread(asstId, run);

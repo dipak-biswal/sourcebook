@@ -1,6 +1,8 @@
 import { useEffect, useState } from "react";
 import { Activity, AlertTriangle, Loader2, MessageCircle, Sparkles } from "lucide-react";
 import { AgentRunPanel } from "@/components/agents/AgentRunPanel";
+import { AgentApprovalCard } from "@/components/agents/shared";
+import { isPresentationPending } from "@/components/agents/agent-utils";
 import { GenerativeUIView } from "@/components/agents/GenerativeUI";
 import { extractGenerativeUIFromRun } from "@/components/agents/generative-ui";
 import { MarkdownContent } from "@/components/chat/MarkdownContent";
@@ -64,6 +66,9 @@ export function AgentRunDisplay() {
         }
       : null,
   );
+  const presentationPending =
+    selected?.status === "waiting_approval" &&
+    isPresentationPending(selected.pending_tool);
   const [activeTab, setActiveTab] = useState<TabKey>(running ? "trace" : "answer");
 
   useEffect(() => {
@@ -130,7 +135,11 @@ export function AgentRunDisplay() {
           <TabButton
             active={activeTab === "answer"}
             icon={MessageCircle}
-            label={selected?.status === "waiting_approval" ? "Status" : "Answer"}
+            label={
+              selected?.status === "waiting_approval" && !presentationPending
+                ? "Status"
+                : "Answer"
+            }
             onClick={() => setActiveTab("answer")}
           />
           {gen && (
@@ -153,13 +162,17 @@ export function AgentRunDisplay() {
           <div className="px-4 py-3">
             {running && !selected?.final_answer ? (
               <div className="text-sm text-mute">Processing…</div>
-            ) : selected?.status === "waiting_approval" ? (
-              <div className="text-body-sm text-body">
-                <MarkdownContent content={selected.final_answer!} />
-              </div>
             ) : selected?.final_answer ? (
-              <div className="text-body-sm text-body">
+              <div className="space-y-3 text-body-sm text-body">
                 <MarkdownContent content={selected.final_answer} />
+                {presentationPending && (
+                  <AgentApprovalCard
+                    pendingTool={selected.pending_tool!}
+                    approving={approving}
+                    onApprove={() => onApprove(true)}
+                    onReject={() => onApprove(false)}
+                  />
+                )}
               </div>
             ) : null}
           </div>

@@ -17,7 +17,10 @@ import { useAgentRuns, useNotes, useWorkspaces } from "@/hooks/queries";
 import { useLastWorkspace } from "@/hooks/useLastWorkspace";
 import type { AgentPageContextValue } from "@/types/agents";
 import { AgentPageContext } from "./agent-page-context";
-import { AGENT_EXAMPLE_GOALS } from "@/components/agents/agent-utils";
+import {
+  AGENT_EXAMPLE_GOALS,
+  isPresentationPending,
+} from "@/components/agents/agent-utils";
 
 const DEFAULT_MAX_STEPS = 5;
 
@@ -188,7 +191,11 @@ export function AgentPageProvider({
           queryKey: ["agentRuns", effectiveWorkspaceId],
         });
         if (run.status === "waiting_approval") {
-          success("Approval needed", "Review the write action below.");
+          if (isPresentationPending(run.pending_tool)) {
+            success("Answer ready", "Choose whether to view it in the UI.");
+          } else {
+            success("Approval needed", "Review the write action below.");
+          }
         } else if (run.status === "completed") {
           success("Agent finished");
         }
@@ -205,11 +212,27 @@ export function AgentPageProvider({
 
   async function onApprove(approve: boolean) {
     if (!selected || approving) return;
+    const presentationPending = isPresentationPending(selected.pending_tool);
     setApproving(true);
     setError(null);
-    setRunning(true);
-    setLiveGoal(selected.goal);
+    if (!presentationPending) {
+      setRunning(true);
+      setLiveGoal(selected.goal);
+    }
     try {
+      if (presentationPending) {
+        const run = await api.approveAgentRun(selected.id, approve);
+        await queryClient.invalidateQueries({
+          queryKey: ["agentRuns", effectiveWorkspaceId],
+        });
+        setSelected(run);
+        if (approve) {
+          success("Learning view ready", "Open the Learning view tab.");
+        } else {
+          success("Keeping text answer");
+        }
+        return;
+      }
       if (!approve) {
         const run = await api.approveAgentRun(selected.id, false);
         await queryClient.invalidateQueries({

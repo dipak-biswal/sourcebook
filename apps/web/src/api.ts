@@ -498,6 +498,7 @@ export type AgentRun = {
   pending_tool?: {
     id?: string;
     name?: string;
+    kind?: string;
     args?: Record<string, unknown>;
   } | null;
   created_at: string;

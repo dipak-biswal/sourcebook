@@ -56,3 +56,33 @@ def should_render_presentation(
         return False
 
     return bool(_PRESENT_GOAL.search(goal) or len(answer) >= 200)
+
+
+def should_offer_presentation(
+    *,
+    goal: str,
+    final_answer: str | None,
+    status: str,
+) -> bool:
+    """
+    Human-in-the-loop gate: offer generative UI after most substantive answers.
+    Broader than should_render_presentation — user opts in before we build.
+    """
+    if status != "completed":
+        return False
+
+    goal = (goal or "").strip()
+    answer = (final_answer or "").strip()
+
+    if not goal or not answer:
+        return False
+    if answer in ("(no final answer)",):
+        return False
+    if answer.startswith("Waiting for your approval"):
+        return False
+    if len(answer) < 40:
+        return False
+    if _SKIP_GOAL.search(goal):
+        return False
+
+    return True
