@@ -29,10 +29,6 @@ def _agent_name(workspace_name: str | None) -> str:
     return name or "Agent"
 
 
-def _turn_label(workspace_name: str | None, turn: int) -> str:
-    return f"{_agent_name(workspace_name)} · turn {turn}"
-
-
 def _tool_label(name: str | None) -> str:
     if not name:
         return "Tool"
@@ -354,7 +350,7 @@ class _TurnAcc:
         *,
         workspace_name: str | None = None,
     ) -> dict[str, Any]:
-        label = _turn_label(workspace_name, self.turn)
+        label = _agent_name(workspace_name)
         return {
             "id": self.id,
             "type": "agent_turn",
@@ -445,7 +441,7 @@ def _presentation_children(
             labeled = dict(child)
             labeled["id"] = f"pres-{turn.id}-{child['id']}"
             labeled["label"] = (
-                f"{_turn_label(workspace_name, turn.turn)} · {child.get('label') or 'Step'}"
+                f"{_agent_name(workspace_name)} · {child.get('label') or 'Step'}"
             )
             children.append(labeled)
 
