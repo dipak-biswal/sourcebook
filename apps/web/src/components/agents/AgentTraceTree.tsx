@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import {
   Brain,
   CheckCircle2,
@@ -35,23 +35,70 @@ import type {
 } from "@/components/agents/trace-types";
 import { cn } from "@/lib/utils";
 
-function Connector({ active, done }: { active?: boolean; done?: boolean }) {
+const ICON_COL = 40;
+const ARM_W = 28;
+
+function TraceIcon({
+  icon: Icon,
+  state,
+  active,
+  nested,
+}: {
+  icon: typeof Brain;
+  state: "pending" | "running" | "done";
+  active?: boolean;
+  nested?: boolean;
+}) {
+  const size = nested ? "h-7 w-7" : "h-9 w-9";
+  const iconSize = nested ? "h-3 w-3" : "h-4 w-4";
   return (
     <div
       className={cn(
-        "absolute left-[15px] top-8 bottom-0 w-0.5 origin-top",
-        active
-          ? "animate-trace-flow bg-gradient-to-b from-warning-border via-ink/40 to-hairline"
-          : done
-            ? "bg-ink/25"
-            : "bg-hairline",
+        "relative z-10 flex shrink-0 items-center justify-center rounded-full border-2 bg-canvas transition-all",
+        size,
+        state === "running" && "border-warning-border shadow-[0_0_0_4px_rgba(234,179,8,0.14)]",
+        state === "done" && "border-ink/30",
+        state === "pending" && "border-hairline",
+        active && state === "running" && "animate-trace-pulse",
       )}
-    />
+    >
+      {state === "running" ? (
+        <Loader2 className={cn(iconSize, "animate-spin text-warning-text")} />
+      ) : (
+        <Icon className={cn(iconSize, "text-ink")} strokeWidth={2} />
+      )}
+    </div>
   );
 }
 
-function NodeShell({
-  icon: Icon,
+/** Horizontal arm linking icon column to the content block on the right. */
+function TraceArm({ active, nested }: { active?: boolean; nested?: boolean }) {
+  return (
+    <div
+      className={cn(
+        "relative flex shrink-0 items-center",
+        nested ? "w-5" : "w-7",
+      )}
+      style={{ width: nested ? 20 : ARM_W }}
+    >
+      <div
+        className={cn(
+          "h-px w-full",
+          active ? "animate-trace-arm bg-warning-border" : "bg-ink/25",
+        )}
+      />
+      <div
+        className={cn(
+          "absolute right-0 top-1/2 h-2 w-2 -translate-y-1/2 rotate-45 border-r border-t",
+          active ? "border-warning-border" : "border-ink/25",
+        )}
+      />
+    </div>
+  );
+}
+
+function TraceRow({
+  icon,
   title,
   subtitle,
   state,
@@ -61,6 +108,7 @@ function NodeShell({
   children,
   nodeId,
   activeRef,
+  nested,
 }: {
   icon: typeof Brain;
   title: string;
@@ -69,87 +117,133 @@ function NodeShell({
   active?: boolean;
   open: boolean;
   onToggle: () => void;
-  children?: React.ReactNode;
+  children?: ReactNode;
   nodeId: string;
   activeRef?: React.RefObject<HTMLDivElement | null>;
+  nested?: boolean;
 }) {
   return (
     <div
       ref={active ? activeRef : undefined}
       data-trace-id={nodeId}
       className={cn(
-        "relative pl-9",
+        "relative flex min-w-0 items-start",
+        nested ? "pb-2" : "pb-0",
         active && "scroll-mt-4",
       )}
     >
-      <Connector active={active && state === "running"} done={state === "done"} />
+      {/* Icon sits on the spine */}
       <div
-        className={cn(
-          "absolute left-0 top-1 flex h-8 w-8 items-center justify-center rounded-full border-2 bg-canvas transition-all",
-          state === "running" && "border-warning-border shadow-[0_0_0_4px_rgba(234,179,8,0.12)]",
-          state === "done" && "border-success-border",
-          state === "pending" && "border-hairline",
-          active && state === "running" && "animate-trace-pulse",
-        )}
+        className="flex shrink-0 justify-center"
+        style={{ width: nested ? 32 : ICON_COL }}
       >
-        {state === "running" ? (
-          <Loader2 className="h-3.5 w-3.5 animate-spin text-warning-text" />
-        ) : state === "done" ? (
-          <Icon className="h-3.5 w-3.5 text-ink" strokeWidth={2} />
-        ) : (
-          <Icon className="h-3.5 w-3.5 text-mute" strokeWidth={2} />
-        )}
+        <TraceIcon icon={icon} state={state} active={active} nested={nested} />
       </div>
 
+      <TraceArm active={active && state === "running"} nested={nested} />
+
+      {/* Block expands to the right */}
       <div
         className={cn(
-          "mb-3 overflow-hidden rounded-[8px] border bg-canvas transition-shadow",
-          active && state === "running"
-            ? "border-warning-border/80 ring-1 ring-warning-border/30"
-            : "border-hairline",
+          "mb-3 min-w-0 flex-1 transition-all duration-300 ease-out",
+          open && "max-w-none",
         )}
       >
-        <button
-          type="button"
-          onClick={onToggle}
-          className="flex w-full items-start gap-2 px-3 py-2.5 text-left hover:bg-canvas-soft"
+        <div
+          className={cn(
+            "overflow-hidden rounded-[8px] border bg-canvas transition-shadow",
+            active && state === "running"
+              ? "border-warning-border/80 ring-1 ring-warning-border/25 shadow-[0_2px_12px_rgba(0,0,0,0.04)]"
+              : "border-hairline",
+            open && "shadow-[var(--elevation-1)]",
+          )}
         >
-          <span className="mt-0.5 shrink-0 text-mute">
-            {open ? (
-              <ChevronDown className="h-3.5 w-3.5" />
-            ) : (
-              <ChevronRight className="h-3.5 w-3.5" />
-            )}
-          </span>
-          <div className="min-w-0 flex-1">
-            <div className="flex flex-wrap items-center gap-1.5">
-              <span className="text-xs font-semibold text-ink">{title}</span>
-              {state === "running" && (
-                <Badge variant="warning" className="gap-1 text-[10px]">
-                  <span className="relative flex h-1.5 w-1.5">
-                    <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-warning opacity-60" />
-                    <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-warning" />
-                  </span>
-                  live
-                </Badge>
+          <button
+            type="button"
+            onClick={onToggle}
+            className="flex w-full items-start gap-2 px-3 py-2.5 text-left hover:bg-canvas-soft"
+          >
+            <span className="mt-0.5 shrink-0 text-mute">
+              {open ? (
+                <ChevronDown className="h-3.5 w-3.5" />
+              ) : (
+                <ChevronRight className="h-3.5 w-3.5" />
               )}
-              {state === "done" && (
-                <Badge variant="success" className="text-[10px]">
-                  done
-                </Badge>
+            </span>
+            <div className="min-w-0 flex-1">
+              <div className="flex flex-wrap items-center gap-1.5">
+                <span
+                  className={cn(
+                    "font-semibold text-ink",
+                    nested ? "text-[11px]" : "text-xs",
+                  )}
+                >
+                  {title}
+                </span>
+                {state === "running" && (
+                  <Badge variant="warning" className="gap-1 text-[10px]">
+                    <span className="relative flex h-1.5 w-1.5">
+                      <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-warning opacity-60" />
+                      <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-warning" />
+                    </span>
+                    live
+                  </Badge>
+                )}
+                {state === "done" && (
+                  <Badge variant="success" className="text-[10px]">
+                    done
+                  </Badge>
+                )}
+              </div>
+              {subtitle && (
+                <p className="mt-0.5 line-clamp-2 text-[11px] text-mute">
+                  {subtitle}
+                </p>
               )}
             </div>
-            {subtitle && (
-              <p className="mt-0.5 line-clamp-2 text-[11px] text-mute">{subtitle}</p>
+          </button>
+
+          <div
+            className={cn(
+              "grid transition-[grid-template-rows] duration-300 ease-out",
+              open && children ? "grid-rows-[1fr]" : "grid-rows-[0fr]",
             )}
+          >
+            <div className="overflow-hidden">
+              {children && (
+                <div className="border-t border-hairline bg-canvas-soft/50 px-3 py-2.5">
+                  {children}
+                </div>
+              )}
+            </div>
           </div>
-        </button>
-        {open && children && (
-          <div className="border-t border-hairline bg-canvas-soft/60 px-3 py-2.5">
-            {children}
-          </div>
-        )}
+        </div>
       </div>
+    </div>
+  );
+}
+
+function TraceRail({
+  children,
+  className,
+  nested,
+}: {
+  children: ReactNode;
+  className?: string;
+  nested?: boolean;
+}) {
+  const spineLeft = nested ? 15 : 19;
+  return (
+    <div className={cn("relative min-w-0", className)}>
+      <div
+        className="pointer-events-none absolute w-px bg-ink/18"
+        style={{
+          left: spineLeft,
+          top: nested ? 10 : 14,
+          bottom: nested ? 4 : 12,
+        }}
+      />
+      {children}
     </div>
   );
 }
@@ -172,10 +266,11 @@ function ToolTraceNode({
       : null;
 
   return (
-    <NodeShell
+    <TraceRow
       nodeId={tool.id}
       activeRef={activeRef}
       active={active}
+      nested
       open={open}
       onToggle={() => setOpen((v) => !v)}
       icon={Wrench}
@@ -221,7 +316,7 @@ function ToolTraceNode({
           </div>
         )}
       </div>
-    </NodeShell>
+    </TraceRow>
   );
 }
 
@@ -395,49 +490,49 @@ export function AgentTraceTree({
           />
         </div>
         <p className="mt-1.5 text-[10px] text-mute">
-          {running
-            ? "Following the agent turn-by-turn — active step highlighted below."
-            : "Full run history: goal → agent turns → tools → approvals → visual summary."}
+          Icons link to blocks on the right — expand any step for inputs, outputs,
+          and streaming LLM text.
         </p>
       </div>
 
-      <div ref={scrollRef} className="max-h-[min(70vh,36rem)] overflow-y-auto p-4">
-        {tree.map((item, index, arr) => {
-          const isLast = index === arr.length - 1;
-          const turnNumber =
-            item.kind === "turn"
-              ? arr.slice(0, index + 1).filter((n) => n.kind === "turn").length
-              : 0;
+      <div ref={scrollRef} className="max-h-[min(70vh,36rem)] overflow-x-auto overflow-y-auto p-4">
+        <TraceRail>
+          {tree.map((item, index, arr) => {
+            const turnNumber =
+              item.kind === "turn"
+                ? arr.slice(0, index + 1).filter((n) => n.kind === "turn").length
+                : 0;
 
-          if (item.kind === "goal") {
-            return (
-              <NodeShell
-                key={item.id}
-                nodeId={item.id}
-                icon={Target}
-                title="Input goal"
-                subtitle={item.goal}
-                state="done"
-                open={goalOpen}
-                onToggle={() => setGoalOpen((v) => !v)}
-              >
-                <p className="text-xs leading-relaxed text-body">{item.goal}</p>
-              </NodeShell>
-            );
-          }
+            if (item.kind === "goal") {
+              return (
+                <TraceRow
+                  key={item.id}
+                  nodeId={item.id}
+                  icon={Target}
+                  title="Input goal"
+                  subtitle={item.goal}
+                  state="done"
+                  open={goalOpen}
+                  onToggle={() => setGoalOpen((v) => !v)}
+                >
+                  <p className="text-xs leading-relaxed text-body">{item.goal}</p>
+                </TraceRow>
+              );
+            }
 
-          if (item.kind === "turn") {
-            const turn = item.turn;
-            const turnActive = activeId === item.id || turn.state === "running";
-            const llmContent =
-              turn.llm?.streamContent ||
-              stepText(turn.thoughtStep) ||
-              "";
-            const turnOpen = isOpen(item.id, turnActive || isLast);
+            if (item.kind === "turn") {
+              const turn = item.turn;
+              const turnActive = activeId === item.id || turn.state === "running";
+              const llmContent =
+                turn.llm?.streamContent || stepText(turn.thoughtStep) || "";
+              const turnOpen = isOpen(
+                item.id,
+                turnActive || index === arr.length - 1,
+              );
 
-            return (
-              <div key={item.id}>
-                <NodeShell
+              return (
+                <TraceRow
+                  key={item.id}
                   nodeId={item.id}
                   activeRef={turnActive ? activeRef : undefined}
                   active={turnActive}
@@ -467,137 +562,147 @@ export function AgentTraceTree({
                       />
                     </div>
                     {turn.tools.length > 0 && (
-                      <div className="space-y-0">
+                      <div>
                         <div className="mb-2 text-[10px] font-bold uppercase tracking-wide text-mute">
                           Tool calls
                         </div>
-                        {turn.tools.map((tool) => (
-                          <ToolTraceNode
-                            key={tool.id}
-                            tool={tool}
-                            active={activeId === tool.id}
-                            activeRef={activeId === tool.id ? activeRef : undefined}
-                            defaultOpen={
-                              tool.state === "running" ||
-                              activeId === tool.id ||
-                              isLast
-                            }
-                          />
-                        ))}
+                        <TraceRail nested className="ml-1 pl-0.5">
+                          {turn.tools.map((tool, ti) => (
+                            <ToolTraceNode
+                              key={tool.id}
+                              tool={tool}
+                              active={activeId === tool.id}
+                              activeRef={
+                                activeId === tool.id ? activeRef : undefined
+                              }
+                              defaultOpen={
+                                tool.state === "running" ||
+                                activeId === tool.id ||
+                                (index === arr.length - 1 &&
+                                  ti === turn.tools.length - 1)
+                              }
+                            />
+                          ))}
+                        </TraceRail>
                       </div>
                     )}
                   </div>
-                </NodeShell>
-              </div>
-            );
-          }
+                </TraceRow>
+              );
+            }
 
-          if (item.kind === "hitl") {
-            const hitlActive = item.state === "running" || activeId === item.id;
-            return (
-              <NodeShell
-                key={item.id}
-                nodeId={item.id}
-                activeRef={hitlActive ? activeRef : undefined}
-                active={hitlActive}
-                icon={Shield}
-                title={
-                  item.step?.tool_name === "generative_ui" || item.pending
-                    ? "Human approval · View in UI?"
-                    : "Human approval · write tool"
-                }
-                subtitle={
-                  item.building
-                    ? "Building visual summary…"
-                    : item.pending
-                      ? "Waiting for your decision"
-                      : "Approved"
-                }
-                state={item.state}
-                open={isOpen(item.id, hitlActive || item.pending || isLast)}
-                onToggle={() => toggle(item.id)}
-              >
-                {item.pending && run?.pending_tool && onApprove && onReject ? (
-                  <AgentApprovalCard
-                    pendingTool={run.pending_tool}
-                    approving={approving}
-                    onApprove={onApprove}
-                    onReject={onReject}
-                    className="border-warning-border/60 bg-warning-soft/40"
-                  />
-                ) : item.step?.input ? (
-                  <pre className="max-h-32 overflow-auto rounded border border-hairline bg-canvas p-2 text-[11px]">
-                    {prettyJson(item.step.input)}
-                  </pre>
-                ) : null}
-              </NodeShell>
-            );
-          }
+            if (item.kind === "hitl") {
+              const hitlActive = item.state === "running" || activeId === item.id;
+              return (
+                <TraceRow
+                  key={item.id}
+                  nodeId={item.id}
+                  activeRef={hitlActive ? activeRef : undefined}
+                  active={hitlActive}
+                  icon={Shield}
+                  title={
+                    item.step?.tool_name === "generative_ui" || item.pending
+                      ? "Human approval · View in UI?"
+                      : "Human approval · write tool"
+                  }
+                  subtitle={
+                    item.building
+                      ? "Building visual summary…"
+                      : item.pending
+                        ? "Waiting for your decision"
+                        : "Approved"
+                  }
+                  state={item.state}
+                  open={isOpen(
+                    item.id,
+                    hitlActive || item.pending || index === arr.length - 1,
+                  )}
+                  onToggle={() => toggle(item.id)}
+                >
+                  {item.pending && run?.pending_tool && onApprove && onReject ? (
+                    <AgentApprovalCard
+                      pendingTool={run.pending_tool}
+                      approving={approving}
+                      onApprove={onApprove}
+                      onReject={onReject}
+                      className="border-warning-border/60 bg-warning-soft/40"
+                    />
+                  ) : item.step?.input ? (
+                    <pre className="max-h-32 overflow-auto rounded border border-hairline bg-canvas p-2 text-[11px]">
+                      {prettyJson(item.step.input)}
+                    </pre>
+                  ) : null}
+                </TraceRow>
+              );
+            }
 
-          if (item.kind === "presentation") {
-            const presActive = item.state === "running";
-            return (
-              <NodeShell
-                key={item.id}
-                nodeId={item.id}
-                activeRef={presActive ? activeRef : undefined}
-                active={presActive}
-                icon={Sparkles}
-                title="Visual summary"
-                subtitle={
-                  item.state === "running"
-                    ? "Layout engine generating blocks…"
-                    : item.step
-                      ? "Generative UI ready"
-                      : "Pending approval"
-                }
-                state={item.state}
-                open={isOpen(item.id, presActive || !!item.step)}
-                onToggle={() => toggle(item.id)}
-              >
-                {item.step?.output ? (
-                  <p className="text-xs text-body">
-                    Visual summary attached — open the{" "}
-                    <strong className="text-ink">Visual summary</strong> tab.
-                  </p>
-                ) : presActive ? (
-                  <div className="flex items-center gap-2 text-[11px] text-warning-text">
-                    <Loader2 className="h-3 w-3 animate-spin" />
-                    Building UI blocks from answer + evidence…
-                  </div>
-                ) : (
-                  <p className="text-[11px] text-mute">Runs after you approve View in UI.</p>
-                )}
-              </NodeShell>
-            );
-          }
+            if (item.kind === "presentation") {
+              const presActive = item.state === "running";
+              return (
+                <TraceRow
+                  key={item.id}
+                  nodeId={item.id}
+                  activeRef={presActive ? activeRef : undefined}
+                  active={presActive}
+                  icon={Sparkles}
+                  title="Visual summary"
+                  subtitle={
+                    item.state === "running"
+                      ? "Layout engine generating blocks…"
+                      : item.step
+                        ? "Generative UI ready"
+                        : "Pending approval"
+                  }
+                  state={item.state}
+                  open={isOpen(item.id, presActive || !!item.step)}
+                  onToggle={() => toggle(item.id)}
+                >
+                  {item.step?.output ? (
+                    <p className="text-xs text-body">
+                      Visual summary attached — open the{" "}
+                      <strong className="text-ink">Visual summary</strong> tab.
+                    </p>
+                  ) : presActive ? (
+                    <div className="flex items-center gap-2 text-[11px] text-warning-text">
+                      <Loader2 className="h-3 w-3 animate-spin" />
+                      Building UI blocks from answer + evidence…
+                    </div>
+                  ) : (
+                    <p className="text-[11px] text-mute">
+                      Runs after you approve View in UI.
+                    </p>
+                  )}
+                </TraceRow>
+              );
+            }
 
-          if (item.kind === "synthesis") {
-            return (
-              <NodeShell
-                key={item.id}
-                nodeId={item.id}
-                icon={CheckCircle2}
-                title="Answer synthesis"
-                subtitle="Recovered final answer from tool evidence"
-                state="done"
-                open={isOpen(item.id, false)}
-                onToggle={() => toggle(item.id)}
-              >
-                <MarkdownContent content={stepText(item.step)} />
-              </NodeShell>
-            );
-          }
+            if (item.kind === "synthesis") {
+              return (
+                <TraceRow
+                  key={item.id}
+                  nodeId={item.id}
+                  icon={CheckCircle2}
+                  title="Answer synthesis"
+                  subtitle="Recovered final answer from tool evidence"
+                  state="done"
+                  open={isOpen(item.id, false)}
+                  onToggle={() => toggle(item.id)}
+                >
+                  <MarkdownContent content={stepText(item.step)} />
+                </TraceRow>
+              );
+            }
 
-          return null;
-        })}
+            return null;
+          })}
+        </TraceRail>
       </div>
 
       <style>{`
         @keyframes trace-flow {
-          0% { opacity: 0.45; transform: scaleY(0.98); }
-          50% { opacity: 1; transform: scaleY(1); }
-          100% { opacity: 0.45; transform: scaleY(0.98); }
+          0% { opacity: 0.45; }
+          50% { opacity: 1; }
+          100% { opacity: 0.45; }
         }
         @keyframes trace-pulse {
           0%, 100% { box-shadow: 0 0 0 4px rgba(234, 179, 8, 0.1); }
@@ -607,9 +712,14 @@ export function AgentTraceTree({
           0% { background-position: 100% 0; }
           100% { background-position: -100% 0; }
         }
+        @keyframes trace-arm {
+          0%, 100% { opacity: 0.55; }
+          50% { opacity: 1; }
+        }
         .animate-trace-flow { animation: trace-flow 1.6s ease-in-out infinite; }
         .animate-trace-pulse { animation: trace-pulse 1.8s ease-in-out infinite; }
         .animate-trace-progress { animation: trace-progress 2s linear infinite; }
+        .animate-trace-arm { animation: trace-arm 1.4s ease-in-out infinite; }
       `}</style>
     </div>
   );
