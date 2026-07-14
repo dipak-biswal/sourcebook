@@ -95,22 +95,20 @@ function pushPresentationHitl(
   const rejected = approvalSteps.some((s) => approvalStatus(s) === "rejected");
   const waiting = !approved && !rejected;
 
-  tail.push({
+  const hitlItem: TraceTreeItem = {
     id: `hitl-${last.id}`,
     kind: "hitl",
     step: last,
     pending: waiting,
     building: false,
     state: waiting ? "running" : "done",
-  });
+  };
 
-  const hasPresentation = tail.some((t) => t.kind === "presentation");
-  if (waiting && !hasPresentation) {
-    tail.push({
-      id: `presentation-${last.id}`,
-      kind: "presentation",
-      state: "pending",
-    });
+  const presIdx = tail.findIndex((t) => t.kind === "presentation");
+  if (presIdx >= 0) {
+    tail.splice(presIdx, 0, hitlItem);
+  } else {
+    tail.push(hitlItem);
   }
 }
 
@@ -336,18 +334,25 @@ export function buildAgentTraceTree(params: {
       kind: "hitl",
       pending: true,
       building: approving,
-      state: approving ? "running" : "running",
-    });
-    tail.push({
-      id: "presentation-pending",
-      kind: "presentation",
-      state: approving ? "running" : "pending",
+      state: "running",
     });
   } else if (presentationPending && pendingTool && !hasPendingHitl) {
     tail.push({
       id: "hitl-pending",
       kind: "hitl",
       pending: true,
+      state: "running",
+    });
+  }
+
+  if (
+    approving &&
+    presentationPending &&
+    !tail.some((t) => t.kind === "presentation")
+  ) {
+    tail.push({
+      id: "presentation-pending",
+      kind: "presentation",
       state: "running",
     });
   }
@@ -387,6 +392,20 @@ export function buildAgentTraceTree(params: {
   }
 
   return items;
+}
+
+export function isTraceItemDone(item: TraceTreeItem): boolean {
+  if (item.kind === "goal") return true;
+  if (item.kind === "turn") {
+    return (
+      item.turn.state === "done" &&
+      item.turn.tools.every((t) => t.state === "done")
+    );
+  }
+  if (item.kind === "hitl") return item.state === "done" && !item.pending;
+  if (item.kind === "presentation") return item.state === "done";
+  if (item.kind === "synthesis") return true;
+  return true;
 }
 
 export function findActiveTraceId(items: TraceTreeItem[]): string | null {

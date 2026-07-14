@@ -299,6 +299,86 @@ function turnStatusLabel(turn: TraceAgentTurn): string | undefined {
   return undefined;
 }
 
+type FlatRow =
+  | { id: string; kind: "goal"; isLast: boolean; goal: string }
+  | { id: string; kind: "turn"; isLast: boolean; turnNumber: number; turn: TraceAgentTurn }
+  | { id: string; kind: "tool"; isLast: boolean; tool: TraceToolNode; nested: true }
+  | { id: string; kind: "hitl"; isLast: boolean; hitl: Extract<TraceTreeItem, { kind: "hitl" }> }
+  | {
+      id: string;
+      kind: "presentation";
+      isLast: boolean;
+      presentation: Extract<TraceTreeItem, { kind: "presentation" }>;
+    }
+  | { id: string; kind: "synthesis"; isLast: boolean; synthesis: Extract<TraceTreeItem, { kind: "synthesis" }> };
+
+/** During a live run, reveal steps sequentially as each finishes. */
+function filterRowsForLive(rows: FlatRow[]): FlatRow[] {
+  const visible: FlatRow[] = [];
+
+  for (const row of rows) {
+    if (row.kind === "tool") {
+      if (row.tool.state === "pending" && !row.tool.callStep) break;
+    }
+
+    visible.push(row);
+
+    if (row.kind === "tool" && row.tool.state !== "done") break;
+    if (row.kind === "turn" && row.turn.state !== "done") break;
+    if (row.kind === "hitl" && row.hitl.pending && !row.hitl.building) break;
+    if (row.kind === "presentation" && row.presentation.state === "pending") break;
+    if (row.kind === "presentation" && row.presentation.state !== "done") break;
+  }
+
+  if (!visible.length) return visible;
+  return visible.map((row, i) => ({
+    ...row,
+    isLast: i === visible.length - 1,
+  }));
+}
+
+function buildFlatRows(tree: TraceTreeItem[]): FlatRow[] {
+  const flat: FlatRow[] = [];
+  let turnCount = 0;
+
+  for (const item of tree) {
+    if (item.kind === "goal") {
+      flat.push({ id: item.id, kind: "goal", goal: item.goal, isLast: false });
+      continue;
+    }
+    if (item.kind === "turn") {
+      turnCount += 1;
+      flat.push({
+        id: item.id,
+        kind: "turn",
+        turnNumber: turnCount,
+        turn: item.turn,
+        isLast: false,
+      });
+      for (const tool of item.turn.tools) {
+        flat.push({ id: tool.id, kind: "tool", tool, nested: true, isLast: false });
+      }
+      continue;
+    }
+    if (item.kind === "hitl") {
+      flat.push({ id: item.id, kind: "hitl", hitl: item, isLast: false });
+      continue;
+    }
+    if (item.kind === "presentation") {
+      flat.push({ id: item.id, kind: "presentation", presentation: item, isLast: false });
+      continue;
+    }
+    if (item.kind === "synthesis") {
+      flat.push({ id: item.id, kind: "synthesis", synthesis: item, isLast: false });
+    }
+  }
+
+  if (flat.length > 0) {
+    flat[flat.length - 1] = { ...flat[flat.length - 1]!, isLast: true };
+  }
+  return flat;
+}
+
 function approvalOutput(
   step?: AgentStep,
 ): { status?: string; kind?: string } | null {
@@ -511,66 +591,23 @@ export function AgentTraceTree({
   const progress = traceProgress(tree);
   const tokens = liveTokenUsage ?? run?.token_usage ?? null;
   const visualSummaryTitle = presentationTitle(run, tree);
+  const runComplete =
+    run?.status === "completed" ||
+    run?.status === "cancelled" ||
+    run?.status === "failed";
+  const isLive =
+    !runComplete &&
+    (running || approving || run?.status === "waiting_approval");
 
   useEffect(() => {
     if (!running || !activeRef.current) return;
     activeRef.current.scrollIntoView({ behavior: "smooth", block: "nearest" });
   }, [running, activeId, tree]);
 
-  type FlatRow =
-    | { id: string; kind: "goal"; isLast: boolean; goal: string }
-    | { id: string; kind: "turn"; isLast: boolean; turnNumber: number; turn: TraceAgentTurn }
-    | { id: string; kind: "tool"; isLast: boolean; tool: TraceToolNode; nested: true }
-    | { id: string; kind: "hitl"; isLast: boolean; hitl: Extract<TraceTreeItem, { kind: "hitl" }> }
-    | {
-        id: string;
-        kind: "presentation";
-        isLast: boolean;
-        presentation: Extract<TraceTreeItem, { kind: "presentation" }>;
-      }
-    | { id: string; kind: "synthesis"; isLast: boolean; synthesis: Extract<TraceTreeItem, { kind: "synthesis" }> };
-
   const rows = useMemo((): FlatRow[] => {
-    const flat: FlatRow[] = [];
-    let turnCount = 0;
-
-    for (const item of tree) {
-      if (item.kind === "goal") {
-        flat.push({ id: item.id, kind: "goal", goal: item.goal, isLast: false });
-        continue;
-      }
-      if (item.kind === "turn") {
-        turnCount += 1;
-        flat.push({
-          id: item.id,
-          kind: "turn",
-          turnNumber: turnCount,
-          turn: item.turn,
-          isLast: false,
-        });
-        for (const tool of item.turn.tools) {
-          flat.push({ id: tool.id, kind: "tool", tool, nested: true, isLast: false });
-        }
-        continue;
-      }
-      if (item.kind === "hitl") {
-        flat.push({ id: item.id, kind: "hitl", hitl: item, isLast: false });
-        continue;
-      }
-      if (item.kind === "presentation") {
-        flat.push({ id: item.id, kind: "presentation", presentation: item, isLast: false });
-        continue;
-      }
-      if (item.kind === "synthesis") {
-        flat.push({ id: item.id, kind: "synthesis", synthesis: item, isLast: false });
-      }
-    }
-
-    if (flat.length > 0) {
-      flat[flat.length - 1] = { ...flat[flat.length - 1]!, isLast: true };
-    }
-    return flat;
-  }, [tree]);
+    const flat = buildFlatRows(tree);
+    return isLive ? filterRowsForLive(flat) : flat;
+  }, [tree, isLive]);
 
   return (
     <div className="flex flex-col">
@@ -579,10 +616,10 @@ export function AgentTraceTree({
           <div className="flex items-center gap-2">
             <GitBranch className="h-4 w-4 text-ink" strokeWidth={1.5} />
             <span className="text-xs font-semibold text-ink">Execution trace</span>
-            {running && (
+            {isLive && (
               <Badge variant="warning" className="gap-1 text-[10px]">
                 <Loader2 className="h-2.5 w-2.5 animate-spin" />
-                running
+                {run?.status === "waiting_approval" ? "awaiting you" : "running"}
               </Badge>
             )}
           </div>
@@ -597,11 +634,11 @@ export function AgentTraceTree({
           <div
             className={cn(
               "h-full rounded-full transition-all duration-500 ease-out",
-              running
+              isLive
                 ? "animate-trace-progress bg-gradient-to-r from-warning-border via-ink to-warning-border bg-[length:200%_100%]"
                 : "bg-success-border",
             )}
-            style={{ width: `${Math.max(running ? progress : 100, running ? 12 : 0)}%` }}
+            style={{ width: `${Math.max(isLive ? progress : 100, isLive ? 12 : 0)}%` }}
           />
         </div>
       </div>
@@ -618,6 +655,7 @@ export function AgentTraceTree({
                   label="Input goal"
                   state="done"
                   isLast={row.isLast}
+                  defaultOpen={runComplete}
                 >
                   {row.goal ? (
                     <p className="text-body">{row.goal}</p>
@@ -641,7 +679,7 @@ export function AgentTraceTree({
                   nodeId={row.id}
                   activeRef={turnActive ? activeRef : undefined}
                   active={turnActive}
-                  defaultOpen={turnActive}
+                  defaultOpen={runComplete || turnActive}
                   icon={Brain}
                   label={`Agent · turn ${row.turnNumber}`}
                   state={turn.state}
@@ -666,7 +704,7 @@ export function AgentTraceTree({
                     nodeId={row.id}
                     activeRef={toolActive ? activeRef : undefined}
                     active={toolActive}
-                    defaultOpen={toolActive}
+                    defaultOpen={runComplete || toolActive}
                     nested
                     icon={Wrench}
                     label={toolDisplayName(row.tool.toolName)}
@@ -688,7 +726,7 @@ export function AgentTraceTree({
                   nodeId={row.id}
                   activeRef={hitlActive ? activeRef : undefined}
                   active={hitlActive}
-                  defaultOpen={hitlActive || hitl.pending}
+                  defaultOpen={runComplete || hitlActive || hitl.pending}
                   icon={Shield}
                   label={
                     hitl.step?.tool_name === "generative_ui" || hitl.pending
@@ -719,7 +757,7 @@ export function AgentTraceTree({
                   nodeId={row.id}
                   activeRef={presActive ? activeRef : undefined}
                   active={presActive}
-                  defaultOpen={presActive}
+                  defaultOpen={runComplete || presActive}
                   icon={Sparkles}
                   label="Visual summary"
                   state={pres.state}
@@ -742,6 +780,7 @@ export function AgentTraceTree({
                   label="Answer synthesis"
                   state="done"
                   isLast={row.isLast}
+                  defaultOpen={runComplete}
                 >
                   <MarkdownContent content={stepText(row.synthesis.step)} />
                 </ExpandableTraceRow>
