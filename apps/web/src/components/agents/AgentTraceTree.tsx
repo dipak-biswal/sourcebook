@@ -36,6 +36,22 @@ const MAIN_ICON_COL = 36;
 const NESTED_ICON_COL = 28;
 const BRANCH_STUB = 12;
 const NESTED_BRANCH_STUB = 10;
+const VISUAL_SUMMARY_AGENT_LABEL = "Visual Summary Agent";
+
+/** Visual summary has its own tab; hide redundant pipeline phases from trace. */
+function isVisualSummaryTracePhase(phase: TracePhase): boolean {
+  if (phase.type === "presentation") return true;
+  if (
+    phase.type === "agent_turn" &&
+    phase.agent_label === VISUAL_SUMMARY_AGENT_LABEL
+  ) {
+    return true;
+  }
+  if (phase.type === "hitl" && phase.label.includes("View in UI?")) {
+    return true;
+  }
+  return false;
+}
 
 function TraceIcon({
   icon: Icon,
@@ -568,8 +584,8 @@ function HitlBody({
   return <p className="text-mute">Completed</p>;
 }
 
-function traceProgress(trace: ExecutionTrace): number {
-  const nodes = trace.phases.filter((p) => p.type !== "goal");
+function traceProgress(phases: TracePhase[]): number {
+  const nodes = phases.filter((p) => p.type !== "goal");
   if (!nodes.length) return 8;
   const done = nodes.filter((p) => p.state === "done").length;
   const running = nodes.some((p) => p.state === "running");
@@ -608,9 +624,12 @@ export function AgentTraceTree({
   const scrollRef = useRef<HTMLDivElement | null>(null);
 
   const trace = executionTrace ?? run?.execution_trace ?? null;
-  const phases = trace?.phases ?? [];
+  const phases = useMemo(
+    () => (trace?.phases ?? []).filter((p) => !isVisualSummaryTracePhase(p)),
+    [trace?.phases],
+  );
   const isLive = running || approving || (trace != null && !trace.is_complete);
-  const progress = trace ? traceProgress(trace) : 0;
+  const progress = trace ? traceProgress(phases) : 0;
   const tokenSummary = trace?.token_usage;
   const totalTokens =
     tokenSummary?.total_tokens ??
@@ -624,20 +643,15 @@ export function AgentTraceTree({
 
   const activeChildId = useMemo(() => {
     if (!activeId || !trace) return null;
-    for (const phase of trace.phases) {
+    for (const phase of phases) {
       if (phase.type === "agent_turn") {
-        for (const child of phase.children) {
-          if (child.id === activeId) return child.id;
-        }
-      }
-      if (phase.type === "presentation" && phase.children) {
         for (const child of phase.children) {
           if (child.id === activeId) return child.id;
         }
       }
     }
     return null;
-  }, [activeId, trace]);
+  }, [activeId, phases, trace]);
 
   useEffect(() => {
     if (!isLive || !activeRef.current) return;
