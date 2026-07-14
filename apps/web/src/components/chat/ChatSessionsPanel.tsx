@@ -254,31 +254,7 @@ export function ChatSessionsPanel({
         )}
       </div>
 
-      <div className="shrink-0 space-y-2 border-t border-hairline p-3">
-        <Link
-          to="/documents"
-          onClick={() => onAfterNavigate?.()}
-          className="block text-xs font-medium text-ink underline-offset-2 hover:underline"
-        >
-          → Manage documents & ingest
-        </Link>
-        {isAgent ? (
-          <Link
-            to="/agents"
-            onClick={() => onAfterNavigate?.()}
-            className="block text-xs font-medium text-ink underline-offset-2 hover:underline"
-          >
-            → Full agent page & notes
-          </Link>
-        ) : (
-          <Link
-            to="/agents"
-            onClick={() => onAfterNavigate?.()}
-            className="block text-xs font-medium text-ink underline-offset-2 hover:underline"
-          >
-            → Agent run history & notes
-          </Link>
-        )}
+      <div className="shrink-0 border-t border-hairline p-3">
         <p className="text-[11px] leading-snug text-mute">
           {isAgent
             ? "Switch to Chat mode for RAG Q&A sessions with citations."
