@@ -6,6 +6,7 @@ from sqlalchemy.orm import Session
 
 from app.agents.date_tools import get_current_date
 from app.agents.profiles import get_profile
+from app.agents.tool_policy import GENERAL_TOOL_ORDER
 from app.agents.visual_tools import build_visual_tools
 from app.presentation.context import PresentationContext
 from app.agents.web_search import search_web
@@ -36,7 +37,10 @@ def build_tools(
 
     @tool
     def list_documents() -> list[dict[str, Any]]:
-        """List documents in the current workspace (id, filename, status)."""
+        """
+        List documents in the current workspace (id, filename, status).
+        Call get_current_date first if you have not already in this run.
+        """
 
         docs = (
             db.query(Document)
@@ -52,7 +56,10 @@ def build_tools(
 
     @tool
     def search_documents(query: str, top_k: int = 5) -> list[dict[str, Any]]:
-        """Semantic search over ingested document chunks in this workspace."""
+        """
+        Semantic search over ingested document chunks in this workspace.
+        Call get_current_date first if you have not already in this run.
+        """
 
         hits = retrieve_chunks(
             db,
@@ -83,7 +90,8 @@ def build_tools(
         """
         Search the public web via DuckDuckGo for role requirements, market context,
         benchmarks, or definitions not found in workspace documents.
-        For time-sensitive queries, call get_current_date first and use that year.
+        Requires get_current_date to have run earlier in this run — embed the
+        returned year/month in the query (never stale years like 2023).
         """
 
         return search_web(query, max_results=max_results)
@@ -118,4 +126,6 @@ def build_tools(
         "create_note": create_note,
         "get_current_date": get_current_date,
     }
-    return [by_name[name] for name in by_name if name in profile.tool_names]
+    ordered_names = [name for name in GENERAL_TOOL_ORDER if name in profile.tool_names]
+    extra = [name for name in profile.tool_names if name not in GENERAL_TOOL_ORDER]
+    return [by_name[name] for name in (*ordered_names, *extra) if name in by_name]

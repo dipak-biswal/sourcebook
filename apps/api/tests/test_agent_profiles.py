@@ -21,7 +21,20 @@ def test_agent_system_prompt_uses_date_tool_not_hardcoded_header():
     prompt = agent_system_prompt()
     assert "TODAY:" not in prompt
     assert "get_current_date" in prompt
-    assert "never outdated years" in prompt
+    assert "FIRST tool call" in prompt
+    assert "outdated years" in prompt
+    assert "list_documents" in prompt
+    assert "web_search" in prompt
+
+
+def test_build_tools_orders_date_first():
+    db = MagicMock()
+    ws_id = uuid.uuid4()
+    user_id = uuid.uuid4()
+    tools = build_tools(
+        db, workspace_id=ws_id, user_id=user_id, agent_type="general"
+    )
+    assert tools[0].name == "get_current_date"
 
 
 def test_normalize_agent_type_always_general():
