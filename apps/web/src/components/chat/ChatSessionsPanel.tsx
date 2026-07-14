@@ -91,7 +91,12 @@ export function ChatSessionsPanel({
               variant="secondary"
               size="sm"
               className="h-7 shrink-0 px-2 text-xs"
-              disabled={!workspaceId}
+              disabled={!workspaceId || !conversationId}
+              title={
+                !conversationId
+                  ? "Already on a new session — send a message to save it"
+                  : undefined
+              }
               onClick={() => {
                 onNewChat?.();
                 onAfterNavigate?.();

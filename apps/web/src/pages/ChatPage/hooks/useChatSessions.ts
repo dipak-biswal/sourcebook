@@ -42,7 +42,11 @@ export function useChatSessions() {
     return workspaces[0]?.id ?? "";
   }, [overrideWorkspaceId, workspaces]);
   const { data: conversations = [], isLoading: loadingSessions } = useConversations(workspaceId);
-  const conversationId = overrideConversationId ?? conversations[0]?.id ?? "";
+  // null = follow latest sidebar session; "" = draft new session (create on first send)
+  const conversationId =
+    overrideConversationId !== null
+      ? overrideConversationId
+      : (conversations[0]?.id ?? "");
   const {
     data: fetchedMessages = [],
     isFetching: loadingMessages,
@@ -78,12 +82,14 @@ export function useChatSessions() {
   }, []);
 
   const setConversationId = useCallback((id: string) => {
-    setOverrideConversationId(id || null);
+    setOverrideConversationId(id);
     const cached = id
       ? queryClient.getQueryData<ChatMessage[]>(["messages", id])
       : undefined;
     if (cached?.length) {
       setMessages(sortMessages(cached));
+    } else if (!id) {
+      setMessages([]);
     }
   }, [queryClient]);
 
@@ -91,17 +97,11 @@ export function useChatSessions() {
     setOverrideAgentRunId(id || null);
   }, []);
 
-  async function onNewChat() {
+  function onNewChat() {
     if (!workspaceId) return;
     setError(null);
-    try {
-      const conv = await api.createConversation(workspaceId, "New chat");
-      setConversationId(conv.id);
-      await queryClient.invalidateQueries({ queryKey: ["conversations", workspaceId] });
-      setMessages([]);
-    } catch (err) {
-      setError(formatError(err));
-    }
+    setOverrideConversationId("");
+    setMessages([]);
   }
 
   function onNewAgent() {
@@ -136,7 +136,10 @@ export function useChatSessions() {
           ? conversations.find((c) => c.id !== id)?.id
           : conversationId;
       if (nextPrefer) setConversationId(nextPrefer);
-      else setMessages([]);
+      else {
+        setOverrideConversationId("");
+        setMessages([]);
+      }
       await queryClient.invalidateQueries({ queryKey: ["conversations", workspaceId] });
       success("Session deleted");
     } catch (err) {
