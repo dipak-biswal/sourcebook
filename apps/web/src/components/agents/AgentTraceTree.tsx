@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, type ReactNode } from "react";
 import {
   Brain,
   CheckCircle2,
@@ -13,13 +13,9 @@ import {
 import type { AgentRun, AgentStep } from "@/api";
 import {
   isPresentationPending,
-  parseWebSearchOutput,
-  prettyJson,
   toolDisplayName,
 } from "@/components/agents/agent-utils";
 import { AgentApprovalCard } from "@/components/agents/shared";
-import { WebSearchResults } from "@/components/agents/WebSearchResults";
-import { MarkdownContent } from "@/components/chat/MarkdownContent";
 import { Badge } from "@/components/ui/badge";
 import {
   buildAgentTraceTree,
@@ -33,7 +29,6 @@ import type {
 } from "@/components/agents/trace-types";
 import { cn } from "@/lib/utils";
 
-/** Icon column sits outside blocks; spine runs only in this gutter. */
 const MAIN_ICON_COL = 36;
 const NESTED_ICON_COL = 28;
 const BRANCH_STUB = 12;
@@ -72,39 +67,33 @@ function TraceIcon({
   );
 }
 
-/**
- * Icon + spine live in a left gutter outside the block; a short branch links to the card.
- */
-function TraceNode({
+/** Text-only timeline row: icon on spine → branch → label. */
+function TraceLabel({
   icon,
-  title,
-  subtitle,
+  label,
+  detail,
   state,
   active,
-  open,
-  onToggle,
-  children,
   nodeId,
   activeRef,
   nested,
   isLast,
+  trailing,
 }: {
   icon: typeof Brain;
-  title: string;
-  subtitle?: string;
+  label: string;
+  detail?: string;
   state: "pending" | "running" | "done";
   active?: boolean;
-  open: boolean;
-  onToggle: () => void;
-  children?: ReactNode;
   nodeId: string;
   activeRef?: React.RefObject<HTMLDivElement | null>;
   nested?: boolean;
   isLast?: boolean;
+  trailing?: ReactNode;
 }) {
   const iconCol = nested ? NESTED_ICON_COL : MAIN_ICON_COL;
   const stubW = nested ? NESTED_BRANCH_STUB : BRANCH_STUB;
-  const iconTop = nested ? 6 : 8;
+  const iconTop = nested ? 4 : 6;
   const iconSize = nested ? 28 : 36;
   const branchTop = iconTop + iconSize / 2;
 
@@ -113,211 +102,113 @@ function TraceNode({
       ref={active ? activeRef : undefined}
       data-trace-id={nodeId}
       className={cn(
-        "relative flex min-w-0",
-        nested ? "pb-1.5" : "pb-2",
+        "relative min-w-0",
+        nested ? "pb-1" : "pb-1.5",
         active && "scroll-mt-4",
       )}
     >
-      <div
-        className="relative z-10 flex shrink-0 justify-center"
-        style={{ width: iconCol, paddingTop: iconTop }}
-      >
-        {!isLast && (
-          <div
-            className="pointer-events-none absolute left-1/2 w-0.5 -translate-x-1/2 bg-ink/25"
-            style={{ top: branchTop, bottom: 0 }}
-          />
-        )}
-        <TraceIcon icon={icon} state={state} active={active} nested={nested} />
-      </div>
-
-      <div className="flex min-w-0 flex-1">
-        <div className="relative shrink-0" style={{ width: stubW }}>
-          <div
-            className="absolute left-0 right-0 h-0.5 bg-ink/25"
-            style={{ top: branchTop }}
-          />
+      <div className="relative flex min-w-0">
+        <div
+          className="relative z-10 flex shrink-0 justify-center"
+          style={{ width: iconCol, paddingTop: iconTop }}
+        >
+          {!isLast && (
+            <div
+              className="pointer-events-none absolute left-1/2 w-0.5 -translate-x-1/2 bg-ink/25"
+              style={{ top: branchTop, bottom: 0 }}
+            />
+          )}
+          <TraceIcon icon={icon} state={state} active={active} nested={nested} />
         </div>
 
-        <div
-          className={cn(
-            "min-w-0 flex-1 overflow-hidden rounded-[8px] border bg-canvas transition-shadow",
-            active && state === "running"
-              ? "border-warning-border/80 ring-1 ring-warning-border/20"
-              : "border-hairline",
-            open && "shadow-[var(--elevation-1)]",
-          )}
-          style={{ marginTop: branchTop - 1 }}
-        >
-          <button
-            type="button"
-            onClick={onToggle}
-            className="flex w-full items-start justify-between gap-3 px-3 py-2.5 text-left hover:bg-canvas-soft"
+        <div className="flex min-w-0 flex-1">
+          <div className="relative shrink-0" style={{ width: stubW }}>
+            <div
+              className="absolute left-0 right-0 h-0.5 bg-ink/25"
+              style={{ top: branchTop }}
+            />
+          </div>
+
+          <div
+            className="min-w-0 flex-1"
+            style={{ paddingTop: branchTop - (nested ? 7 : 8) }}
           >
-            <div className="min-w-0 flex-1">
-              <div className="flex flex-wrap items-center gap-1.5">
-                <span
-                  className={cn(
-                    "font-semibold text-ink",
-                    nested ? "text-[11px]" : "text-xs",
-                  )}
-                >
-                  {title}
-                </span>
-                {state === "running" && (
-                  <Badge variant="warning" className="gap-1 text-[10px]">
-                    <span className="relative flex h-1.5 w-1.5">
-                      <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-warning opacity-60" />
-                      <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-warning" />
-                    </span>
-                    live
-                  </Badge>
+            <div className="flex flex-wrap items-center gap-1.5">
+              <span
+                className={cn(
+                  "font-medium text-ink",
+                  nested ? "text-[11px]" : "text-xs",
+                  active && state === "running" && "text-warning-text",
                 )}
-                {state === "done" && (
-                  <Badge variant="success" className="text-[10px]">
-                    done
-                  </Badge>
-                )}
-              </div>
-              {subtitle && (
-                <p className="mt-0.5 line-clamp-2 text-[11px] text-mute">
-                  {subtitle}
-                </p>
+              >
+                {label}
+              </span>
+              {state === "running" && (
+                <Badge variant="warning" className="gap-1 text-[10px]">
+                  <span className="relative flex h-1.5 w-1.5">
+                    <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-warning opacity-60" />
+                    <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-warning" />
+                  </span>
+                  live
+                </Badge>
+              )}
+              {state === "done" && !nested && (
+                <Badge variant="success" className="text-[10px]">
+                  done
+                </Badge>
               )}
             </div>
-            <span className="shrink-0 pt-0.5 text-[10px] font-medium text-mute">
-              {open ? "Collapse" : "Expand"}
-            </span>
-          </button>
-
-          {open && children != null && (
-            <div className="border-t border-hairline bg-canvas-soft/50 px-3 py-2.5">
-              {children}
-            </div>
-          )}
+            {detail && (
+              <p className="mt-0.5 line-clamp-2 text-[11px] text-mute">{detail}</p>
+            )}
+          </div>
         </div>
       </div>
+      {trailing}
     </div>
   );
 }
 
-/** Stacked timeline rows; each node draws its own spine segment between icons. */
-function TraceRail({
-  children,
-  className,
-}: {
-  children: ReactNode;
-  className?: string;
-  nested?: boolean;
-}) {
-  return <div className={cn("relative min-w-0", className)}>{children}</div>;
-}
-
-function ToolTraceNode({
+function ToolTraceLabel({
   tool,
   active,
   activeRef,
-  defaultOpen,
   isLast,
 }: {
   tool: TraceToolNode;
   active?: boolean;
   activeRef?: React.RefObject<HTMLDivElement | null>;
-  defaultOpen: boolean;
   isLast?: boolean;
 }) {
-  const [open, setOpen] = useState(defaultOpen);
-  const web =
-    tool.toolName === "web_search" && tool.resultStep
-      ? parseWebSearchOutput(tool.resultStep.output)
-      : null;
-
   return (
-    <TraceNode
+    <TraceLabel
       nodeId={tool.id}
       activeRef={activeRef}
       active={active}
       nested
       isLast={isLast}
-      open={open}
-      onToggle={() => setOpen((v) => !v)}
       icon={Wrench}
-      title={toolDisplayName(tool.toolName)}
-      subtitle={
+      label={toolDisplayName(tool.toolName)}
+      detail={
         tool.state === "running"
-          ? "Running tool…"
+          ? "Running…"
           : tool.resultStep
-            ? "Input → output"
-            : "Waiting for result"
+            ? "Complete"
+            : undefined
       }
       state={tool.state}
-    >
-      <div className="space-y-2">
-        {(tool.callStep?.input != null || tool.resultStep?.input != null) && (
-          <div>
-            <div className="mb-1 text-[10px] font-bold uppercase tracking-wide text-mute">
-              Input
-            </div>
-            <pre className="max-h-36 overflow-auto rounded-[6px] border border-hairline bg-canvas p-2 font-mono text-[11px] text-body">
-              {prettyJson(tool.callStep?.input ?? tool.resultStep?.input)}
-            </pre>
-          </div>
-        )}
-        {tool.resultStep?.output != null && (
-          <div>
-            <div className="mb-1 text-[10px] font-bold uppercase tracking-wide text-mute">
-              Output
-            </div>
-            {web ? (
-              <WebSearchResults data={web} compact />
-            ) : (
-              <pre className="max-h-44 overflow-auto rounded-[6px] border border-hairline bg-canvas p-2 font-mono text-[11px] text-body">
-                {prettyJson(tool.resultStep.output)}
-              </pre>
-            )}
-          </div>
-        )}
-        {tool.state === "running" && !tool.resultStep && (
-          <div className="flex items-center gap-2 text-[11px] text-warning-text">
-            <Loader2 className="h-3 w-3 animate-spin" />
-            Executing…
-          </div>
-        )}
-      </div>
-    </TraceNode>
+    />
   );
 }
 
-function LlmStreamBody({
-  content,
-  running,
-}: {
-  content: string;
-  running?: boolean;
-}) {
-  if (!content && !running) {
-    return (
-      <p className="text-[11px] italic text-mute">
-        Model chose tool calls without prose.
-      </p>
-    );
-  }
-  return (
-    <div className="rounded-[6px] border border-hairline bg-canvas p-2.5">
-      <div className="prose prose-sm max-w-none text-xs text-body">
-        <MarkdownContent content={content || (running ? " " : "")} />
-      </div>
-      {running && (
-        <span className="mt-1 inline-block h-3 w-0.5 animate-pulse bg-ink" />
-      )}
-    </div>
-  );
-}
-
-function stepText(step?: AgentStep): string {
-  if (!step?.output) return "";
-  if (typeof step.output === "string") return step.output;
-  return "";
+function turnStatusLabel(turn: {
+  llm?: { status?: string; has_tool_calls?: boolean };
+  thoughtStep?: AgentStep;
+}): string | undefined {
+  if (turn.llm?.status === "running") return "Streaming…";
+  if (turn.llm?.has_tool_calls) return "Calling tools";
+  if (turn.thoughtStep?.type === "final") return "Final answer";
+  return undefined;
 }
 
 export function AgentTraceTree({
@@ -345,8 +236,6 @@ export function AgentTraceTree({
 }) {
   const activeRef = useRef<HTMLDivElement | null>(null);
   const scrollRef = useRef<HTMLDivElement | null>(null);
-  const [goalOpen, setGoalOpen] = useState(true);
-  const [expanded, setExpanded] = useState<Record<string, boolean>>({});
 
   const mergedSteps = useMemo(() => {
     const fromRun = run?.steps ?? [];
@@ -391,39 +280,61 @@ export function AgentTraceTree({
   const tokens = liveTokenUsage ?? run?.token_usage ?? null;
 
   useEffect(() => {
-    if (!activeId) return;
-    setExpanded((prev) => ({ ...prev, [activeId]: true, goal: true }));
-    for (const item of tree) {
-      if (item.kind === "turn" && item.id === activeId) {
-        setExpanded((prev) => ({ ...prev, [item.id]: true }));
-      }
-      if (item.kind === "turn") {
-        for (const t of item.turn.tools) {
-          if (t.id === activeId) {
-            setExpanded((prev) => ({
-              ...prev,
-              [item.id]: true,
-              [t.id]: true,
-            }));
-          }
-        }
-      }
-    }
-  }, [activeId, tree]);
-
-  useEffect(() => {
     if (!running || !activeRef.current) return;
     activeRef.current.scrollIntoView({ behavior: "smooth", block: "nearest" });
   }, [running, activeId, tree]);
 
-  function isOpen(id: string, defaultOpen = false): boolean {
-    if (expanded[id] !== undefined) return expanded[id]!;
-    return defaultOpen;
-  }
+  type FlatRow = {
+    id: string;
+    kind: "goal" | "turn" | "tool" | "hitl" | "presentation" | "synthesis";
+    isLast: boolean;
+    nested?: boolean;
+    goal?: string;
+    turnNumber?: number;
+    turn?: (typeof tree)[number] extends { kind: "turn"; turn: infer T } ? T : never;
+    tool?: TraceToolNode;
+    hitl?: Extract<(typeof tree)[number], { kind: "hitl" }>;
+    presentation?: Extract<(typeof tree)[number], { kind: "presentation" }>;
+    synthesis?: Extract<(typeof tree)[number], { kind: "synthesis" }>;
+  };
 
-  function toggle(id: string) {
-    setExpanded((prev) => ({ ...prev, [id]: !isOpen(id, true) }));
-  }
+  const rows = useMemo(() => {
+    const flat: Omit<FlatRow, "isLast">[] = [];
+    let turnCount = 0;
+
+    for (const item of tree) {
+      if (item.kind === "goal") {
+        flat.push({ id: item.id, kind: "goal", goal: item.goal });
+        continue;
+      }
+      if (item.kind === "turn") {
+        turnCount += 1;
+        flat.push({
+          id: item.id,
+          kind: "turn",
+          turnNumber: turnCount,
+          turn: item.turn,
+        });
+        for (const tool of item.turn.tools) {
+          flat.push({ id: tool.id, kind: "tool", tool, nested: true });
+        }
+        continue;
+      }
+      if (item.kind === "hitl") {
+        flat.push({ id: item.id, kind: "hitl", hitl: item });
+        continue;
+      }
+      if (item.kind === "presentation") {
+        flat.push({ id: item.id, kind: "presentation", presentation: item });
+        continue;
+      }
+      if (item.kind === "synthesis") {
+        flat.push({ id: item.id, kind: "synthesis", synthesis: item });
+      }
+    }
+
+    return flat.map((row, i) => ({ ...row, isLast: i === flat.length - 1 }));
+  }, [tree]);
 
   return (
     <div className="flex flex-col">
@@ -457,226 +368,140 @@ export function AgentTraceTree({
             style={{ width: `${Math.max(running ? progress : 100, running ? 12 : 0)}%` }}
           />
         </div>
-        <p className="mt-1.5 text-[10px] text-mute">
-          Icons connect on the left; vertical lines stay outside the blocks.
-        </p>
       </div>
 
       <div ref={scrollRef} className="max-h-[min(70vh,36rem)] overflow-x-auto overflow-y-auto p-4">
-        <TraceRail>
-          {tree.map((item, index, arr) => {
-            const turnNumber =
-              item.kind === "turn"
-                ? arr.slice(0, index + 1).filter((n) => n.kind === "turn").length
-                : 0;
-
-            if (item.kind === "goal") {
+        <div className="relative min-w-0">
+          {rows.map((row) => {
+            if (row.kind === "goal") {
               return (
-                <TraceNode
-                  key={item.id}
-                  nodeId={item.id}
+                <TraceLabel
+                  key={row.id}
+                  nodeId={row.id}
                   icon={Target}
-                  title="Input goal"
-                  subtitle={item.goal}
+                  label="Input goal"
+                  detail={row.goal}
                   state="done"
-                  isLast={index === arr.length - 1}
-                  open={goalOpen}
-                  onToggle={() => setGoalOpen((v) => !v)}
-                >
-                  <p className="text-xs leading-relaxed text-body">{item.goal}</p>
-                </TraceNode>
+                  isLast={row.isLast}
+                />
               );
             }
 
-            if (item.kind === "turn") {
-              const turn = item.turn;
-              const turnActive = activeId === item.id || turn.state === "running";
-              const llmContent =
-                turn.llm?.streamContent || stepText(turn.thoughtStep) || "";
-              const turnOpen = isOpen(
-                item.id,
-                turnActive || index === arr.length - 1,
-              );
-
+            if (row.kind === "turn" && row.turn) {
+              const turnActive = activeId === row.id || row.turn.state === "running";
               return (
-                <TraceNode
-                  key={item.id}
-                  nodeId={item.id}
+                <TraceLabel
+                  key={row.id}
+                  nodeId={row.id}
                   activeRef={turnActive ? activeRef : undefined}
                   active={turnActive}
-                  isLast={index === arr.length - 1}
                   icon={Brain}
-                  title={`Agent · turn ${turnNumber}`}
-                  subtitle={
-                    turn.llm?.status === "running"
-                      ? "Streaming response…"
-                      : turn.llm?.has_tool_calls
-                        ? "Planning tool calls"
-                        : turn.thoughtStep?.type === "final"
-                          ? "Final answer"
-                          : "Reasoning"
-                  }
-                  state={turn.state}
-                  open={turnOpen}
-                  onToggle={() => toggle(item.id)}
-                >
-                  <div className="space-y-3">
-                    <div>
-                      <div className="mb-1 text-[10px] font-bold uppercase tracking-wide text-mute">
-                        LLM output
-                      </div>
-                      <LlmStreamBody
-                        content={llmContent}
-                        running={turn.llm?.status === "running"}
-                      />
-                    </div>
-                    {turn.tools.length > 0 && (
-                      <div>
-                        <div className="mb-2 text-[10px] font-bold uppercase tracking-wide text-mute">
-                          Tool calls
-                        </div>
-                        <TraceRail nested className="mt-2">
-                          {turn.tools.map((tool, ti) => (
-                            <ToolTraceNode
-                              key={tool.id}
-                              tool={tool}
-                              active={activeId === tool.id}
-                              activeRef={
-                                activeId === tool.id ? activeRef : undefined
-                              }
-                              isLast={ti === turn.tools.length - 1}
-                              defaultOpen={
-                                tool.state === "running" ||
-                                activeId === tool.id ||
-                                (index === arr.length - 1 &&
-                                  ti === turn.tools.length - 1)
-                              }
-                            />
-                          ))}
-                        </TraceRail>
-                      </div>
-                    )}
-                  </div>
-                </TraceNode>
+                  label={`Agent · turn ${row.turnNumber}`}
+                  detail={turnStatusLabel(row.turn)}
+                  state={row.turn.state}
+                  isLast={row.isLast}
+                />
               );
             }
 
-            if (item.kind === "hitl") {
-              const hitlActive = item.state === "running" || activeId === item.id;
+            if (row.kind === "tool" && row.tool) {
               return (
-                <TraceNode
-                  key={item.id}
-                  nodeId={item.id}
+                <div key={row.id} className="pl-6">
+                  <ToolTraceLabel
+                    tool={row.tool}
+                    active={activeId === row.id}
+                    activeRef={activeId === row.id ? activeRef : undefined}
+                    isLast={row.isLast}
+                  />
+                </div>
+              );
+            }
+
+            if (row.kind === "hitl" && row.hitl) {
+              const hitl = row.hitl;
+              const hitlActive = hitl.state === "running" || activeId === hitl.id;
+              return (
+                <TraceLabel
+                  key={row.id}
+                  nodeId={row.id}
                   activeRef={hitlActive ? activeRef : undefined}
                   active={hitlActive}
-                  isLast={index === arr.length - 1}
                   icon={Shield}
-                  title={
-                    item.step?.tool_name === "generative_ui" || item.pending
+                  label={
+                    hitl.step?.tool_name === "generative_ui" || hitl.pending
                       ? "Human approval · View in UI?"
-                      : "Human approval · write tool"
+                      : "Human approval"
                   }
-                  subtitle={
-                    item.building
+                  detail={
+                    hitl.building
                       ? "Building visual summary…"
-                      : item.pending
+                      : hitl.pending
                         ? "Waiting for your decision"
                         : "Approved"
                   }
-                  state={item.state}
-                  open={isOpen(
-                    item.id,
-                    hitlActive || item.pending || index === arr.length - 1,
-                  )}
-                  onToggle={() => toggle(item.id)}
-                >
-                  {item.pending && run?.pending_tool && onApprove && onReject ? (
-                    <AgentApprovalCard
-                      pendingTool={run.pending_tool}
-                      approving={approving}
-                      onApprove={onApprove}
-                      onReject={onReject}
-                      className="border-warning-border/60 bg-warning-soft/40"
-                    />
-                  ) : item.step?.input ? (
-                    <pre className="max-h-32 overflow-auto rounded border border-hairline bg-canvas p-2 text-[11px]">
-                      {prettyJson(item.step.input)}
-                    </pre>
-                  ) : null}
-                </TraceNode>
+                  state={hitl.state}
+                  isLast={row.isLast}
+                  trailing={
+                    hitl.pending && run?.pending_tool && onApprove && onReject ? (
+                      <div className="ml-[calc(36px+12px)] mt-2 max-w-md">
+                        <AgentApprovalCard
+                          pendingTool={run.pending_tool}
+                          approving={approving}
+                          onApprove={onApprove}
+                          onReject={onReject}
+                          className="border-warning-border/60 bg-warning-soft/40"
+                        />
+                      </div>
+                    ) : null
+                  }
+                />
               );
             }
 
-            if (item.kind === "presentation") {
-              const presActive = item.state === "running";
+            if (row.kind === "presentation" && row.presentation) {
+              const pres = row.presentation;
+              const presActive = pres.state === "running";
               return (
-                <TraceNode
-                  key={item.id}
-                  nodeId={item.id}
+                <TraceLabel
+                  key={row.id}
+                  nodeId={row.id}
                   activeRef={presActive ? activeRef : undefined}
                   active={presActive}
-                  isLast={index === arr.length - 1}
                   icon={Sparkles}
-                  title="Visual summary"
-                  subtitle={
-                    item.state === "running"
-                      ? "Layout engine generating blocks…"
-                      : item.step
-                        ? "Generative UI ready"
+                  label="Visual summary"
+                  detail={
+                    pres.state === "running"
+                      ? "Generating…"
+                      : pres.step
+                        ? "Ready — see Visual summary tab"
                         : "Pending approval"
                   }
-                  state={item.state}
-                  open={isOpen(item.id, presActive || !!item.step)}
-                  onToggle={() => toggle(item.id)}
-                >
-                  {item.step?.output ? (
-                    <p className="text-xs text-body">
-                      Visual summary attached — open the{" "}
-                      <strong className="text-ink">Visual summary</strong> tab.
-                    </p>
-                  ) : presActive ? (
-                    <div className="flex items-center gap-2 text-[11px] text-warning-text">
-                      <Loader2 className="h-3 w-3 animate-spin" />
-                      Building UI blocks from answer + evidence…
-                    </div>
-                  ) : (
-                    <p className="text-[11px] text-mute">
-                      Runs after you approve View in UI.
-                    </p>
-                  )}
-                </TraceNode>
+                  state={pres.state}
+                  isLast={row.isLast}
+                />
               );
             }
 
-            if (item.kind === "synthesis") {
+            if (row.kind === "synthesis" && row.synthesis) {
               return (
-                <TraceNode
-                  key={item.id}
-                  nodeId={item.id}
-                  isLast={index === arr.length - 1}
+                <TraceLabel
+                  key={row.id}
+                  nodeId={row.id}
                   icon={CheckCircle2}
-                  title="Answer synthesis"
-                  subtitle="Recovered final answer from tool evidence"
+                  label="Answer synthesis"
+                  detail="Final answer recovered"
                   state="done"
-                  open={isOpen(item.id, false)}
-                  onToggle={() => toggle(item.id)}
-                >
-                  <MarkdownContent content={stepText(item.step)} />
-                </TraceNode>
+                  isLast={row.isLast}
+                />
               );
             }
 
             return null;
           })}
-        </TraceRail>
+        </div>
       </div>
 
       <style>{`
-        @keyframes trace-flow {
-          0% { opacity: 0.45; }
-          50% { opacity: 1; }
-          100% { opacity: 0.45; }
-        }
         @keyframes trace-pulse {
           0%, 100% { box-shadow: 0 0 0 4px rgba(234, 179, 8, 0.1); }
           50% { box-shadow: 0 0 0 7px rgba(234, 179, 8, 0.18); }
@@ -685,7 +510,6 @@ export function AgentTraceTree({
           0% { background-position: 100% 0; }
           100% { background-position: -100% 0; }
         }
-        .animate-trace-flow { animation: trace-flow 1.6s ease-in-out infinite; }
         .animate-trace-pulse { animation: trace-pulse 1.8s ease-in-out infinite; }
         .animate-trace-progress { animation: trace-progress 2s linear infinite; }
       `}</style>
