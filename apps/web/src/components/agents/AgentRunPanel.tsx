@@ -41,24 +41,8 @@ function readShowRun(): boolean {
   return true;
 }
 
-/** Live LLM span while the model is thinking (LangSmith-style). */
-export type LlmTraceEvent = {
-  id: string;
-  kind: "llm";
-  status: "running" | "done";
-  duration_ms?: number;
-  /** Full request size: system + tools + messages (not user text alone) */
-  prompt_tokens?: number;
-  completion_tokens?: number;
-  total_tokens?: number;
-  has_tool_calls?: boolean;
-  name?: string;
-};
-
-/** Chronological trace row for live streaming (preferred over separate arrays). */
-export type LiveTraceSpan =
-  | { kind: "llm"; event: LlmTraceEvent }
-  | { kind: "step"; step: AgentStep };
+export type { LiveTraceSpan, LlmTraceEvent } from "@/components/agents/trace-types";
+import type { LiveTraceSpan, LlmTraceEvent } from "@/components/agents/trace-types";
 
 function stepKindLabel(step: AgentStep): string {
   switch (step.type) {

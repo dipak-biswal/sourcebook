@@ -512,6 +512,7 @@ export type AgentStreamHandlers = {
     status?: string;
   }) => void;
   onLlmStart?: (payload: Record<string, unknown>) => void;
+  onLlmDelta?: (payload: { turn_id?: string; delta: string }) => void;
   onLlmEnd?: (payload: {
     duration_ms?: number;
     prompt_tokens?: number;
@@ -553,6 +554,11 @@ async function streamAgentRun(
       });
     } else if (type === "llm_start") {
       handlers.onLlmStart?.(payload);
+    } else if (type === "llm_delta") {
+      handlers.onLlmDelta?.({
+        turn_id: payload.turn_id as string | undefined,
+        delta: String(payload.delta ?? ""),
+      });
     } else if (type === "llm_end") {
       handlers.onLlmEnd?.({
         duration_ms: payload.duration_ms as number | undefined,

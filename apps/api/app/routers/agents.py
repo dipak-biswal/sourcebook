@@ -133,7 +133,7 @@ def start_agent_run_stream(
     """
     LangSmith-style live trace: SSE events as the agent runs.
 
-    Events: run_start, llm_start, llm_end, step, status, done, error
+    Events: run_start, llm_start, llm_delta, llm_end, step, status, done, error
     """
     _require_member(db, current_user.id, body.workspace_id)
     if not body.goal.strip():

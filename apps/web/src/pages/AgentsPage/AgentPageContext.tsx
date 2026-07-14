@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState, type ReactNode, type SubmitEvent } fr
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { useQueryClient } from "@tanstack/react-query";
 import { api, type AgentStep, type AgentRun } from "@/api";
-import type { LiveTraceSpan, LlmTraceEvent } from "@/components/agents/AgentRunPanel";
+import type { LiveTraceSpan, LlmTraceEvent } from "@/components/agents/trace-types";
 import { useToast } from "@/components/ui/toast";
 import { useDocumentTitle } from "@/hooks/useDocumentTitle";
 import { confirmAction } from "@/lib/confirm";
@@ -12,6 +12,8 @@ import {
   upsertSteps,
   upsertTraceStep,
   makeLlmEndPatch,
+  appendLlmStream,
+  patchRunningLlmWithDelta,
 } from "@/hooks/useAgentStream";
 import { useAgentRuns, useNotes, useWorkspaces } from "@/hooks/queries";
 import { useLastWorkspace } from "@/hooks/useLastWorkspace";
@@ -136,6 +138,18 @@ export function AgentPageProvider({
                 event,
               ]);
               setLiveTrace((prev) => [...prev, { kind: "llm", event }]);
+            },
+            onLlmDelta: (p) => {
+              setLiveLlmEvents((prev) =>
+                prev.map((e) =>
+                  e.status === "running"
+                    ? appendLlmStream(e, p.delta, p.turn_id)
+                    : e,
+                ),
+              );
+              setLiveTrace((prev) =>
+                patchRunningLlmWithDelta(prev, p.delta, p.turn_id),
+              );
             },
             onLlmEnd: (p) => {
               const patch = makeLlmEndPatch(p);
@@ -262,6 +276,18 @@ export function AgentPageProvider({
                 event,
               ]);
               setLiveTrace((prev) => [...prev, { kind: "llm", event }]);
+            },
+            onLlmDelta: (p) => {
+              setLiveLlmEvents((prev) =>
+                prev.map((e) =>
+                  e.status === "running"
+                    ? appendLlmStream(e, p.delta, p.turn_id)
+                    : e,
+                ),
+              );
+              setLiveTrace((prev) =>
+                patchRunningLlmWithDelta(prev, p.delta, p.turn_id),
+              );
             },
             onLlmEnd: (p) => {
               const patch = makeLlmEndPatch(p);

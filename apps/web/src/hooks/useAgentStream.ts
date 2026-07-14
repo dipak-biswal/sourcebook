@@ -4,13 +4,14 @@ import {
   type AgentStep,
   type AgentStreamHandlers,
 } from "@/api";
-import {
-  type LiveTraceSpan,
-  type LlmTraceEvent,
-} from "@/components/agents/AgentRunPanel";
+import type {
+  LiveTraceSpan,
+  LlmTraceEvent,
+} from "@/components/agents/trace-types";
 
 type AgentLiveCallbacks = {
   onLlmStart: (event: LlmTraceEvent) => void;
+  onLlmDelta?: (p: { turn_id?: string; delta: string }) => void;
   onLlmEnd: (p: {
     duration_ms?: number;
     prompt_tokens?: number;
@@ -29,13 +30,45 @@ type AgentLiveCallbacks = {
   onLoopWarning?: (p: { message: string }) => void;
 };
 
-export function createAgentLlmEvent(): LlmTraceEvent {
+export function createAgentLlmEvent(
+  payload?: Record<string, unknown>,
+): LlmTraceEvent {
+  const turnId = payload?.turn_id as string | undefined;
   return {
-    id: `llm-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+    id: turnId ?? `llm-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+    turnId,
     kind: "llm",
     status: "running",
-    name: "ChatOpenAI",
+    name: (payload?.name as string) || "ChatOpenAI",
+    streamContent: "",
   };
+}
+
+export function appendLlmStream(
+  event: LlmTraceEvent,
+  delta: string,
+  turnId?: string,
+): LlmTraceEvent {
+  if (turnId && event.turnId && event.turnId !== turnId) return event;
+  return {
+    ...event,
+    streamContent: `${event.streamContent ?? ""}${delta}`,
+  };
+}
+
+export function patchRunningLlmWithDelta(
+  trace: LiveTraceSpan[],
+  delta: string,
+  turnId?: string,
+): LiveTraceSpan[] {
+  return trace.map((node) => {
+    if (node.kind !== "llm" || node.event.status !== "running") return node;
+    if (turnId && node.event.turnId && node.event.turnId !== turnId) return node;
+    return {
+      kind: "llm" as const,
+      event: appendLlmStream(node.event, delta, turnId),
+    };
+  });
 }
 
 export function makeLlmEndPatch(p: {
@@ -85,8 +118,11 @@ export function makeAgentStreamHandlers(
   includeStatus = true,
 ): AgentStreamHandlers {
   const base: AgentStreamHandlers = {
-    onLlmStart: () => {
-      cb.onLlmStart(createAgentLlmEvent());
+    onLlmStart: (payload) => {
+      cb.onLlmStart(createAgentLlmEvent(payload));
+    },
+    onLlmDelta: (p) => {
+      cb.onLlmDelta?.(p);
     },
     onLlmEnd: (p) => {
       cb.onLlmEnd(p);

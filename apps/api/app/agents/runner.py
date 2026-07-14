@@ -40,6 +40,34 @@ def _llm():
     )
 
 
+def _invoke_llm_turn(
+    model: Any,
+    messages: list[BaseMessage],
+    *,
+    on_event: EventCallback,
+    run_id: uuid.UUID,
+    turn_id: str,
+) -> tuple[AIMessage, float]:
+    """Stream one LLM turn; emit llm_delta chunks for live trace UI."""
+    t0 = time.perf_counter()
+    gathered: AIMessage | None = None
+    for chunk in model.stream(messages):
+        gathered = chunk if gathered is None else gathered + chunk  # type: ignore[operator,assignment]
+        delta = _content_str(getattr(chunk, "content", None))
+        if delta:
+            _emit(
+                on_event,
+                "llm_delta",
+                run_id=str(run_id),
+                turn_id=turn_id,
+                delta=delta,
+            )
+    if gathered is None:
+        gathered = AIMessage(content="")
+    llm_ms = (time.perf_counter() - t0) * 1000
+    return gathered, llm_ms
+
+
 def _content_str(content: Any) -> str:
     if content is None:
         return ""
@@ -573,16 +601,22 @@ def _run_tool_loop(
 
     try:
         for _ in range(max(1, max_steps)):
+            turn_id = str(uuid.uuid4())
             _emit(
                 on_event,
                 "llm_start",
                 run_id=str(run.id),
+                turn_id=turn_id,
                 name="ChatOpenAI",
                 status=run.status,
             )
-            t0 = time.perf_counter()
-            ai: AIMessage = model.invoke(messages)  # type: ignore[assignment]
-            llm_ms = (time.perf_counter() - t0) * 1000
+            ai, llm_ms = _invoke_llm_turn(
+                model,
+                messages,
+                on_event=on_event,
+                run_id=run.id,
+                turn_id=turn_id,
+            )
 
             p, c, t = _tokens_from_ai_message(ai)
             prompt_tokens_total += p
@@ -592,6 +626,7 @@ def _run_tool_loop(
                 on_event,
                 "llm_end",
                 run_id=str(run.id),
+                turn_id=turn_id,
                 name="ChatOpenAI",
                 duration_ms=round(llm_ms, 1),
                 prompt_tokens=p,

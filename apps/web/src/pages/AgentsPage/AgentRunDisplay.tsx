@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Activity, AlertTriangle, Loader2, MessageCircle, Sparkles } from "lucide-react";
-import { AgentRunPanel } from "@/components/agents/AgentRunPanel";
+import { AgentTraceTree } from "@/components/agents/AgentTraceTree";
 import { AgentApprovalCard } from "@/components/agents/shared";
 import {
   isPresentationPending,
@@ -50,7 +50,6 @@ export function AgentRunDisplay() {
     liveGoal,
     liveSteps,
     liveTokenUsage,
-    liveLlmEvents,
     liveTrace,
     activeToolCalls,
     loopWarning,
@@ -192,17 +191,15 @@ export function AgentRunDisplay() {
         )}
 
         {activeTab === "trace" && (
-          <AgentRunPanel
+          <AgentTraceTree
             run={selected}
-            pending={running}
+            running={running || approving}
             goal={liveGoal || selected?.goal}
             liveSteps={liveSteps}
+            liveTrace={running ? liveTrace : undefined}
             liveTokenUsage={liveTokenUsage}
-            liveLlmEvents={liveLlmEvents}
-            liveTrace={liveTrace}
+            activeToolCalls={activeToolCalls}
             approving={approving}
-            forceOpenWhilePending
-            embedded
             onApprove={() => onApprove(true)}
             onReject={() => onApprove(false)}
           />
