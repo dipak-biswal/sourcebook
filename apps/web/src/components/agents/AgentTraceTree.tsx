@@ -19,6 +19,7 @@ import type {
   ExecutionTrace,
   TraceAgentTurnPhase,
   TraceChild,
+  TraceHitlEmbedChild,
   TraceLlmChild,
   TracePhase,
   TracePresentationPhase,
@@ -329,62 +330,78 @@ function LlmChildBody({ child }: { child: Extract<TraceChild, { type: "llm_respo
   );
 }
 
-function PresentationTraceBody({ phase }: { phase: TracePresentationPhase }) {
-  const evidence = phase.agent_evidence;
-  const docHits = evidence?.document_hits ?? [];
-  const webHits = evidence?.web_hits ?? [];
-  const output = isGenerativeUI(phase.output) ? phase.output : null;
+function HitlEmbedBody({ child }: { child: TraceHitlEmbedChild }) {
+  const output =
+    child.output && typeof child.output === "object"
+      ? (child.output as { status?: string })
+      : null;
 
-  const layoutOutput =
-    phase.llm_output ||
-    output?.plain_summary ||
-    (phase.block_count ? `Generated ${phase.block_count} UI blocks.` : "");
+  if (child.building && output?.status !== "approved") {
+    return (
+      <div className="flex items-center gap-2 text-[11px] text-warning-text">
+        <Loader2 className="h-3 w-3 animate-spin" />
+        Building visual summary…
+      </div>
+    );
+  }
+
+  if (output?.status === "approved") {
+    return <p className="text-body">Approved — visual summary generated</p>;
+  }
+
+  if (output?.status === "rejected") {
+    return <p className="text-body">Rejected — answer kept as text only.</p>;
+  }
+
+  if (child.input) {
+    return (
+      <pre className="max-h-32 overflow-auto rounded border border-hairline bg-canvas p-2 font-mono text-[11px]">
+        {prettyJson(child.input)}
+      </pre>
+    );
+  }
+
+  return <p className="text-mute">Completed</p>;
+}
+
+function PresentationTraceBody({
+  phase,
+  defaultOpen,
+  activeChildId,
+  activeRef,
+}: {
+  phase: TracePresentationPhase;
+  defaultOpen: boolean;
+  activeChildId?: string | null;
+  activeRef?: React.RefObject<HTMLDivElement | null>;
+}) {
+  const output = isGenerativeUI(phase.output) ? phase.output : null;
+  const children = phase.children ?? [];
 
   return (
     <div className="space-y-3">
-      {phase.agent_steps && phase.agent_steps.length > 0 && (
-        <div>
-          <div className="mb-1 text-[10px] font-bold uppercase tracking-wide text-mute">
-            Agent work
-          </div>
-          <ul className="space-y-1 rounded-[6px] border border-hairline bg-canvas p-2">
-            {phase.agent_steps.map((step, i) => (
-              <li key={`${step.type}-${step.label}-${i}`} className="flex items-center gap-2 text-[11px]">
-                <span className="font-medium text-ink">{step.label}</span>
-                {step.state === "running" && (
-                  <Badge variant="warning" className="text-[9px]">running</Badge>
-                )}
-              </li>
-            ))}
-          </ul>
+      <div className="rounded-[6px] border border-hairline/80 bg-canvas-soft/30 px-2.5 py-2">
+        <div className="mb-2 text-[10px] font-bold uppercase tracking-wide text-mute">
+          Agent · visual summary
         </div>
-      )}
-
-      {(docHits.length > 0 || webHits.length > 0) && (
-        <div>
-          <div className="mb-1 text-[10px] font-bold uppercase tracking-wide text-mute">
-            Evidence used
-          </div>
-          <div className="space-y-2 rounded-[6px] border border-hairline bg-canvas p-2">
-            {docHits.slice(0, 4).map((hit, i) => (
-              <div key={`doc-${hit.chunk_id ?? i}`} className="text-[11px]">
-                <div className="font-medium text-ink">{hit.filename}</div>
-                <p className="line-clamp-2 text-mute">{hit.snippet}</p>
-              </div>
-            ))}
-            {webHits.slice(0, 3).map((hit, i) => (
-              <div key={`web-${hit.url ?? i}`} className="text-[11px]">
-                <div className="font-medium text-ink">{hit.title}</div>
-                <p className="line-clamp-2 text-mute">{hit.snippet}</p>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
+        {children.length > 0 ? (
+          <TurnChildrenTimeline
+            children={children}
+            activeChildId={activeChildId}
+            activeRef={activeRef}
+            defaultOpen={defaultOpen}
+          />
+        ) : (
+          <p className="text-[11px] text-mute">Waiting for visual summary steps…</p>
+        )}
+      </div>
 
       {output && (
         <div className="space-y-1.5 rounded-[6px] border border-hairline bg-canvas-soft/40 p-2">
           <p className="font-medium text-ink">{output.title}</p>
+          {output.plain_summary && (
+            <p className="text-[11px] text-mute">{output.plain_summary}</p>
+          )}
           <div className="flex flex-wrap gap-2 text-[10px] text-mute">
             {phase.presentation_profile && (
               <span>Profile: {phase.presentation_profile.replace(/_/g, " ")}</span>
@@ -392,24 +409,6 @@ function PresentationTraceBody({ phase }: { phase: TracePresentationPhase }) {
             {phase.block_count != null && <span>{phase.block_count} blocks</span>}
           </div>
         </div>
-      )}
-
-      {phase.state === "running" ? (
-        <div className="flex items-center gap-2 text-[11px] text-warning-text">
-          <Loader2 className="h-3 w-3 animate-spin" />
-          Building UI blocks…
-        </div>
-      ) : phase.prompt || layoutOutput ? (
-        <LlmTraceSections
-          prompt={phase.prompt}
-          output={layoutOutput}
-          state={phase.state}
-          promptTokens={phase.prompt_tokens}
-          completionTokens={phase.completion_tokens}
-          totalTokens={phase.total_tokens}
-        />
-      ) : (
-        <p className="text-mute">Open the Visual summary tab.</p>
       )}
     </div>
   );
@@ -479,11 +478,29 @@ function TurnChildrenTimeline({
               nested
               isLast={isLast}
               defaultOpen={defaultOpen || active}
-              icon={Wrench}
+              icon={child.tool_name === "generative_ui" ? Sparkles : Wrench}
               label={child.label}
               state={child.state}
             >
               <ToolChildBody child={child} />
+            </ExpandableTraceRow>
+          );
+        }
+        if (child.type === "hitl_embed") {
+          return (
+            <ExpandableTraceRow
+              key={child.id}
+              nodeId={child.id}
+              activeRef={active ? activeRef : undefined}
+              active={active}
+              nested
+              isLast={isLast}
+              defaultOpen={defaultOpen || active}
+              icon={Shield}
+              label={child.label}
+              state={child.state}
+            >
+              <HitlEmbedBody child={child} />
             </ExpandableTraceRow>
           );
         }
@@ -635,9 +652,15 @@ export function AgentTraceTree({
   const activeChildId = useMemo(() => {
     if (!activeId || !trace) return null;
     for (const phase of trace.phases) {
-      if (phase.type !== "agent_turn") continue;
-      for (const child of phase.children) {
-        if (child.id === activeId) return child.id;
+      if (phase.type === "agent_turn") {
+        for (const child of phase.children) {
+          if (child.id === activeId) return child.id;
+        }
+      }
+      if (phase.type === "presentation" && phase.children) {
+        for (const child of phase.children) {
+          if (child.id === activeId) return child.id;
+        }
       }
     }
     return null;
@@ -733,7 +756,12 @@ export function AgentTraceTree({
           defaultOpen={defaultOpen || active}
           model={presentation.model}
         >
-          <PresentationTraceBody phase={phase as TracePresentationPhase} />
+          <PresentationTraceBody
+            phase={presentation}
+            defaultOpen={defaultOpen || active}
+            activeChildId={activeChildId}
+            activeRef={activeRef}
+          />
         </ExpandableTraceRow>
       );
     }

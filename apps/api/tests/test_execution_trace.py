@@ -240,6 +240,57 @@ def test_execution_trace_token_usage_sums_all_llm_calls():
     assert usage["total_tokens"] == 1060
 
 
+def test_presentation_children_include_agent_turn_style_steps():
+    run = _run_with_steps(
+        "Summarize",
+        [
+            {"type": "tool_call", "tool_name": "web_search", "input": {"query": "x"}},
+            {"type": "tool_result", "tool_name": "web_search", "output": {"results": []}},
+            {
+                "type": "final",
+                "input": {
+                    "messages": [{"role": "human", "content": "go"}],
+                    "model": "gpt-4o-mini",
+                    "prompt_tokens": 10,
+                    "completion_tokens": 5,
+                    "total_tokens": 15,
+                },
+                "output": "answer",
+            },
+            {
+                "type": "presentation",
+                "tool_name": "generative_ui",
+                "input": {
+                    "model": "gpt-4o-mini",
+                    "prompt_tokens": 20,
+                    "completion_tokens": 8,
+                    "total_tokens": 28,
+                    "llm_output": '{"title":"Summary"}',
+                    "agent_evidence": {
+                        "document_hits": [
+                            {"filename": "Resume.pdf", "snippet": "PM experience"}
+                        ],
+                        "web_hits": [],
+                    },
+                },
+                "output": {
+                    "type": "generative_ui",
+                    "title": "Summary",
+                    "blocks": [{"type": "summary", "body": "text"}],
+                },
+            },
+        ],
+    )
+    trace = build_execution_trace(run)
+    pres = next(p for p in trace["phases"] if p["type"] == "presentation")
+    children = pres["children"]
+    labels = [c.get("label") for c in children]
+    assert any("Turn 1 ·" in str(l) for l in labels)
+    assert any(c.get("label") == "Layout engine" for c in children)
+    assert any(c.get("label") == "Generated UI" for c in children)
+    assert any(c.get("tool_name") == "search_documents" for c in children)
+
+
 def test_hitl_before_presentation():
     run = _run_with_steps(
         "Summarize docs",

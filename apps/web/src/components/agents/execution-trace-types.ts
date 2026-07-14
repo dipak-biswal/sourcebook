@@ -37,7 +37,18 @@ export type TraceLlmChild = {
   total_tokens?: number | null;
 };
 
-export type TraceChild = TraceToolChild | TraceLlmChild;
+export type TraceHitlEmbedChild = {
+  id: string;
+  type: "hitl_embed";
+  label: string;
+  state: TraceState;
+  pending?: boolean;
+  building?: boolean;
+  input?: unknown;
+  output?: unknown;
+};
+
+export type TraceChild = TraceToolChild | TraceLlmChild | TraceHitlEmbedChild;
 
 export type TraceGoalPhase = {
   id: string;
@@ -68,14 +79,6 @@ export type TraceHitlPhase = {
   output?: unknown;
 };
 
-export type TraceAgentStepSummary = {
-  type: string;
-  label: string;
-  turn?: number;
-  tool_name?: string;
-  state?: TraceState;
-};
-
 export type TraceAgentEvidence = {
   document_hits?: Array<{
     filename: string;
@@ -102,7 +105,7 @@ export type TracePresentationPhase = {
   prompt_tokens?: number | null;
   completion_tokens?: number | null;
   total_tokens?: number | null;
-  agent_steps?: TraceAgentStepSummary[];
+  children?: TraceChild[];
   agent_evidence?: TraceAgentEvidence | null;
   block_count?: number;
   presentation_profile?: string | null;

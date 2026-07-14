@@ -413,57 +413,131 @@ def _synthesis_phase(step: AgentStep) -> dict[str, Any]:
     )
 
 
-def _summarize_agent_work(
+def _tail_before_presentation(tail: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    return [p for p in tail if p.get("type") not in ("presentation",)]
+
+
+def _presentation_children(
     turns: list[_TurnAcc],
-    tail: list[dict[str, Any]],
+    tail_before: list[dict[str, Any]],
+    step: AgentStep | None,
+    state: TraceState,
 ) -> list[dict[str, Any]]:
-    summary: list[dict[str, Any]] = []
+    """Build agent-turn-style children for the visual summary agent."""
+    children: list[dict[str, Any]] = []
+
     for turn in turns:
-        if turn.planning_step:
-            summary.append(
+        for child in turn.children(live=None):
+            labeled = dict(child)
+            labeled["id"] = f"pres-{turn.id}-{child['id']}"
+            labeled["label"] = f"Turn {turn.turn} · {child.get('label') or 'Step'}"
+            children.append(labeled)
+
+    for phase in tail_before:
+        if phase.get("type") == "synthesis":
+            children.append(
                 {
-                    "type": "decision",
-                    "label": f"Turn {turn.turn}: LLM decision",
-                    "turn": turn.turn,
-                    "state": "done",
-                }
-            )
-        for tool in turn.tools:
-            summary.append(
-                {
-                    "type": "tool",
-                    "label": _tool_label(tool.tool_name),
-                    "tool_name": tool.tool_name,
-                    "state": tool.state,
-                }
-            )
-        if turn.response_step:
-            summary.append(
-                {
-                    "type": "response",
-                    "label": f"Turn {turn.turn}: LLM response",
-                    "turn": turn.turn,
-                    "state": "done",
-                }
-            )
-    for phase in tail:
-        if phase.get("type") == "hitl":
-            summary.append(
-                {
-                    "type": "hitl",
-                    "label": str(phase.get("label") or "Human approval"),
-                    "state": phase.get("state") or "done",
-                }
-            )
-        elif phase.get("type") == "synthesis":
-            summary.append(
-                {
-                    "type": "synthesis",
+                    "id": f"pres-{phase['id']}",
+                    "type": "llm_response",
                     "label": str(phase.get("label") or "Answer synthesis"),
                     "state": phase.get("state") or "done",
+                    "model": phase.get("model"),
+                    "prompt": phase.get("prompt"),
+                    "output": phase.get("output") or "",
+                    "prompt_tokens": phase.get("prompt_tokens"),
+                    "completion_tokens": phase.get("completion_tokens"),
+                    "total_tokens": phase.get("total_tokens"),
                 }
             )
-    return summary
+        elif phase.get("type") == "hitl":
+            children.append(
+                {
+                    "id": f"pres-{phase['id']}",
+                    "type": "hitl_embed",
+                    "label": str(phase.get("label") or "Human approval"),
+                    "state": phase.get("state") or "done",
+                    "pending": phase.get("pending"),
+                    "building": phase.get("building"),
+                    "input": phase.get("input"),
+                    "output": phase.get("output"),
+                }
+            )
+
+    if step is not None:
+        step_input = step.input if isinstance(step.input, dict) else {}
+        evidence = step_input.get("agent_evidence")
+        if isinstance(evidence, dict):
+            for i, hit in enumerate(evidence.get("document_hits") or []):
+                if not isinstance(hit, dict):
+                    continue
+                filename = str(hit.get("filename") or "document")
+                children.append(
+                    {
+                        "id": f"pres-evidence-doc-{i}",
+                        "type": "tool",
+                        "label": f"Evidence · {filename}",
+                        "tool_name": "search_documents",
+                        "state": "done",
+                        "output": [hit],
+                    }
+                )
+            web_hits = evidence.get("web_hits") or []
+            if web_hits:
+                children.append(
+                    {
+                        "id": "pres-evidence-web",
+                        "type": "tool",
+                        "label": "Evidence · Web search",
+                        "tool_name": "web_search",
+                        "state": "done",
+                        "output": {
+                            "results": [
+                                h for h in web_hits if isinstance(h, dict)
+                            ],
+                        },
+                    }
+                )
+
+        llm_output = step_input.get("llm_output")
+        output = step.output
+        if llm_output is None and isinstance(output, dict):
+            llm_output = output.get("plain_summary")
+        layout = {
+            "id": f"{step.id}-layout-llm",
+            "type": "llm_response",
+            "label": "Layout engine",
+            "state": state,
+            "model": _resolve_model(step, None, None),
+            "prompt": step_input.get("messages") or step_input.get("prompt"),
+            "output": str(llm_output or ""),
+        }
+        children.append(_apply_tokens(layout, _tokens_from_step_input(step)))
+
+        if isinstance(output, dict) and output.get("type") == "generative_ui":
+            children.append(
+                {
+                    "id": f"{step.id}-ui-output",
+                    "type": "tool",
+                    "label": "Generated UI",
+                    "tool_name": "generative_ui",
+                    "state": "done",
+                    "output": output,
+                }
+            )
+    elif state == "running":
+        children.append(
+            {
+                "id": "presentation-layout-pending",
+                "type": "llm_response",
+                "label": "Layout engine",
+                "state": "running",
+                "model": settings.chat_model,
+                "prompt": None,
+                "output": "",
+            }
+        )
+
+    return children
 
 
 def _presentation_phase(
@@ -479,6 +553,7 @@ def _presentation_phase(
     llm_output = step_input.get("llm_output")
     if llm_output is None and isinstance(output, dict):
         llm_output = output.get("plain_summary")
+    tail_before = _tail_before_presentation(tail)
     item = {
         "id": str(step.id),
         "type": "presentation",
@@ -489,7 +564,7 @@ def _presentation_phase(
         "prompt": step_input.get("messages") or step_input.get("prompt"),
         "llm_output": llm_output,
         "agent_evidence": step_input.get("agent_evidence"),
-        "agent_steps": _summarize_agent_work(turns, tail),
+        "children": _presentation_children(turns, tail_before, step, state),
         "block_count": len(blocks) if isinstance(blocks, list) else 0,
         "presentation_profile": (
             output.get("presentation_profile") if isinstance(output, dict) else None
@@ -622,45 +697,6 @@ def _parse_steps(
     return turns, tail
 
 
-def _agent_steps_from_phases(phases: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    summary: list[dict[str, Any]] = []
-    for phase in phases:
-        ptype = phase.get("type")
-        if ptype == "agent_turn":
-            turn = phase.get("turn")
-            for child in phase.get("children") or []:
-                ctype = child.get("type")
-                if ctype == "tool":
-                    summary.append(
-                        {
-                            "type": "tool",
-                            "label": child.get("label") or _tool_label(child.get("tool_name")),
-                            "tool_name": child.get("tool_name"),
-                            "state": child.get("state") or "done",
-                        }
-                    )
-                elif ctype == "llm_response":
-                    label = str(child.get("label") or "LLM")
-                    step_type = "decision" if label.lower() == "decision" else "response"
-                    summary.append(
-                        {
-                            "type": step_type,
-                            "label": f"Turn {turn}: {label}",
-                            "turn": turn,
-                            "state": child.get("state") or "done",
-                        }
-                    )
-        elif ptype in ("hitl", "synthesis"):
-            summary.append(
-                {
-                    "type": ptype,
-                    "label": str(phase.get("label") or ptype),
-                    "state": phase.get("state") or "done",
-                }
-            )
-    return summary
-
-
 def _presentation_pending(run: AgentRun) -> bool:
     pending = run.pending_tool
     if not pending or not isinstance(pending, dict):
@@ -672,6 +708,9 @@ def _apply_run_overlays(
     phases: list[dict[str, Any]],
     run: AgentRun,
     live: LiveTraceContext | None,
+    *,
+    turns: list[_TurnAcc] | None = None,
+    tail: list[dict[str, Any]] | None = None,
 ) -> list[dict[str, Any]]:
     out = list(phases)
     pres_pending = _presentation_pending(run) and run.status == "waiting_approval"
@@ -706,7 +745,12 @@ def _apply_run_overlays(
                     "label": "Visual summary",
                     "state": "running",
                     "model": settings.chat_model,
-                    "agent_steps": _agent_steps_from_phases(out),
+                    "children": _presentation_children(
+                        turns or [],
+                        _tail_before_presentation(tail or []),
+                        None,
+                        "running",
+                    ),
                 }
             )
         else:
@@ -833,8 +877,20 @@ def _sum_trace_tokens(phases: list[dict[str, Any]]) -> dict[str, int]:
             for child in phase.get("children") or []:
                 if child.get("type") == "llm_response":
                     consume(child)
-        elif ptype in ("synthesis", "presentation"):
+        elif ptype == "synthesis":
             consume(phase)
+        elif ptype == "presentation":
+            layout_nodes = [
+                c
+                for c in phase.get("children") or []
+                if c.get("type") == "llm_response"
+                and str(c.get("id") or "").endswith("-layout-llm")
+            ]
+            if layout_nodes:
+                for child in layout_nodes:
+                    consume(child)
+            else:
+                consume(phase)
 
     if total <= 0 and (prompt_total > 0 or completion_total > 0):
         total = prompt_total + completion_total
@@ -893,7 +949,7 @@ def build_execution_trace(
         phases.append(phase)
 
     phases.extend(tail)
-    phases = _apply_run_overlays(phases, run, live)
+    phases = _apply_run_overlays(phases, run, live, turns=turns, tail=tail)
 
     is_complete = run.status in COMPLETE_STATUSES
     live_mode = not is_complete and (
