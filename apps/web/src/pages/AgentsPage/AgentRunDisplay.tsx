@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Activity, AlertTriangle, Loader2, MessageCircle, Sparkles } from "lucide-react";
 import { AgentTraceTree } from "@/components/agents/AgentTraceTree";
 import { AgentApprovalCard } from "@/components/agents/shared";
@@ -59,14 +59,19 @@ export function AgentRunDisplay() {
   } = useAgentPage();
 
   const steps = selected?.steps ?? [];
-  const gen = extractGenerativeUIFromRun(
-    selected
-      ? {
-          presentation_spec: selected.presentation_spec,
-          steps: liveSteps.length ? liveSteps : steps,
-        }
-      : null,
+  const gen = useMemo(
+    () =>
+      extractGenerativeUIFromRun(
+        selected
+          ? {
+              presentation_spec: selected.presentation_spec,
+              steps: liveSteps.length ? liveSteps : steps,
+            }
+          : null,
+      ),
+    [selected?.id, selected?.presentation_spec, liveSteps, steps],
   );
+  const hasVisualSummary = gen != null;
   const presentationPending =
     selected?.status === "waiting_approval" &&
     isPresentationPending(selected.pending_tool);
@@ -76,11 +81,12 @@ export function AgentRunDisplay() {
     if (running) setActiveTab("trace");
   }, [running]);
 
+  // Auto-open visual tab once when a summary becomes available (not on every render).
   useEffect(() => {
-    if (gen && !running && !approving) {
+    if (hasVisualSummary && !running && !approving) {
       setActiveTab("visual");
     }
-  }, [gen, running, approving]);
+  }, [hasVisualSummary, running, approving, selected?.id]);
 
   if (!selected && !running) {
     return (
