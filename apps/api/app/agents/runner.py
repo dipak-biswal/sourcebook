@@ -1110,6 +1110,9 @@ def _run_visual_summary_agent(
     if run.presentation_spec:
         return run
 
+    if trace_live is not None:
+        trace_live.visual_agent_active = True
+
     ctx = _presentation_context_for_run(db, run)
     step_index += 1
     _append_step(
@@ -1681,6 +1684,7 @@ def approve_agent_run(
 
     if _is_presentation_pending(pending):
         trace_live.approving = True
+        trace_live.visual_agent_active = True
         _refresh_execution_trace(db, run, on_event, trace_live)
         _append_step(
             db,
@@ -1693,6 +1697,10 @@ def approve_agent_run(
             on_event=on_event,
         )
         step_index += 1
+        # Main agent work is done — only the visual summary agent should run next.
+        run.pending_tool = None
+        run.status = "running"
+        db.flush()
         _run_visual_summary_agent(
             db,
             run,
@@ -1701,10 +1709,10 @@ def approve_agent_run(
             trace_live=trace_live,
         )
         run.status = "completed"
-        run.pending_tool = None
         db.commit()
         db.refresh(run)
         trace_live.approving = False
+        trace_live.visual_agent_active = False
         _emit(
             on_event,
             "status",

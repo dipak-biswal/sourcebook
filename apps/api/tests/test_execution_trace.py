@@ -442,6 +442,54 @@ def test_hitl_before_presentation():
     assert types.index("hitl") < types.index("presentation")
 
 
+def test_visual_summary_llm_does_not_reactivate_main_agent_turn():
+    """After HITL approval, live LLM work belongs to Visual Summary Agent only."""
+    run = _run_with_steps(
+        "Explain documents",
+        [
+            {"type": "tool_call", "tool_name": "search_documents", "input": {}},
+            {
+                "type": "tool_result",
+                "tool_name": "search_documents",
+                "output": {"hits": []},
+            },
+            {"type": "final", "output": "Key points and FAQ."},
+            {
+                "type": "approval",
+                "tool_name": "generative_ui",
+                "output": {"status": "approved"},
+            },
+            {
+                "type": "agent_handoff",
+                "output": {"status": "handoff", "agent": "Visual Summary Agent"},
+            },
+        ],
+    )
+    run.status = "running"
+    live = LiveTraceContext(
+        llm_running=True,
+        current_turn_id="vs-turn-1",
+        visual_agent_active=True,
+    )
+    trace = build_execution_trace(run, live=live, workspace_name="Job Search")
+    main_turns = [
+        p
+        for p in trace["phases"]
+        if p["type"] == "agent_turn" and p.get("label") == "Job Search Agent"
+    ]
+    visual_turns = [
+        p
+        for p in trace["phases"]
+        if p["type"] == "agent_turn"
+        and p.get("agent_label") == "Visual Summary Agent"
+    ]
+    assert len(main_turns) == 1
+    assert main_turns[0]["state"] == "done"
+    assert len(visual_turns) == 1
+    assert visual_turns[0]["state"] == "running"
+    assert visual_turns[0]["llm_turn_id"] == "vs-turn-1"
+
+
 def test_running_tools_only_mark_active_agent_turn():
     """Earlier completed turns must not spin when tools run on a later turn."""
     run = _run_with_steps(

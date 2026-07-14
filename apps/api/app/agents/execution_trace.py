@@ -234,6 +234,7 @@ class LiveTraceContext:
     has_tool_calls: bool = False
     running_tool_names: list[str] = field(default_factory=list)
     approving: bool = False
+    visual_agent_active: bool = False
 
 
 def _step_dict(step: AgentStep) -> dict[str, Any]:
@@ -823,6 +824,64 @@ def _presentation_pending(run: AgentRun) -> bool:
     return pending.get("name") == PRESENTATION_TOOL or pending.get("kind") == "presentation"
 
 
+def _in_visual_summary_phase(
+    *,
+    steps: list[AgentStep] | None = None,
+    visual_turns: list[_TurnAcc] | None = None,
+    live: LiveTraceContext | None = None,
+) -> bool:
+    if visual_turns:
+        return True
+    if live and live.visual_agent_active:
+        return True
+    if steps and any(s.type == "agent_handoff" for s in steps):
+        return True
+    return False
+
+
+def _active_agent_turn_index(
+    phases: list[dict[str, Any]],
+    *,
+    in_visual_phase: bool,
+) -> int | None:
+    indices = [i for i, p in enumerate(phases) if p.get("type") == "agent_turn"]
+    if not indices:
+        return None
+    if in_visual_phase:
+        for i in reversed(indices):
+            label = phases[i].get("agent_label") or phases[i].get("label")
+            if label == VISUAL_SUMMARY_AGENT_LABEL:
+                return i
+        return None
+    return indices[-1]
+
+
+def _synthetic_visual_turn_phase(
+    *,
+    live: LiveTraceContext | None,
+) -> dict[str, Any]:
+    running = bool(
+        live
+        and (
+            live.llm_running
+            or live.visual_agent_active
+            or live.running_tool_names
+        )
+    )
+    phase: dict[str, Any] = {
+        "id": "vs-turn-live",
+        "type": "agent_turn",
+        "turn": 1,
+        "label": VISUAL_SUMMARY_AGENT_LABEL,
+        "agent_label": VISUAL_SUMMARY_AGENT_LABEL,
+        "state": "running" if running else "done",
+        "children": [],
+    }
+    if live and live.current_turn_id:
+        phase["llm_turn_id"] = live.current_turn_id
+    return phase
+
+
 def _apply_run_overlays(
     phases: list[dict[str, Any]],
     run: AgentRun,
@@ -831,6 +890,7 @@ def _apply_run_overlays(
     turns: list[_TurnAcc] | None = None,
     tail: list[dict[str, Any]] | None = None,
     workspace_name: str | None = None,
+    in_visual_phase: bool = False,
 ) -> list[dict[str, Any]]:
     out = list(phases)
     pres_pending = _presentation_pending(run) and run.status == "waiting_approval"
@@ -878,36 +938,29 @@ def _apply_run_overlays(
                 for p in out
             ]
 
-    if live and live.llm_running and live.current_turn_id and out:
-        agent_indices = [i for i, p in enumerate(out) if p.get("type") == "agent_turn"]
-        if agent_indices:
-            i = agent_indices[-1]
-            phase = dict(out[i])
-            phase["state"] = "running"
-            phase["llm_turn_id"] = live.current_turn_id
-            out[i] = phase
+    active_idx = _active_agent_turn_index(out, in_visual_phase=in_visual_phase)
 
-    if live and live.running_tool_names and out:
+    if live and live.llm_running and live.current_turn_id and active_idx is not None:
+        phase = dict(out[active_idx])
+        phase["state"] = "running"
+        phase["llm_turn_id"] = live.current_turn_id
+        out[active_idx] = phase
+
+    if live and live.running_tool_names and active_idx is not None:
         running_set = set(live.running_tool_names)
-        agent_indices = [i for i, p in enumerate(out) if p.get("type") == "agent_turn"]
-        if agent_indices:
-            i = agent_indices[-1]
-            phase = dict(out[i])
-            children = []
-            for child in phase.get("children") or []:
-                if child.get("type") == "tool" and child.get("tool_name") in running_set:
-                    child = {**child, "state": "running"}
-                children.append(child)
-            phase = {**phase, "children": children, "state": "running"}
-            out[i] = phase
+        phase = dict(out[active_idx])
+        children = []
+        for child in phase.get("children") or []:
+            if child.get("type") == "tool" and child.get("tool_name") in running_set:
+                child = {**child, "state": "running"}
+            children.append(child)
+        phase = {**phase, "children": children, "state": "running"}
+        out[active_idx] = phase
 
-    if run.status == "running" and out:
-        for i in range(len(out) - 1, -1, -1):
-            if out[i].get("type") == "agent_turn":
-                t = dict(out[i])
-                t["state"] = "running"
-                out[i] = t
-                break
+    if run.status == "running" and active_idx is not None:
+        phase = dict(out[active_idx])
+        phase["state"] = "running"
+        out[active_idx] = phase
 
     return out
 
@@ -1044,13 +1097,24 @@ def build_execution_trace(
         steps, running_tools, workspace_name=workspace_name
     )
 
-    live_turns = visual_turns if visual_turns else turns
-    if live and live.current_turn_id and live_turns:
-        last = live_turns[-1]
-        if last.state == "running" or live.llm_running:
-            last.llm_turn_id = live.current_turn_id
-            if live.llm_running:
-                last.state = "running"
+    in_visual_phase = _in_visual_summary_phase(
+        steps=steps,
+        visual_turns=visual_turns,
+        live=live,
+    )
+    if live and live.current_turn_id:
+        if in_visual_phase and visual_turns:
+            last = visual_turns[-1]
+            if last.state == "running" or live.llm_running:
+                last.llm_turn_id = live.current_turn_id
+                if live.llm_running:
+                    last.state = "running"
+        elif not in_visual_phase and turns:
+            last = turns[-1]
+            if last.state == "running" or live.llm_running:
+                last.llm_turn_id = live.current_turn_id
+                if live.llm_running:
+                    last.state = "running"
 
     phases: list[dict[str, Any]] = [
         {
@@ -1070,11 +1134,13 @@ def build_execution_trace(
 
     phases.extend(tail)
 
-    if visual_turns:
-        pres_idx = next(
-            (i for i, p in enumerate(phases) if p.get("type") == "presentation"),
-            len(phases),
-        )
+    pres_idx = next(
+        (i for i, p in enumerate(phases) if p.get("type") == "presentation"),
+        len(phases),
+    )
+    if in_visual_phase and not visual_turns:
+        phases.insert(pres_idx, _synthetic_visual_turn_phase(live=live))
+    elif visual_turns:
         for offset, turn in enumerate(visual_turns):
             phase = turn.to_phase(live, workspace_name=workspace_name)
             if live and turn.llm_turn_id:
@@ -1087,6 +1153,7 @@ def build_execution_trace(
         turns=turns,
         tail=tail,
         workspace_name=workspace_name,
+        in_visual_phase=in_visual_phase,
     )
 
     is_complete = run.status in COMPLETE_STATUSES
