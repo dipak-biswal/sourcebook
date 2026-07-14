@@ -10,9 +10,11 @@ export function AgentRunForm() {
     goal,
     running,
     workspaceId,
+    workspaces,
     onGoalChange,
     onRun,
   } = useAgentPage();
+  const workspaceName = workspaces.find((w) => w.id === workspaceId)?.name;
 
   return (
     <form
@@ -58,7 +60,11 @@ export function AgentRunForm() {
 
       {!running && exampleGoals.length > 0 && (
         <div className="mt-4 border-t border-hairline pt-3">
-          <p className="mb-2 text-[11px] font-medium text-mute">Try an example</p>
+          <p className="mb-2 text-[11px] font-medium text-mute">
+            {workspaceName
+              ? `Try an example for ${workspaceName}`
+              : "Try an example"}
+          </p>
           <div className="flex flex-wrap gap-1.5">
             {exampleGoals.map((example) => (
               <button

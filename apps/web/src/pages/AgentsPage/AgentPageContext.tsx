@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState, type ReactNode, type SubmitEvent } from "react";
+import { useCallback, useEffect, useMemo, useState, type ReactNode, type SubmitEvent } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { useQueryClient } from "@tanstack/react-query";
 import { api, type AgentStep, type AgentRun } from "@/api";
@@ -15,12 +15,12 @@ import {
   appendLlmStream,
   patchRunningLlmWithDelta,
 } from "@/hooks/useAgentStream";
-import { useAgentRuns, useNotes, useWorkspaces } from "@/hooks/queries";
+import { useAgentRuns, useDocuments, useNotes, useWorkspaces } from "@/hooks/queries";
 import { useLastWorkspace } from "@/hooks/useLastWorkspace";
 import type { AgentPageContextValue } from "@/types/agents";
 import { AgentPageContext } from "./agent-page-context";
 import {
-  AGENT_FORM_EXAMPLE_GOALS,
+  buildWorkspaceAgentExamples,
   isPresentationPending,
 } from "@/components/agents/agent-utils";
 
@@ -60,7 +60,16 @@ export function AgentPageProvider({
     useLastWorkspace(workspaces);
   const { data: runs = [] } = useAgentRuns(effectiveWorkspaceId);
   const { data: notes = [] } = useNotes(effectiveWorkspaceId);
+  const { data: documents = [] } = useDocuments(effectiveWorkspaceId);
   const effectiveSelectedId = selectedId;
+  const selectedWorkspace = useMemo(
+    () => workspaces.find((w) => w.id === effectiveWorkspaceId),
+    [workspaces, effectiveWorkspaceId],
+  );
+  const exampleGoals = useMemo(
+    () => buildWorkspaceAgentExamples(selectedWorkspace, documents),
+    [selectedWorkspace, documents],
+  );
 
   const onChangeWorkspace = useCallback((id: string) => {
     persistWorkspace(id);
@@ -525,7 +534,7 @@ export function AgentPageProvider({
 
   const value: AgentPageContextValue = {
     agentType: "general" as const,
-    exampleGoals: AGENT_FORM_EXAMPLE_GOALS,
+    exampleGoals,
     workspaces,
     workspaceId: effectiveWorkspaceId,
     runs,
