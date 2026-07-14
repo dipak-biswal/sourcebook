@@ -134,25 +134,29 @@ function ExpandableTraceRow({
             style={{ paddingTop: branchTop - (nested ? 7 : 8) }}
           >
             {expandable ? (
-              <button
-                type="button"
-                onClick={() => setOpen((v) => !v)}
-                className="flex w-full items-start gap-1.5 rounded-[6px] px-1 py-0.5 text-left hover:bg-canvas-soft"
-              >
-                <span className="mt-0.5 shrink-0 text-mute">
-                  {open ? (
-                    <ChevronDown className="h-3.5 w-3.5" />
-                  ) : (
-                    <ChevronRight className="h-3.5 w-3.5" />
-                  )}
-                </span>
-                <span className="min-w-0 flex-1">
-                  <PhaseLabel label={label} state={state} active={active} nested={nested} />
-                  {open && (
-                    <div className="mt-2 text-xs leading-relaxed text-body">{children}</div>
-                  )}
-                </span>
-              </button>
+              <div>
+                <button
+                  type="button"
+                  onClick={() => setOpen((v) => !v)}
+                  className="flex w-full items-start gap-1.5 rounded-[6px] px-1 py-0.5 text-left hover:bg-canvas-soft"
+                >
+                  <span className="mt-0.5 shrink-0 text-mute">
+                    {open ? (
+                      <ChevronDown className="h-3.5 w-3.5" />
+                    ) : (
+                      <ChevronRight className="h-3.5 w-3.5" />
+                    )}
+                  </span>
+                  <span className="min-w-0 flex-1">
+                    <PhaseLabel label={label} state={state} active={active} nested={nested} />
+                  </span>
+                </button>
+                {open && (
+                  <div className="mt-2 pl-5 text-xs leading-relaxed text-body">
+                    {children}
+                  </div>
+                )}
+              </div>
             ) : (
               <div className="px-1 py-0.5">
                 <PhaseLabel label={label} state={state} nested={nested} />
