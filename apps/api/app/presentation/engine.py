@@ -22,6 +22,13 @@ from app.models import Document
 from app.presentation.context import PresentationContext
 from app.usage import estimate_tokens, log_usage
 
+_PLACEHOLDER_ORG = re.compile(
+    r"(?i)(?:"
+    r"xyz\s*corp(?:oration)?|abc\s*inc(?:orporated)?|def\s*ltd|ghi\s*co|"
+    r"example\s+company|sample\s+company|test\s+company|placeholder\s+"
+    r")"
+)
+
 _BLOCK_TYPES = (
     "summary",
     "key_points",
@@ -42,6 +49,59 @@ _BLOCK_TYPES = (
 
 def _client() -> OpenAI:
     return OpenAI(api_key=settings.openai_api_key, base_url=settings.openai_base_url)
+
+
+def _corpus_blob(answer: str, context: str) -> str:
+    return f"{answer}\n{context}".lower()
+
+
+def _looks_like_placeholder(text: str) -> bool:
+    return bool(_PLACEHOLDER_ORG.search(text))
+
+
+def _phrase_grounded(phrase: str, corpus: str) -> bool:
+    """True when a proper-noun phrase appears supported by answer/excerpts."""
+    phrase = (phrase or "").strip()
+    if not phrase or _looks_like_placeholder(phrase):
+        return False
+    tokens = [w for w in re.findall(r"[a-z0-9][a-z0-9+.#-]*", phrase.lower()) if len(w) > 2]
+    if not tokens:
+        return True
+    hits = sum(1 for t in tokens if t in corpus)
+    return hits >= max(1, len(tokens) // 2)
+
+
+def _timeline_item_grounded(item: str, corpus: str) -> bool:
+    if _looks_like_placeholder(item):
+        return False
+    org_match = re.search(r"\bat\s+(.+?)(?:\s*[—–-]\s*|\s*$)", item, re.I)
+    if org_match:
+        return _phrase_grounded(org_match.group(1).strip(), corpus)
+    return _phrase_grounded(item, corpus)
+
+
+def _sanitize_blocks_for_grounding(
+    blocks: list[GenUIBlock],
+    *,
+    answer: str,
+    context: str,
+) -> list[GenUIBlock]:
+    """Drop or trim blocks that invent employers, roles, or placeholder facts."""
+    corpus = _corpus_blob(answer, context)
+    cleaned: list[GenUIBlock] = []
+
+    for block in blocks:
+        if block.type == "timeline" and block.items:
+            grounded = [i for i in block.items if _timeline_item_grounded(i, corpus)]
+            if not grounded:
+                continue
+            if len(grounded) != len(block.items):
+                block = block.model_copy(update={"items": grounded})
+        elif block.body and _looks_like_placeholder(block.body):
+            continue
+        cleaned.append(block)
+
+    return cleaned
 
 
 def _workspace_context_lines(ctx: PresentationContext) -> str:
@@ -71,12 +131,12 @@ def build_presentation(
     if not goal or not answer:
         return {"error": "goal and final_answer are required"}
 
-    query = f"{goal}\n{answer[:500]}".strip()
+    query = f"{goal}\n{answer[:1500]}".strip()
     hits = retrieve_chunks(
         db,
         workspace_id=ctx.workspace_id,
         query=query,
-        top_k=8,
+        top_k=12,
         min_score=settings.rag_min_score,
         user_id=ctx.user_id,
         usage_meta={"source": "presentation", "goal": goal[:200]},
@@ -128,14 +188,22 @@ WORKSPACE CONTEXT:
 USER GOAL:
 {goal}
 
-AGENT TEXT ANSWER:
-{answer[:4000]}
+AGENT TEXT ANSWER (PRIMARY FACT SOURCE — do not add facts beyond this and EXCERPTS):
+{answer[:6000]}
 
 REGISTERED COMPONENTS (type field): {", ".join(_BLOCK_TYPES)}
 
+GROUNDING RULES (MANDATORY):
+- NEVER invent employers, job titles with fake companies, dates, projects, scores, or metrics.
+- NEVER use placeholder names (XYZ Corp, ABC Inc, DEF Ltd, GHI Co, Acme, Example Company, etc.).
+- timeline: ONLY if AGENT TEXT ANSWER or EXCERPTS list explicit roles/dates/employers. If unclear, OMIT timeline entirely.
+- progress/chart percentages: only when reasonably supported by stated experience; prefer qualitative table rows otherwise.
+- If the user requests a component but grounded data is missing, SKIP that block — do not fabricate filler.
+- Rephrase and structure existing facts; do not hallucinate new ones.
+
 CONTEXT → COMPONENT MAP (use at least 3 DIFFERENT types; avoid summary+key_points+chips only):
 - Resume / profile / skills → progress (Skill | 85 percent items) + chart (same shape, ranked bars) + chips (filter tags) + table
-- Career / history / milestones → timeline (Period | Role | Detail per item) + callout for standout insight
+- Career / history → timeline ONLY with verbatim employers/dates from ANSWER/EXCERPTS; else use key_points or table
 - Compare / gap analysis / vs → comparison (Aspect | Option A | Option B) OR table with header row
 - Teach / explain concepts → key_terms + faq + steps (ordered items)
 - Risks / caveats / important → callout (body required; use title like "Watch out")
@@ -160,7 +228,7 @@ FIELD SHAPES:
 
 STRICT RULES:
 - NEVER return 3+ blocks that are all summary, key_points, or chips — diversify.
-- Include 4–7 blocks with substantive content.
+- Include 4–7 blocks with substantive grounded content (fewer blocks OK if data is thin).
 - Return ONLY valid JSON (no markdown fences):
 {{
   "title": "short title",
@@ -181,13 +249,15 @@ EXCERPTS:
                     "role": "system",
                     "content": (
                         "You output only JSON for a generative UI spec. "
-                        "Pick diverse visual components based on goal context — "
-                        "never default to generic summary+bullets+chips."
+                        "Pick diverse visual components based on goal context. "
+                        "Every fact must come from the agent answer or document excerpts — "
+                        "never invent employers, dates, or placeholder companies. "
+                        "Omit blocks you cannot ground."
                     ),
                 },
                 {"role": "user", "content": prompt},
             ],
-            temperature=0.25,
+            temperature=0.1,
             max_tokens=2200,
         )
         raw = (resp.choices[0].message.content or "").strip()
@@ -265,6 +335,12 @@ EXCERPTS:
         blocks.append(block)
         if len(blocks) >= 8:
             break
+
+    blocks = _sanitize_blocks_for_grounding(
+        blocks,
+        answer=answer,
+        context=context,
+    )
 
     if not blocks:
         blocks = [
