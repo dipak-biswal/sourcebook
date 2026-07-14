@@ -1,7 +1,9 @@
-import { useEffect, useMemo, useRef, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import {
   Brain,
   CheckCircle2,
+  ChevronDown,
+  ChevronRight,
   Coins,
   GitBranch,
   Loader2,
@@ -167,6 +169,77 @@ function TraceLabel({
         </div>
       </div>
       {trailing}
+    </div>
+  );
+}
+
+function GoalTraceLabel({
+  goal,
+  nodeId,
+  isLast,
+}: {
+  goal: string;
+  nodeId: string;
+  isLast?: boolean;
+}) {
+  const [open, setOpen] = useState(false);
+  const iconTop = 6;
+  const iconSize = 36;
+  const branchTop = iconTop + iconSize / 2;
+
+  return (
+    <div data-trace-id={nodeId} className="relative min-w-0 pb-1.5">
+      <div className="relative flex min-w-0">
+        <div
+          className="relative z-10 flex shrink-0 justify-center"
+          style={{ width: MAIN_ICON_COL, paddingTop: iconTop }}
+        >
+          {!isLast && (
+            <div
+              className="pointer-events-none absolute left-1/2 w-0.5 -translate-x-1/2 bg-ink/25"
+              style={{ top: branchTop, bottom: 0 }}
+            />
+          )}
+          <TraceIcon icon={Target} state="done" />
+        </div>
+
+        <div className="flex min-w-0 flex-1">
+          <div className="relative shrink-0" style={{ width: BRANCH_STUB }}>
+            <div
+              className="absolute left-0 right-0 h-0.5 bg-ink/25"
+              style={{ top: branchTop }}
+            />
+          </div>
+
+          <div
+            className="min-w-0 flex-1"
+            style={{ paddingTop: branchTop - 8 }}
+          >
+            <button
+              type="button"
+              onClick={() => setOpen((v) => !v)}
+              className="flex w-full items-start gap-1.5 rounded-[6px] px-1 py-0.5 text-left hover:bg-canvas-soft"
+            >
+              <span className="mt-0.5 shrink-0 text-mute">
+                {open ? (
+                  <ChevronDown className="h-3.5 w-3.5" />
+                ) : (
+                  <ChevronRight className="h-3.5 w-3.5" />
+                )}
+              </span>
+              <span className="min-w-0 flex-1">
+                <span className="text-xs font-medium text-ink">Input goal</span>
+                {open && goal && (
+                  <p className="mt-1.5 text-xs leading-relaxed text-body">{goal}</p>
+                )}
+              </span>
+              <Badge variant="success" className="shrink-0 text-[10px]">
+                done
+              </Badge>
+            </button>
+          </div>
+        </div>
+      </div>
     </div>
   );
 }
@@ -377,13 +450,10 @@ export function AgentTraceTree({
           {rows.map((row) => {
             if (row.kind === "goal") {
               return (
-                <TraceLabel
+                <GoalTraceLabel
                   key={row.id}
                   nodeId={row.id}
-                  icon={Target}
-                  label="Input goal"
-                  detail={row.goal}
-                  state="done"
+                  goal={row.goal}
                   isLast={row.isLast}
                 />
               );
