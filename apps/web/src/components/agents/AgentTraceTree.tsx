@@ -33,9 +33,11 @@ import type {
 } from "@/components/agents/trace-types";
 import { cn } from "@/lib/utils";
 
-/** Left rail inside each block — vertical spine is centered here. */
-const MAIN_LEFT_RAIL = 44;
-const NESTED_LEFT_RAIL = 36;
+/** Icon column sits outside blocks; spine runs only in this gutter. */
+const MAIN_ICON_COL = 36;
+const NESTED_ICON_COL = 28;
+const BRANCH_STUB = 12;
+const NESTED_BRANCH_STUB = 10;
 
 function TraceIcon({
   icon: Icon,
@@ -71,7 +73,7 @@ function TraceIcon({
 }
 
 /**
- * Block with a left rail: icon sits on the spine, centered in the block's left edge.
+ * Icon + spine live in a left gutter outside the block; a short branch links to the card.
  */
 function TraceNode({
   icon,
@@ -100,51 +102,53 @@ function TraceNode({
   nested?: boolean;
   isLast?: boolean;
 }) {
-  const leftRail = nested ? NESTED_LEFT_RAIL : MAIN_LEFT_RAIL;
+  const iconCol = nested ? NESTED_ICON_COL : MAIN_ICON_COL;
+  const stubW = nested ? NESTED_BRANCH_STUB : BRANCH_STUB;
+  const iconTop = nested ? 6 : 8;
   const iconSize = nested ? 28 : 36;
-  const headerPadY = nested ? 8 : 10;
-  const spineTop = headerPadY + iconSize / 2;
+  const branchTop = iconTop + iconSize / 2;
 
   return (
     <div
       ref={active ? activeRef : undefined}
       data-trace-id={nodeId}
       className={cn(
-        "relative min-w-0",
+        "relative flex min-w-0",
         nested ? "pb-1.5" : "pb-2",
         active && "scroll-mt-4",
       )}
     >
-      {!isLast && (
-        <div
-          className="pointer-events-none absolute z-20 w-0.5 -translate-x-1/2 bg-ink/25"
-          style={{
-            left: leftRail / 2,
-            top: spineTop,
-            bottom: 0,
-          }}
-        />
-      )}
-
       <div
-        className={cn(
-          "relative flex min-w-0 overflow-hidden rounded-[8px] border bg-canvas transition-shadow",
-          active && state === "running"
-            ? "border-warning-border/80 ring-1 ring-warning-border/20"
-            : "border-hairline",
-          open && "shadow-[var(--elevation-1)]",
-        )}
+        className="relative z-10 flex shrink-0 justify-center"
+        style={{ width: iconCol, paddingTop: iconTop }}
       >
-        <div
-          className="relative z-10 flex shrink-0 flex-col items-center self-stretch border-r border-hairline/70 bg-canvas-soft/50"
-          style={{ width: leftRail }}
-        >
-          <div style={{ paddingTop: headerPadY, paddingBottom: headerPadY }}>
-            <TraceIcon icon={icon} state={state} active={active} nested={nested} />
-          </div>
+        {!isLast && (
+          <div
+            className="pointer-events-none absolute left-1/2 w-0.5 -translate-x-1/2 bg-ink/25"
+            style={{ top: branchTop, bottom: 0 }}
+          />
+        )}
+        <TraceIcon icon={icon} state={state} active={active} nested={nested} />
+      </div>
+
+      <div className="flex min-w-0 flex-1">
+        <div className="relative shrink-0" style={{ width: stubW }}>
+          <div
+            className="absolute left-0 right-0 h-0.5 bg-ink/25"
+            style={{ top: branchTop }}
+          />
         </div>
 
-        <div className="min-w-0 flex-1">
+        <div
+          className={cn(
+            "min-w-0 flex-1 overflow-hidden rounded-[8px] border bg-canvas transition-shadow",
+            active && state === "running"
+              ? "border-warning-border/80 ring-1 ring-warning-border/20"
+              : "border-hairline",
+            open && "shadow-[var(--elevation-1)]",
+          )}
+          style={{ marginTop: branchTop - 1 }}
+        >
           <button
             type="button"
             onClick={onToggle}
@@ -454,7 +458,7 @@ export function AgentTraceTree({
           />
         </div>
         <p className="mt-1.5 text-[10px] text-mute">
-          Vertical line runs down the center of each block&apos;s left edge.
+          Icons connect on the left; vertical lines stay outside the blocks.
         </p>
       </div>
 
