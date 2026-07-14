@@ -29,6 +29,7 @@ export type TraceLlmChild = {
   type: "llm_response";
   label: string;
   state: TraceState;
+  model?: string | null;
   prompt?: TraceLlmMessage[] | null;
   output: string;
   prompt_tokens?: number | null;
@@ -94,6 +95,7 @@ export type TracePresentationPhase = {
   type: "presentation";
   label: string;
   state: TraceState;
+  model?: string | null;
   output?: unknown;
   prompt?: TraceLlmMessage[] | string | null;
   llm_output?: string | null;
@@ -111,6 +113,7 @@ export type TraceSynthesisPhase = {
   type: "synthesis";
   label: string;
   state: TraceState;
+  model?: string | null;
   prompt?: TraceLlmMessage[] | null;
   output?: string;
   prompt_tokens?: number | null;

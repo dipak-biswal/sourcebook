@@ -562,6 +562,7 @@ EXCERPTS:
     build_meta: dict[str, Any] = {
         "prompt": prompt,
         "llm_output": raw,
+        "model": settings.chat_model,
         "prompt_tokens": None,
         "completion_tokens": None,
         "total_tokens": None,

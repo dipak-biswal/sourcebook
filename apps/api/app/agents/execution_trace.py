@@ -6,6 +6,7 @@ import json
 from dataclasses import dataclass, field
 from typing import Any, Literal
 
+from app.config import settings
 from app.models import AgentRun, AgentStep
 from app.usage import estimate_tokens
 
@@ -101,6 +102,28 @@ def _apply_tokens(node: dict[str, Any], tokens: dict[str, int]) -> dict[str, Any
     return merged
 
 
+def _model_from_step_input(step: AgentStep | None) -> str | None:
+    if not step or not step.input or not isinstance(step.input, dict):
+        return None
+    model = step.input.get("model")
+    return str(model).strip() if isinstance(model, str) and model.strip() else None
+
+
+def _resolve_model(
+    step: AgentStep | None,
+    live: LiveTraceContext | None,
+    turn_id: str | None,
+) -> str:
+    model = _model_from_step_input(step)
+    if model:
+        return model
+    if live and turn_id:
+        live_model = live.model_by_turn.get(turn_id)
+        if live_model:
+            return live_model
+    return settings.chat_model
+
+
 def _messages_from_step_input(step: AgentStep | None) -> list[dict[str, Any]] | None:
     if not step or not step.input or not isinstance(step.input, dict):
         return None
@@ -133,6 +156,7 @@ class LiveTraceContext:
     stream_by_turn: dict[str, str] = field(default_factory=dict)
     prompt_by_turn: dict[str, list[dict[str, Any]]] = field(default_factory=dict)
     tokens_by_turn: dict[str, dict[str, int]] = field(default_factory=dict)
+    model_by_turn: dict[str, str] = field(default_factory=dict)
     current_turn_id: str | None = None
     llm_running: bool = False
     has_tool_calls: bool = False
@@ -249,6 +273,7 @@ class _TurnAcc:
                 "type": "llm_response",
                 "label": label,
                 "state": state,
+                "model": _resolve_model(step, live, live_turn_id),
                 "prompt": resolved_prompt,
                 "output": output,
             },
@@ -380,6 +405,7 @@ def _synthesis_phase(step: AgentStep) -> dict[str, Any]:
             "type": "synthesis",
             "label": "Answer synthesis",
             "state": "done",
+            "model": _resolve_model(step, None, None),
             "prompt": prompt,
             "output": _step_text(step),
         },
@@ -458,6 +484,7 @@ def _presentation_phase(
         "type": "presentation",
         "label": "Visual summary",
         "state": state,
+        "model": _resolve_model(step, None, None),
         "output": output,
         "prompt": step_input.get("messages") or step_input.get("prompt"),
         "llm_output": llm_output,
@@ -678,6 +705,7 @@ def _apply_run_overlays(
                     "type": "presentation",
                     "label": "Visual summary",
                     "state": "running",
+                    "model": settings.chat_model,
                     "agent_steps": _agent_steps_from_phases(out),
                 }
             )

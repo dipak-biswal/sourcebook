@@ -14,6 +14,7 @@ import {
 } from "lucide-react";
 import type { AgentRun } from "@/api";
 import { parseWebSearchOutput, prettyJson } from "@/components/agents/agent-utils";
+import { LlmModelBadge } from "@/components/agents/llm-model";
 import type {
   ExecutionTrace,
   TraceAgentTurnPhase,
@@ -78,6 +79,7 @@ function ExpandableTraceRow({
   nested,
   isLast,
   defaultOpen = false,
+  model,
   children,
 }: {
   icon: typeof Brain;
@@ -89,6 +91,7 @@ function ExpandableTraceRow({
   nested?: boolean;
   isLast?: boolean;
   defaultOpen?: boolean;
+  model?: string | null;
   children?: ReactNode;
 }) {
   const [open, setOpen] = useState(defaultOpen);
@@ -150,7 +153,13 @@ function ExpandableTraceRow({
                     )}
                   </span>
                   <span className="min-w-0 flex-1">
-                    <PhaseLabel label={label} state={state} active={active} nested={nested} />
+                    <PhaseLabel
+                      label={label}
+                      state={state}
+                      active={active}
+                      nested={nested}
+                      model={model}
+                    />
                   </span>
                 </button>
                 {open && (
@@ -161,7 +170,7 @@ function ExpandableTraceRow({
               </div>
             ) : (
               <div className="px-1 py-0.5">
-                <PhaseLabel label={label} state={state} nested={nested} />
+                <PhaseLabel label={label} state={state} nested={nested} model={model} />
               </div>
             )}
           </div>
@@ -176,11 +185,13 @@ function PhaseLabel({
   state,
   active,
   nested,
+  model,
 }: {
   label: string;
   state: TraceState;
   active?: boolean;
   nested?: boolean;
+  model?: string | null;
 }) {
   return (
     <span className="flex flex-wrap items-center gap-1.5">
@@ -193,6 +204,7 @@ function PhaseLabel({
       >
         {label}
       </span>
+      <LlmModelBadge model={model} />
       {state === "running" && (
         <Badge variant="warning" className="gap-1 text-[10px]">
           <span className="relative flex h-1.5 w-1.5">
@@ -487,6 +499,7 @@ function TurnChildrenTimeline({
             icon={Brain}
             label={child.label}
             state={child.state}
+            model={child.model}
           >
             <LlmChildBody child={child} />
           </ExpandableTraceRow>
@@ -699,6 +712,7 @@ export function AgentTraceTree({
     }
 
     if (phase.type === "presentation") {
+      const presentation = phase as TracePresentationPhase;
       return (
         <ExpandableTraceRow
           key={phase.id}
@@ -710,6 +724,7 @@ export function AgentTraceTree({
           state={phase.state}
           isLast={isLast}
           defaultOpen={defaultOpen || active}
+          model={presentation.model}
         >
           <PresentationTraceBody phase={phase as TracePresentationPhase} />
         </ExpandableTraceRow>
@@ -727,6 +742,7 @@ export function AgentTraceTree({
           state={phase.state}
           isLast={isLast}
           defaultOpen={defaultOpen}
+          model={synthesis.model}
         >
           <LlmTraceSections
             prompt={synthesis.prompt}

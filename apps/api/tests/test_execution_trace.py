@@ -160,6 +160,31 @@ def test_token_counts_normalize_zero_split_from_total():
     assert llm["total_tokens"] == llm["prompt_tokens"] + llm["completion_tokens"]
 
 
+def test_llm_response_includes_model():
+    run = _run_with_steps(
+        "Hello",
+        [
+            {
+                "type": "final",
+                "input": {
+                    "messages": [{"role": "human", "content": "Hello"}],
+                    "model": "gpt-4o-mini",
+                },
+                "output": "Hi",
+            },
+        ],
+    )
+    trace = build_execution_trace(run)
+    llm = next(
+        c
+        for p in trace["phases"]
+        if p["type"] == "agent_turn"
+        for c in p["children"]
+        if c["type"] == "llm_response"
+    )
+    assert llm["model"] == "gpt-4o-mini"
+
+
 def test_hitl_before_presentation():
     run = _run_with_steps(
         "Summarize docs",

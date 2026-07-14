@@ -448,6 +448,7 @@ def _synthesize_final_answer(
             return None
         run._synthesis_trace_input = {  # type: ignore[attr-defined]
             "messages": _serialize_messages(synthesis_messages),
+            "model": settings.chat_model,
             "prompt_tokens": p,
             "completion_tokens": c,
             "total_tokens": t if t else (p + c),
@@ -640,6 +641,7 @@ def _build_and_attach_presentation(
                 },
                 {"role": "human", "content": build_meta.get("prompt") or ""},
             ],
+            "model": build_meta.get("model") or settings.chat_model,
             "prompt_tokens": build_meta.get("prompt_tokens"),
             "completion_tokens": build_meta.get("completion_tokens"),
             "total_tokens": build_meta.get("total_tokens"),
@@ -701,12 +703,14 @@ def _run_tool_loop(
             trace_live.has_tool_calls = False
             trace_live.prompt_by_turn[turn_id] = _serialize_messages(messages)
             trace_live.tokens_by_turn.pop(turn_id, None)
+            trace_live.model_by_turn[turn_id] = settings.chat_model
             _emit(
                 on_event,
                 "llm_start",
                 run_id=str(run.id),
                 turn_id=turn_id,
                 name="ChatOpenAI",
+                model=settings.chat_model,
                 status=run.status,
             )
             refresh_trace()
@@ -730,6 +734,7 @@ def _run_tool_loop(
                 run_id=str(run.id),
                 turn_id=turn_id,
                 name="ChatOpenAI",
+                model=settings.chat_model,
                 duration_ms=round(llm_ms, 1),
                 prompt_tokens=p,
                 completion_tokens=c,
@@ -826,6 +831,7 @@ def _run_tool_loop(
                     type="thought" if ai.tool_calls else "final",
                     input={
                         "messages": prompt_messages,
+                        "model": settings.chat_model,
                         "prompt_tokens": p,
                         "completion_tokens": c,
                         "total_tokens": t if t else (p + c),
