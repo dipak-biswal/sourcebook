@@ -1,6 +1,6 @@
 import uuid
 
-from app.agents.execution_trace import build_execution_trace
+from app.agents.execution_trace import build_execution_trace, emit_execution_trace
 from app.models import AgentRun, AgentStep
 
 
@@ -69,3 +69,17 @@ def test_hitl_before_presentation():
     trace = build_execution_trace(run)
     types = [p["type"] for p in trace["phases"]]
     assert types.index("hitl") < types.index("presentation")
+
+
+def test_emit_execution_trace_uses_payload_dict():
+    run = _run_with_steps("Hello", [{"type": "final", "output": "Hi"}])
+    events: list[tuple[str, dict]] = []
+
+    def on_event(event_type: str, payload: dict) -> None:
+        events.append((event_type, payload))
+
+    emit_execution_trace(on_event, run)
+    assert len(events) == 1
+    assert events[0][0] == "trace"
+    assert "execution_trace" in events[0][1]
+    assert events[0][1]["execution_trace"]["goal"] == "Hello"

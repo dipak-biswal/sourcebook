@@ -546,5 +546,12 @@ def emit_execution_trace(
 ) -> dict[str, Any]:
     trace = build_execution_trace(run, live=live)
     if on_event:
-        on_event("trace", execution_trace=trace, run_id=str(run.id), status=run.status)
+        on_event(
+            "trace",
+            {
+                "execution_trace": trace,
+                "run_id": str(run.id),
+                "status": run.status,
+            },
+        )
     return trace
