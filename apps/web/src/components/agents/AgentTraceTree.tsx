@@ -33,8 +33,11 @@ import type {
 } from "@/components/agents/trace-types";
 import { cn } from "@/lib/utils";
 
-/** Center of icons on the main vertical spine (px from rail left). */
-const SPINE_CENTER = 18;
+/** Icon column width — spine runs through the horizontal center. */
+const MAIN_ICON_COL = 36;
+const NESTED_ICON_COL = 28;
+const BRANCH_STUB = 14;
+const NESTED_BRANCH_STUB = 10;
 
 function TraceIcon({
   icon: Icon,
@@ -70,8 +73,7 @@ function TraceIcon({
 }
 
 /**
- * One step on the trace: icon sits ON the vertical spine; the panel grows
- * directly to the right from that icon (no separate connector).
+ * Timeline row: icon on the vertical spine → short branch → collapsible panel.
  */
 function TraceNode({
   icon,
@@ -85,6 +87,7 @@ function TraceNode({
   nodeId,
   activeRef,
   nested,
+  isLast,
 }: {
   icon: typeof Brain;
   title: string;
@@ -97,113 +100,117 @@ function TraceNode({
   nodeId: string;
   activeRef?: React.RefObject<HTMLDivElement | null>;
   nested?: boolean;
+  isLast?: boolean;
 }) {
-  const panelInset = nested ? "ml-8" : "ml-10";
+  const iconCol = nested ? NESTED_ICON_COL : MAIN_ICON_COL;
+  const stubW = nested ? NESTED_BRANCH_STUB : BRANCH_STUB;
+  const iconTop = nested ? 6 : 8;
+  const iconSize = nested ? 28 : 36;
+  const branchTop = iconTop + iconSize / 2;
 
   return (
     <div
       ref={active ? activeRef : undefined}
       data-trace-id={nodeId}
       className={cn(
-        "relative min-w-0",
-        nested ? "py-1" : "py-1.5",
+        "relative flex min-w-0",
+        nested ? "pb-1" : "pb-2",
         active && "scroll-mt-4",
       )}
     >
       <div
-        className={cn(
-          "absolute z-10 flex items-center justify-center",
-          nested ? "left-0 top-1.5" : "left-0 top-2",
-        )}
-        style={{ width: nested ? 28 : 36 }}
+        className="relative z-10 flex shrink-0 justify-center"
+        style={{ width: iconCol, paddingTop: iconTop }}
       >
+        {!isLast && (
+          <div
+            className="pointer-events-none absolute left-1/2 w-0.5 -translate-x-1/2 bg-ink/25"
+            style={{ top: branchTop, bottom: 0 }}
+          />
+        )}
         <TraceIcon icon={icon} state={state} active={active} nested={nested} />
       </div>
 
-      <div
-        className={cn(
-          "mb-2 min-w-0 overflow-hidden rounded-[8px] border bg-canvas transition-shadow",
-          panelInset,
-          active && state === "running"
-            ? "border-warning-border/80 ring-1 ring-warning-border/20"
-            : "border-hairline",
-          open && "shadow-[var(--elevation-1)]",
-        )}
-      >
-        <button
-          type="button"
-          onClick={onToggle}
-          className="flex w-full items-start justify-between gap-3 px-3 py-2.5 text-left hover:bg-canvas-soft"
+      <div className="flex min-w-0 flex-1">
+        <div className="relative shrink-0" style={{ width: stubW }}>
+          <div
+            className="absolute left-0 right-0 h-0.5 bg-ink/25"
+            style={{ top: branchTop }}
+          />
+        </div>
+
+        <div
+          className={cn(
+            "mb-0 min-w-0 flex-1 overflow-hidden rounded-[8px] border bg-canvas transition-shadow",
+            active && state === "running"
+              ? "border-warning-border/80 ring-1 ring-warning-border/20"
+              : "border-hairline",
+            open && "shadow-[var(--elevation-1)]",
+          )}
+          style={{ marginTop: branchTop - 1 }}
         >
-          <div className="min-w-0 flex-1">
-            <div className="flex flex-wrap items-center gap-1.5">
-              <span
-                className={cn(
-                  "font-semibold text-ink",
-                  nested ? "text-[11px]" : "text-xs",
+          <button
+            type="button"
+            onClick={onToggle}
+            className="flex w-full items-start justify-between gap-3 px-3 py-2.5 text-left hover:bg-canvas-soft"
+          >
+            <div className="min-w-0 flex-1">
+              <div className="flex flex-wrap items-center gap-1.5">
+                <span
+                  className={cn(
+                    "font-semibold text-ink",
+                    nested ? "text-[11px]" : "text-xs",
+                  )}
+                >
+                  {title}
+                </span>
+                {state === "running" && (
+                  <Badge variant="warning" className="gap-1 text-[10px]">
+                    <span className="relative flex h-1.5 w-1.5">
+                      <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-warning opacity-60" />
+                      <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-warning" />
+                    </span>
+                    live
+                  </Badge>
                 )}
-              >
-                {title}
-              </span>
-              {state === "running" && (
-                <Badge variant="warning" className="gap-1 text-[10px]">
-                  <span className="relative flex h-1.5 w-1.5">
-                    <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-warning opacity-60" />
-                    <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-warning" />
-                  </span>
-                  live
-                </Badge>
-              )}
-              {state === "done" && (
-                <Badge variant="success" className="text-[10px]">
-                  done
-                </Badge>
+                {state === "done" && (
+                  <Badge variant="success" className="text-[10px]">
+                    done
+                  </Badge>
+                )}
+              </div>
+              {subtitle && (
+                <p className="mt-0.5 line-clamp-2 text-[11px] text-mute">
+                  {subtitle}
+                </p>
               )}
             </div>
-            {subtitle && (
-              <p className="mt-0.5 line-clamp-2 text-[11px] text-mute">
-                {subtitle}
-              </p>
-            )}
-          </div>
-          <span className="shrink-0 pt-0.5 text-[10px] font-medium text-mute">
-            {open ? "Collapse" : "Expand"}
-          </span>
-        </button>
+            <span className="shrink-0 pt-0.5 text-[10px] font-medium text-mute">
+              {open ? "Collapse" : "Expand"}
+            </span>
+          </button>
 
-        {open && children != null && (
-          <div className="border-t border-hairline bg-canvas-soft/50 px-3 py-2.5">
-            {children}
-          </div>
-        )}
+          {open && children != null && (
+            <div className="border-t border-hairline bg-canvas-soft/50 px-3 py-2.5">
+              {children}
+            </div>
+          )}
+        </div>
       </div>
     </div>
   );
 }
 
-/** Vertical spine + stacked nodes; panels branch from each icon on the line. */
+/** Stacked timeline rows; each node draws its own spine segment between icons. */
 function TraceRail({
   children,
   className,
-  nested,
 }: {
   children: ReactNode;
   className?: string;
   nested?: boolean;
 }) {
-  const spine = nested ? 14 : SPINE_CENTER;
-  return (
-    <div className={cn("relative min-w-0", className)}>
-      <div
-        className={cn(
-          "pointer-events-none absolute w-0.5 -translate-x-1/2 bg-ink/20",
-          nested ? "top-2 bottom-2" : "top-4 bottom-4",
-        )}
-        style={{ left: spine }}
-      />
-      {children}
-    </div>
-  );
+  return <div className={cn("relative min-w-0", className)}>{children}</div>;
 }
 
 function ToolTraceNode({
@@ -211,11 +218,13 @@ function ToolTraceNode({
   active,
   activeRef,
   defaultOpen,
+  isLast,
 }: {
   tool: TraceToolNode;
   active?: boolean;
   activeRef?: React.RefObject<HTMLDivElement | null>;
   defaultOpen: boolean;
+  isLast?: boolean;
 }) {
   const [open, setOpen] = useState(defaultOpen);
   const web =
@@ -229,6 +238,7 @@ function ToolTraceNode({
       activeRef={activeRef}
       active={active}
       nested
+      isLast={isLast}
       open={open}
       onToggle={() => setOpen((v) => !v)}
       icon={Wrench}
@@ -448,7 +458,7 @@ export function AgentTraceTree({
           />
         </div>
         <p className="mt-1.5 text-[10px] text-mute">
-          Follow the vertical line — each icon is a step; panels open to the right.
+          Icons connect on the vertical line; each panel branches from its icon.
         </p>
       </div>
 
@@ -469,6 +479,7 @@ export function AgentTraceTree({
                   title="Input goal"
                   subtitle={item.goal}
                   state="done"
+                  isLast={index === arr.length - 1}
                   open={goalOpen}
                   onToggle={() => setGoalOpen((v) => !v)}
                 >
@@ -493,6 +504,7 @@ export function AgentTraceTree({
                   nodeId={item.id}
                   activeRef={turnActive ? activeRef : undefined}
                   active={turnActive}
+                  isLast={index === arr.length - 1}
                   icon={Brain}
                   title={`Agent · turn ${turnNumber}`}
                   subtitle={
@@ -523,7 +535,7 @@ export function AgentTraceTree({
                         <div className="mb-2 text-[10px] font-bold uppercase tracking-wide text-mute">
                           Tool calls
                         </div>
-                        <TraceRail nested className="mt-2">
+                        <TraceRail nested className="mt-2 border-l border-hairline/80 pl-3">
                           {turn.tools.map((tool, ti) => (
                             <ToolTraceNode
                               key={tool.id}
@@ -532,6 +544,7 @@ export function AgentTraceTree({
                               activeRef={
                                 activeId === tool.id ? activeRef : undefined
                               }
+                              isLast={ti === turn.tools.length - 1}
                               defaultOpen={
                                 tool.state === "running" ||
                                 activeId === tool.id ||
@@ -556,6 +569,7 @@ export function AgentTraceTree({
                   nodeId={item.id}
                   activeRef={hitlActive ? activeRef : undefined}
                   active={hitlActive}
+                  isLast={index === arr.length - 1}
                   icon={Shield}
                   title={
                     item.step?.tool_name === "generative_ui" || item.pending
@@ -601,6 +615,7 @@ export function AgentTraceTree({
                   nodeId={item.id}
                   activeRef={presActive ? activeRef : undefined}
                   active={presActive}
+                  isLast={index === arr.length - 1}
                   icon={Sparkles}
                   title="Visual summary"
                   subtitle={
@@ -638,6 +653,7 @@ export function AgentTraceTree({
                 <TraceNode
                   key={item.id}
                   nodeId={item.id}
+                  isLast={index === arr.length - 1}
                   icon={CheckCircle2}
                   title="Answer synthesis"
                   subtitle="Recovered final answer from tool evidence"
