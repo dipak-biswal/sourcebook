@@ -13,7 +13,7 @@ import { ThemeProvider } from "@/components/theme/ThemeProvider";
 import { ToastProvider } from "@/components/ui/toast";
 import { ErrorBoundary } from "@/components/ui/error-boundary";
 import { ConfirmProvider } from "@/components/ui/confirm-dialog";
-import { ProtectedRoute } from "@/components/layout/ProtectedRoute";
+import { RequireAuth } from "@/components/layout/RequireAuth";
 import { PageLoadingFallback } from "@/components/layout/PageLoadingFallback";
 import { ApiError } from "@/api";
 import { lazyWithRetry } from "@/lib/lazyWithRetry";
@@ -73,16 +73,14 @@ function AppRoutes() {
   return (
     <Routes>
       <Route path="/login" element={<LoginRoute />} />
-      <Route element={<ProtectedRoute />}>
-        <Route path="/" element={<DashboardPage />} />
-        <Route path="/chat" element={<ChatPage />} />
-        <Route path="/documents" element={<DocumentsPage />} />
-        <Route path="/usage" element={<UsagePage />} />
-        <Route path="/agents" element={<AgentsPage />} />
-        <Route path="/settings" element={<SettingsPage />} />
-        <Route path="/notes" element={<NotesPage />} />
-        <Route path="/notes/:noteId" element={<NotesPage />} />
-      </Route>
+      <Route path="/" element={<RequireAuth page={DashboardPage} />} />
+      <Route path="/chat" element={<RequireAuth page={ChatPage} />} />
+      <Route path="/documents" element={<RequireAuth page={DocumentsPage} />} />
+      <Route path="/usage" element={<RequireAuth page={UsagePage} />} />
+      <Route path="/agents" element={<RequireAuth page={AgentsPage} />} />
+      <Route path="/settings" element={<RequireAuth page={SettingsPage} />} />
+      <Route path="/notes" element={<RequireAuth page={NotesPage} />} />
+      <Route path="/notes/:noteId" element={<RequireAuth page={NotesPage} />} />
       <Route path="*" element={<HomeRedirect />} />
     </Routes>
   );
@@ -93,14 +91,14 @@ export default function App() {
     <ThemeProvider>
       <ToastProvider>
         <QueryClientProvider client={queryClient}>
-        <BrowserRouter>
-          <SkipLink />
-          <ErrorBoundary>
+          <BrowserRouter useTransitions={false}>
+            <SkipLink />
+            <ErrorBoundary>
               <ConfirmProvider>
                 <AppRoutes />
-            </ConfirmProvider>
-          </ErrorBoundary>
-        </BrowserRouter>
+              </ConfirmProvider>
+            </ErrorBoundary>
+          </BrowserRouter>
         </QueryClientProvider>
       </ToastProvider>
     </ThemeProvider>

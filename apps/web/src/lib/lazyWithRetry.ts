@@ -26,7 +26,6 @@ export function lazyWithRetry<T extends ComponentType<unknown>>(
       if (isStaleChunkError(error) && !sessionStorage.getItem(CHUNK_RELOAD_KEY)) {
         sessionStorage.setItem(CHUNK_RELOAD_KEY, "1");
         window.location.reload();
-        return new Promise<{ default: T }>(() => {});
       }
       throw error;
     }
