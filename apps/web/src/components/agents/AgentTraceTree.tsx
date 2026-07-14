@@ -36,7 +36,6 @@ const MAIN_ICON_COL = 36;
 const NESTED_ICON_COL = 28;
 const BRANCH_STUB = 12;
 const NESTED_BRANCH_STUB = 10;
-const VISUAL_SUMMARY_AGENT_LABEL = "Visual Summary Agent";
 
 function TraceIcon({
   icon: Icon,
@@ -668,7 +667,6 @@ export function AgentTraceTree({
 
     if (phase.type === "agent_turn") {
       const turn = phase as TraceAgentTurnPhase;
-      const isVisualSummaryAgent = turn.agent_label === VISUAL_SUMMARY_AGENT_LABEL;
       return (
         <ExpandableTraceRow
           key={phase.id}
@@ -685,7 +683,7 @@ export function AgentTraceTree({
             children={turn.children}
             activeChildId={activeChildId}
             activeRef={activeRef}
-            defaultOpen={isVisualSummaryAgent ? false : defaultOpen}
+            defaultOpen={false}
           />
         </ExpandableTraceRow>
       );
