@@ -30,6 +30,7 @@ export type WebSearchHit = {
 
 export type WebSearchOutput = {
   query?: string;
+  original_query?: string;
   results?: WebSearchHit[];
   result_count?: number;
   error?: string;
@@ -50,6 +51,7 @@ export function parseWebSearchOutput(value: unknown): WebSearchOutput | null {
     : [];
   return {
     query: raw.query ? String(raw.query) : undefined,
+    original_query: raw.original_query ? String(raw.original_query) : undefined,
     results,
     result_count:
       typeof raw.result_count === "number" ? raw.result_count : results.length,

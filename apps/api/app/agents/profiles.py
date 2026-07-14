@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import datetime, timezone
 
 GENERAL_TOOL_NAMES = frozenset(
     {"list_documents", "search_documents", "web_search", "create_note"}
@@ -15,6 +16,8 @@ GENERAL_SYSTEM_PROMPT = (
     "- Use search_documents for facts in uploaded workspace files (resumes, notes, PDFs).\n"
     "- Use web_search for external context: job/role requirements, industry benchmarks, "
     "definitions, or market trends when the goal compares a document to real-world expectations.\n"
+    "- web_search queries for skills, requirements, or market data must use the CURRENT YEAR "
+    "from the date header above — never outdated years (e.g. 2023).\n"
     "- Prefer workspace evidence first; add web_search only when external context helps "
     "(e.g. gap analysis vs a target role).\n"
     "- Use at most 1–2 search_documents calls and at most 1 web_search call per run, "
@@ -54,6 +57,16 @@ GENERAL_PROFILE = AgentProfile(
 def normalize_agent_type(value: str | None) -> str:
     """Legacy API values map to the single workspace agent."""
     return "general"
+
+
+def agent_system_prompt(base: str | None = None) -> str:
+    """Inject current date/year so web_search queries stay up to date."""
+    text = base or GENERAL_SYSTEM_PROMPT
+    now = datetime.now(timezone.utc)
+    header = (
+        f"TODAY: {now.date().isoformat()} (current year: {now.year}).\n"
+    )
+    return header + text
 
 
 def get_profile(agent_type: str | None = None) -> AgentProfile:

@@ -69,6 +69,7 @@ def build_tools(
         """
         Search the public web via DuckDuckGo for role requirements, market context,
         benchmarks, or definitions not found in workspace documents.
+        Use the current year for time-sensitive queries (skills, requirements, hiring).
         """
 
         return search_web(query, max_results=max_results)

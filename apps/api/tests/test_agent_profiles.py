@@ -3,7 +3,7 @@
 import uuid
 from unittest.mock import MagicMock
 
-from app.agents.profiles import get_profile, normalize_agent_type
+from app.agents.profiles import agent_system_prompt, get_profile, normalize_agent_type
 from app.agents.tools import build_tools
 
 
@@ -14,6 +14,13 @@ def test_general_profile_has_workspace_tools():
     assert "search_documents" in profile.tool_names
     assert "web_search" in profile.tool_names
     assert "create_note" in profile.tool_names
+
+
+def test_agent_system_prompt_includes_current_year():
+    prompt = agent_system_prompt()
+    assert "TODAY:" in prompt
+    assert "current year:" in prompt
+    assert "never outdated years" in prompt
 
 
 def test_normalize_agent_type_always_general():

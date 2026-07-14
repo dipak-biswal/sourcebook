@@ -25,6 +25,12 @@ export function WebSearchResults({
           <span className="text-[11px] text-body">
             <span className="text-mute">Query:</span>{" "}
             <span className="font-medium text-ink">{data.query}</span>
+            {data.original_query && data.original_query !== data.query && (
+              <span className="text-mute">
+                {" "}
+                (adjusted from “{data.original_query}”)
+              </span>
+            )}
           </span>
         )}
         <span className="text-[10px] text-mute">

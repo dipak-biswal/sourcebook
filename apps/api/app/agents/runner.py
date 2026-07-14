@@ -15,7 +15,7 @@ from langchain_openai import ChatOpenAI
 from pydantic import SecretStr
 from sqlalchemy.orm import Session
 
-from app.agents.profiles import get_profile
+from app.agents.profiles import agent_system_prompt, get_profile
 from app.agents.tools import build_tools
 from app.config import settings
 from app.models import AgentRun, AgentStep, Document, Workspace
@@ -975,7 +975,7 @@ def run_agent(
     db.flush()
 
     messages: list[BaseMessage] = [
-        SystemMessage(content=profile.system_prompt),
+        SystemMessage(content=agent_system_prompt(profile.system_prompt)),
         HumanMessage(content=goal),
     ]
     _emit(
@@ -1139,7 +1139,7 @@ def approve_agent_run(
         # Fallback if old runs lack checkpoint
         profile = get_profile(run.agent_type)
         messages = [
-            SystemMessage(content=profile.system_prompt),
+            SystemMessage(content=agent_system_prompt(profile.system_prompt)),
             HumanMessage(content=run.goal or ""),
             AIMessage(
                 content="",
