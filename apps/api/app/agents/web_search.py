@@ -6,6 +6,11 @@ import re
 from datetime import datetime, timezone
 from typing import Any
 
+try:
+    from ddgs import DDGS
+except ImportError:  # pragma: no cover - exercised via ImportError payload
+    DDGS = None  # type: ignore[misc, assignment]
+
 _TIME_SENSITIVE = re.compile(
     r"(?i)\b("
     r"requirements?|skills?|trends?|market|salary|salaries|hiring|benchmark|"
@@ -52,7 +57,7 @@ def search_web(
     query: str,
     *,
     max_results: int = 5,
-    region: str = "wt-wt",
+    region: str = "us-en",
     current_year: int | None = None,
 ) -> dict[str, Any]:
     """
@@ -75,21 +80,24 @@ def search_web(
         q, current_year=current_year
     )
 
-    try:
-        from duckduckgo_search import DDGS
-    except ImportError:
+    if DDGS is None:
         payload = {
             "query": search_query,
             "results": [],
             "result_count": 0,
-            "error": "duckduckgo-search package is not installed",
+            "error": "ddgs package is not installed",
         }
         if original_query:
             payload["original_query"] = original_query
         return payload
 
     try:
-        raw = DDGS().text(search_query, region=region, max_results=limit)
+        raw = DDGS().text(
+            query=search_query,
+            region=region,
+            max_results=limit,
+            backend="auto",
+        )
     except Exception as exc:
         payload = {
             "query": search_query,
