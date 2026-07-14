@@ -392,9 +392,28 @@ function ToolChildBody({ child }: { child: Extract<TraceChild, { type: "tool" }>
     child.tool_name === "web_search" && child.output
       ? parseWebSearchOutput(child.output)
       : null;
+  const llmChildren = (child.children ?? []).filter(
+    (c): c is Extract<TraceChild, { type: "llm_response" }> => c.type === "llm_response",
+  );
 
   return (
     <div className="space-y-2">
+      {(child.prompt_tokens != null || child.completion_tokens != null) && (
+        <TokenUsageLine
+          promptTokens={child.prompt_tokens}
+          completionTokens={child.completion_tokens}
+          totalTokens={child.total_tokens}
+        />
+      )}
+      {llmChildren.map((llmChild) => (
+        <div key={llmChild.id} className="space-y-1.5 rounded-[6px] border border-hairline/80 bg-canvas p-2">
+          <div className="text-[10px] font-bold uppercase tracking-wide text-mute">
+            {llmChild.label}
+            {llmChild.model ? ` · ${llmChild.model}` : ""}
+          </div>
+          <LlmChildBody child={llmChild} />
+        </div>
+      ))}
       {child.input != null && (
         <div>
           <div className="mb-1 text-[10px] font-bold uppercase tracking-wide text-mute">Input</div>

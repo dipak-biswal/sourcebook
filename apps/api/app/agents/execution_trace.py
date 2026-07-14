@@ -26,6 +26,11 @@ TOOL_LABELS: dict[str, str] = {
 VISUAL_SUMMARY_AGENT_LABEL = "Visual Summary Agent"
 
 PRESENTATION_TOOL = "generative_ui"
+VISUAL_TOOL_LLM_NAMES = frozenset({"plan_layout", "render_ui"})
+VISUAL_TOOL_LLM_LABELS: dict[str, str] = {
+    "plan_layout": "Layout planner",
+    "render_ui": "Layout engine",
+}
 COMPLETE_STATUSES = frozenset({"completed", "cancelled", "failed"})
 
 
@@ -90,6 +95,63 @@ def _tokens_from_step_input(step: AgentStep | None) -> dict[str, int]:
         if isinstance(value, int) and value >= 0:
             raw[key] = value
     return _normalize_token_counts(raw, step=step)
+
+
+def _tokens_from_visual_tool_meta(meta: dict[str, Any]) -> dict[str, int]:
+    raw: dict[str, int] = {}
+    for key in ("prompt_tokens", "completion_tokens", "total_tokens"):
+        value = meta.get(key)
+        if isinstance(value, int) and value >= 0:
+            raw[key] = value
+    return _normalize_token_counts(raw)
+
+
+def _visual_tool_llm_meta(step: AgentStep | None) -> dict[str, Any] | None:
+    if not step or step.tool_name not in VISUAL_TOOL_LLM_NAMES:
+        return None
+    meta: dict[str, Any] = {}
+    if isinstance(step.input, dict):
+        meta = dict(step.input)
+    elif isinstance(step.output, dict):
+        meta = dict(step.output)
+    else:
+        return None
+    if not any(
+        isinstance(meta.get(key), int) and meta.get(key) >= 0
+        for key in ("prompt_tokens", "completion_tokens", "total_tokens")
+    ):
+        return None
+    return meta
+
+
+def _visual_tool_llm_child(tool_acc: _ToolAcc) -> dict[str, Any] | None:
+    step = tool_acc.result_step
+    meta = _visual_tool_llm_meta(step)
+    if not meta:
+        return None
+    prompt = meta.get("prompt")
+    if isinstance(prompt, str):
+        prompt = [{"role": "user", "content": prompt}]
+    llm_output = meta.get("llm_output")
+    if llm_output is None and isinstance(step.output if step else None, dict):
+        output = step.output  # type: ignore[union-attr]
+        llm_output = output.get("layout_plan") or output.get("spec")
+    if isinstance(llm_output, (dict, list)):
+        output_text = json.dumps(llm_output, ensure_ascii=False, default=str)
+    else:
+        output_text = str(llm_output or "")
+    return _apply_tokens(
+        {
+            "id": f"{tool_acc.id}-llm",
+            "type": "llm_response",
+            "label": VISUAL_TOOL_LLM_LABELS.get(tool_acc.tool_name, "LLM"),
+            "state": "done",
+            "model": meta.get("model") or _resolve_model(step, None, None),
+            "prompt": prompt,
+            "output": output_text,
+        },
+        _tokens_from_visual_tool_meta(meta),
+    )
 
 
 def _tokens_from_live(
@@ -207,6 +269,12 @@ class _ToolAcc:
             node["input"] = self.result_step.input
         if self.result_step and self.result_step.output is not None:
             node["output"] = self.result_step.output
+        llm_child = _visual_tool_llm_child(self)
+        if llm_child:
+            node["children"] = [llm_child]
+            node = _apply_tokens(node, _tokens_from_visual_tool_meta(
+                _visual_tool_llm_meta(self.result_step) or {}
+            ))
         return node
 
 
@@ -920,6 +988,10 @@ def _sum_trace_tokens(phases: list[dict[str, Any]]) -> dict[str, int]:
             for child in phase.get("children") or []:
                 if child.get("type") == "llm_response":
                     consume(child)
+                elif child.get("type") == "tool":
+                    for sub in child.get("children") or []:
+                        if sub.get("type") == "llm_response":
+                            consume(sub)
         elif ptype == "synthesis":
             consume(phase)
         elif ptype == "presentation":

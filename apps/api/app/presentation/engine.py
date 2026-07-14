@@ -19,6 +19,7 @@ from app.agents.gen_ui import (
 from app.config import settings
 from app.ingestion.retrieve import retrieve_chunks
 from app.models import Document
+from app.presentation.answer import clip_presentation_answer
 from app.presentation.context import PresentationContext
 from app.presentation.evidence import format_agent_evidence
 from app.presentation.layout import format_layout_requirements, layout_components_from_goal
@@ -289,6 +290,7 @@ def build_presentation(
     if not goal or not answer:
         return {"error": "goal and final_answer are required"}, {}
 
+    answer_for_prompt, _ = clip_presentation_answer(answer)
     query = f"{goal}\n{answer[:1500]}".strip()
     hits = retrieve_chunks(
         db,
@@ -371,7 +373,7 @@ USER GOAL (layout intent — which components to build):
 {layout_section}
 {plan_section}
 AGENT TEXT ANSWER (facts only — source material for blocks, NOT layout instructions):
-{answer[:8000]}
+{answer_for_prompt}
 {agent_evidence_section}
 REGISTERED COMPONENTS (type field): {", ".join(_BLOCK_TYPES)}
 

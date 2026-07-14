@@ -12,6 +12,7 @@ from sqlalchemy.orm import Session
 
 from app.agents.date_tools import get_current_date
 from app.config import settings
+from app.presentation.answer import clip_presentation_answer
 from app.presentation.context import PresentationContext
 from app.presentation.engine import build_presentation
 from app.presentation.evidence import format_agent_evidence
@@ -27,10 +28,16 @@ def _client() -> OpenAI:
 
 def _plan_layout_llm(ctx: PresentationContext, *, notes: str = "") -> dict[str, Any]:
     goal = (ctx.goal or "").strip()
-    answer = (ctx.final_answer or "").strip()
+    answer, truncated = clip_presentation_answer(ctx.final_answer or "")
     components = layout_components_from_goal(goal)
     layout_hints = format_layout_requirements(components)
     evidence = format_agent_evidence(ctx.agent_evidence)
+    truncation_note = (
+        "\nNOTE: Main agent answer was truncated for context limits — "
+        "use AGENT EVIDENCE for missing detail.\n"
+        if truncated
+        else ""
+    )
 
     prompt = f"""You are the Visual Summary Agent planner. Decide how to present the main agent's answer as UI blocks.
 
@@ -38,7 +45,8 @@ USER GOAL:
 {goal}
 
 MAIN AGENT ANSWER (facts — do not invent new facts):
-{answer[:6000]}
+{answer}
+{truncation_note}
 
 AGENT EVIDENCE:
 {evidence or "(none)"}
@@ -96,6 +104,8 @@ Use only grounded components. Omit blocks when data is missing."""
 
     return {
         "plan": plan,
+        "prompt": prompt,
+        "llm_output": raw,
         "usage": {
             "model": settings.visual_summary_model,
             "prompt_tokens": prompt_tokens,
@@ -121,13 +131,27 @@ def build_visual_tools(
         structured layout plan before rendering UI. Call this before render_ui.
         """
         result = _plan_layout_llm(ctx, notes=notes)
+        usage = result["usage"]
+        log_usage(
+            db,
+            user_id=user_id,
+            workspace_id=workspace_id,
+            kind="visual_summary_plan",
+            model=usage["model"],
+            prompt_tokens=int(usage["prompt_tokens"] or 0),
+            completion_tokens=int(usage["completion_tokens"] or 0),
+            total_tokens=int(usage["total_tokens"] or 0),
+            meta={"goal": (ctx.goal or "")[:200]},
+        )
         return {
             "status": "planned",
             "layout_plan": result["plan"],
-            "model": result["usage"]["model"],
-            "prompt_tokens": result["usage"]["prompt_tokens"],
-            "completion_tokens": result["usage"]["completion_tokens"],
-            "total_tokens": result["usage"]["total_tokens"],
+            "model": usage["model"],
+            "prompt": result["prompt"],
+            "llm_output": result["llm_output"],
+            "prompt_tokens": usage["prompt_tokens"],
+            "completion_tokens": usage["completion_tokens"],
+            "total_tokens": usage["total_tokens"],
         }
 
     @tool
@@ -177,6 +201,8 @@ def build_visual_tools(
             "presentation_profile": spec.get("presentation_profile") if isinstance(spec, dict) else None,
             "block_count": len(spec.get("blocks") or []) if isinstance(spec, dict) else 0,
             "model": meta.get("model"),
+            "prompt": meta.get("prompt"),
+            "llm_output": meta.get("llm_output"),
             "prompt_tokens": meta.get("prompt_tokens"),
             "completion_tokens": meta.get("completion_tokens"),
             "total_tokens": meta.get("total_tokens"),

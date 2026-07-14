@@ -46,7 +46,7 @@ def _parse_document_hits(output: Any) -> list[DocumentEvidenceHit]:
         hits.append(
             DocumentEvidenceHit(
                 filename=filename,
-                snippet=snippet[:600],
+                snippet=snippet[:1200],
                 score=float(score) if isinstance(score, (int, float)) else None,
                 chunk_id=str(chunk_id) if chunk_id else None,
             )
@@ -72,7 +72,7 @@ def _parse_web_hits(output: Any) -> list[WebEvidenceHit]:
         hits.append(
             WebEvidenceHit(
                 title=title or url or "Web result",
-                snippet=snippet[:600],
+                snippet=snippet[:1200],
                 url=url,
             )
         )
@@ -82,8 +82,8 @@ def _parse_web_hits(output: Any) -> list[WebEvidenceHit]:
 def collect_evidence_from_steps(
     steps: list[Any],
     *,
-    max_document_hits: int = 12,
-    max_web_hits: int = 8,
+    max_document_hits: int = 16,
+    max_web_hits: int = 12,
 ) -> AgentEvidenceBundle:
     """
     Flatten search_documents and web_search tool_result steps into one bundle.

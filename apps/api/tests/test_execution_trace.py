@@ -281,11 +281,24 @@ def test_visual_summary_agent_turns_after_handoff():
             {
                 "type": "tool_result",
                 "tool_name": "plan_layout",
+                "input": {
+                    "notes": "",
+                    "model": "gpt-4o-mini",
+                    "prompt": "Plan the resume dashboard",
+                    "llm_output": '{"presentation_profile":"resume_dashboard"}',
+                    "prompt_tokens": 180,
+                    "completion_tokens": 42,
+                    "total_tokens": 222,
+                },
                 "output": {
                     "layout_plan": {
                         "presentation_profile": "resume_dashboard",
                         "components": ["table", "progress"],
-                    }
+                    },
+                    "model": "gpt-4o-mini",
+                    "prompt_tokens": 180,
+                    "completion_tokens": 42,
+                    "total_tokens": 222,
                 },
             },
             {
@@ -339,8 +352,63 @@ def test_visual_summary_agent_turns_after_handoff():
     ]
     assert "Plan layout" in tool_labels
     assert "Render UI" in tool_labels
+    plan_tool = next(
+        c
+        for vt in visual_turns
+        for c in vt.get("children") or []
+        if c.get("type") == "tool" and c.get("tool_name") == "plan_layout"
+    )
+    planner = next(
+        child for child in plan_tool.get("children") or [] if child.get("type") == "llm_response"
+    )
+    assert planner["label"] == "Layout planner"
+    assert planner["prompt_tokens"] == 180
+    assert planner["completion_tokens"] == 42
+    assert planner["total_tokens"] == 222
     pres = next(p for p in trace["phases"] if p["type"] == "presentation")
     assert pres.get("children") == []
+
+
+def test_execution_trace_includes_plan_layout_tokens_in_total():
+    run = _run_with_steps(
+        "Summarize resume with visual summary",
+        [
+            {"type": "final", "output": "Main agent answer with enough detail for layout."},
+            {
+                "type": "thought",
+                "input": {
+                    "messages": [{"role": "human", "content": "handoff"}],
+                    "prompt_tokens": 50,
+                    "completion_tokens": 10,
+                    "total_tokens": 60,
+                },
+                "output": "Planning layout",
+            },
+            {
+                "type": "tool_result",
+                "tool_name": "plan_layout",
+                "input": {
+                    "notes": "",
+                    "model": "gpt-4o-mini",
+                    "prompt_tokens": 180,
+                    "completion_tokens": 42,
+                    "total_tokens": 222,
+                },
+                "output": {
+                    "status": "planned",
+                    "layout_plan": {"presentation_profile": "resume_dashboard"},
+                    "prompt_tokens": 180,
+                    "completion_tokens": 42,
+                    "total_tokens": 222,
+                },
+            },
+        ],
+    )
+    trace = build_execution_trace(run)
+    usage = trace["token_usage"]
+    assert usage["prompt_tokens"] == 230
+    assert usage["completion_tokens"] == 52
+    assert usage["total_tokens"] == 282
 
 
 def test_hitl_before_presentation():

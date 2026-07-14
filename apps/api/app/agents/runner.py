@@ -25,6 +25,7 @@ from app.agents.execution_trace import (
     build_execution_trace,
     emit_execution_trace,
 )
+from app.presentation.answer import clip_presentation_answer, resolve_presentation_answer
 from app.presentation.context import PresentationContext
 
 from app.presentation.evidence import (
@@ -609,11 +610,15 @@ def _presentation_context_for_run(db: Session, run: AgentRun) -> PresentationCon
     tags = [str(t).strip() for t in raw_tags if t and str(t).strip()]
     steps = sorted(run.steps or [], key=lambda s: s.step_index)
     agent_evidence = collect_evidence_from_steps(steps)
+    narrative = resolve_presentation_answer(
+        final_answer=run.final_answer,
+        steps=steps,
+    )
     return PresentationContext(
         workspace_id=run.workspace_id,
         user_id=run.user_id or uuid.UUID(int=0),
         goal=run.goal or "",
-        final_answer=run.final_answer or "",
+        final_answer=narrative,
         workspace_name=ws.name if ws else "",
         workspace_description=(ws.description or "") if ws else "",
         workspace_tags=tags,
@@ -624,13 +629,85 @@ def _presentation_context_for_run(db: Session, run: AgentRun) -> PresentationCon
 
 def _visual_summary_handoff_message(ctx: PresentationContext) -> str:
     evidence = format_agent_evidence(ctx.agent_evidence)
+    answer, truncated = clip_presentation_answer(ctx.final_answer or "")
+    truncation_note = (
+        "\n(Note: answer clipped for context — plan_layout also receives agent evidence.)\n"
+        if truncated
+        else ""
+    )
     return (
         "MAIN AGENT HANDOFF\n\n"
         f"User goal:\n{ctx.goal}\n\n"
-        f"Main agent answer:\n{(ctx.final_answer or '')[:8000]}\n\n"
+        f"Main agent answer:\n{answer}\n"
+        f"{truncation_note}\n"
         f"Agent evidence:\n{evidence or '(none)'}\n\n"
         "Plan the visual layout with plan_layout, then render it with render_ui."
     )
+
+
+_VISUAL_TOOL_LLM_FIELDS = (
+    "model",
+    "prompt",
+    "llm_output",
+    "prompt_tokens",
+    "completion_tokens",
+    "total_tokens",
+)
+
+
+def _visual_tool_result_input(tool_name: str, args: Any, result: Any) -> Any:
+    """Persist embedded LLM metadata on visual tool_result steps for trace + totals."""
+    payload = dict(args or {}) if isinstance(args, dict) else {}
+    if tool_name not in ("plan_layout", "render_ui") or not isinstance(result, dict):
+        return payload
+    for key in _VISUAL_TOOL_LLM_FIELDS:
+        value = result.get(key)
+        if value is not None:
+            payload[key] = value
+    return payload
+
+
+def _accumulate_visual_tool_tokens(
+    result: Any,
+    *,
+    prompt_tokens_total: int,
+    completion_tokens_total: int,
+    total_tokens_acc: int,
+) -> tuple[int, int, int]:
+    if not isinstance(result, dict):
+        return prompt_tokens_total, completion_tokens_total, total_tokens_acc
+    prompt = int(result.get("prompt_tokens") or 0)
+    completion = int(result.get("completion_tokens") or 0)
+    total = int(result.get("total_tokens") or 0) or (prompt + completion)
+    if prompt <= 0 and completion <= 0 and total <= 0:
+        return prompt_tokens_total, completion_tokens_total, total_tokens_acc
+    return (
+        prompt_tokens_total + prompt,
+        completion_tokens_total + completion,
+        total_tokens_acc + total,
+    )
+
+
+def _visual_tool_call_input(
+    tool_name: str,
+    args: Any,
+    *,
+    ctx: PresentationContext | None,
+) -> Any:
+    """Record full handoff context on plan_layout steps (not just agent notes)."""
+    if tool_name != "plan_layout" or ctx is None:
+        return args
+    answer, truncated = clip_presentation_answer(ctx.final_answer or "")
+    evidence = format_agent_evidence(ctx.agent_evidence)
+    payload = dict(args or {}) if isinstance(args, dict) else {"notes": args}
+    payload["handoff"] = {
+        "goal": ctx.goal,
+        "answer": answer,
+        "answer_chars": len(ctx.final_answer or ""),
+        "answer_truncated": truncated,
+        "evidence": evidence or None,
+    }
+    return payload
 
 
 def _spec_from_render_ui_result(result: Any) -> dict[str, Any] | None:
@@ -1003,7 +1080,11 @@ def _run_tool_loop(
                         step_index=step_index,
                         type="tool_call",
                         tool_name=tc.get("name"),
-                        input=tc.get("args"),
+                        input=_visual_tool_call_input(
+                            str(tc.get("name") or ""),
+                            tc.get("args"),
+                            ctx=presentation_context,
+                        ),
                         on_event=on_event,
                     )
             content = _content_str(ai.content)
@@ -1104,12 +1185,24 @@ def _run_tool_loop(
                             step_index=step_index,
                             type="tool_result",
                             tool_name=rr["name"],
-                            input=rr["args"],
+                            input=_visual_tool_result_input(
+                                rr["name"],
+                                rr["args"],
+                                rr["result"],
+                            ),
                             output=rr["result"],
                             on_event=on_event,
                             duration_ms=round(rr["ms"], 1),
                         )
                         if finalize_mode == "visual_summary":
+                            prompt_tokens_total, completion_tokens_total, total_tokens_acc = (
+                                _accumulate_visual_tool_tokens(
+                                    rr["result"],
+                                    prompt_tokens_total=prompt_tokens_total,
+                                    completion_tokens_total=completion_tokens_total,
+                                    total_tokens_acc=total_tokens_acc,
+                                )
+                            )
                             _apply_render_ui_result(
                                 run,
                                 tool_name=rr["name"],
@@ -1229,12 +1322,24 @@ def _run_tool_loop(
                         step_index=step_index,
                         type="tool_result",
                         tool_name=r["name"],
-                        input=r["args"],
+                        input=_visual_tool_result_input(
+                            r["name"],
+                            r["args"],
+                            r["result"],
+                        ),
                         output=r["result"],
                         on_event=on_event,
                         duration_ms=round(r["ms"], 1),
                     )
                     if finalize_mode == "visual_summary":
+                        prompt_tokens_total, completion_tokens_total, total_tokens_acc = (
+                            _accumulate_visual_tool_tokens(
+                                r["result"],
+                                prompt_tokens_total=prompt_tokens_total,
+                                completion_tokens_total=completion_tokens_total,
+                                total_tokens_acc=total_tokens_acc,
+                            )
+                        )
                         _apply_render_ui_result(
                             run,
                             tool_name=r["name"],

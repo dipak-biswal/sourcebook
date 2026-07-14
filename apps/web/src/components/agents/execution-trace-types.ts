@@ -8,6 +8,10 @@ export type TraceToolChild = {
   state: TraceState;
   input?: unknown;
   output?: unknown;
+  prompt_tokens?: number | null;
+  completion_tokens?: number | null;
+  total_tokens?: number | null;
+  children?: TraceChild[];
 };
 
 export type TraceLlmMessage = {
