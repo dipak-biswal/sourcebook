@@ -1,4 +1,4 @@
-import { Suspense, type ReactNode } from "react";
+import { Suspense } from "react";
 import {
   BrowserRouter,
   Link,
@@ -59,89 +59,29 @@ function HomeRedirect() {
   return <Navigate to={getToken() ? "/" : "/login"} replace />;
 }
 
-/** Per-route Suspense so leaving a page (e.g. Chat) unmounts it instead of keeping stale content. */
-function LazyRoute({ children }: { children: ReactNode }) {
-  return <Suspense fallback={<PageLoadingFallback />}>{children}</Suspense>;
-}
-
-function AppRoutes() {
+function LoginRoute() {
   const location = useLocation();
 
   return (
-    <Routes location={location} key={location.pathname}>
-      <Route
-        path="/login"
-        element={
-          <LazyRoute>
-            <LoginPage />
-          </LazyRoute>
-        }
-      />
+    <Suspense key={location.key} fallback={<PageLoadingFallback />}>
+      <LoginPage />
+    </Suspense>
+  );
+}
+
+function AppRoutes() {
+  return (
+    <Routes>
+      <Route path="/login" element={<LoginRoute />} />
       <Route element={<ProtectedRoute />}>
-        <Route
-          path="/"
-          element={
-            <LazyRoute>
-              <DashboardPage />
-            </LazyRoute>
-          }
-        />
-        <Route
-          path="/chat"
-          element={
-            <LazyRoute>
-              <ChatPage />
-            </LazyRoute>
-          }
-        />
-        <Route
-          path="/documents"
-          element={
-            <LazyRoute>
-              <DocumentsPage />
-            </LazyRoute>
-          }
-        />
-        <Route
-          path="/usage"
-          element={
-            <LazyRoute>
-              <UsagePage />
-            </LazyRoute>
-          }
-        />
-        <Route
-          path="/agents"
-          element={
-            <LazyRoute>
-              <AgentsPage />
-            </LazyRoute>
-          }
-        />
-        <Route
-          path="/settings"
-          element={
-            <LazyRoute>
-              <SettingsPage />
-            </LazyRoute>
-          }
-        />
-        <Route
-          path="/notes"
-          element={
-            <LazyRoute>
-              <NotesPage />
-            </LazyRoute>
-          }
-        />
-        <Route
-          path="/notes/:noteId"
-          element={
-            <LazyRoute>
-              <NotesPage />
-            </LazyRoute>
-          }
-        />
+        <Route path="/" element={<DashboardPage />} />
+        <Route path="/chat" element={<ChatPage />} />
+        <Route path="/documents" element={<DocumentsPage />} />
+        <Route path="/usage" element={<UsagePage />} />
+        <Route path="/agents" element={<AgentsPage />} />
+        <Route path="/settings" element={<SettingsPage />} />
+        <Route path="/notes" element={<NotesPage />} />
+        <Route path="/notes/:noteId" element={<NotesPage />} />
       </Route>
       <Route path="*" element={<HomeRedirect />} />
     </Routes>
