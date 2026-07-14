@@ -30,6 +30,8 @@ BlockType = Literal[
     "timeline",
     "quote",
     "comparison",
+    "progress",
+    "chart",
 ]
 
 
@@ -50,6 +52,8 @@ class GenUIBlock(BaseModel):
     items: list[str] | None = None
     terms: list[KeyTerm] | None = None
     faqs: list[FaqItem] | None = None
+    # Lowercase slugs — matched by interactive chip filters in the web UI
+    tags: list[str] | None = None
     # 1-based indices into payload.sources (same numbers as [1], [2] in context)
     source_indices: list[int] = Field(default_factory=list)
 
@@ -177,6 +181,11 @@ def _normalize_block_dict(raw: Any) -> dict[str, Any] | None:
         "versus": "comparison",
         "vs": "comparison",
         "matrix": "table",
+        "skill_bar": "progress",
+        "skills": "progress",
+        "bars": "chart",
+        "bar_chart": "chart",
+        "graph": "chart",
     }
     b["type"] = type_map.get(t, t if t in {
         "summary",
@@ -191,6 +200,8 @@ def _normalize_block_dict(raw: Any) -> dict[str, Any] | None:
         "timeline",
         "quote",
         "comparison",
+        "progress",
+        "chart",
     } else "summary")
 
     # title
@@ -255,6 +266,17 @@ def _normalize_block_dict(raw: Any) -> dict[str, Any] | None:
                 faqs_out.append({"question": str(q).strip(), "answer": str(a).strip()})
     if faqs_out:
         b["faqs"] = faqs_out
+
+    tags_raw = b.get("tags") or b.get("filter_tags") or b.get("themes")
+    if tags_raw:
+        if isinstance(tags_raw, str):
+            tags_raw = [t.strip() for t in tags_raw.split(",") if t.strip()]
+        if isinstance(tags_raw, list):
+            b["tags"] = [
+                re.sub(r"\s+", "-", str(t).strip().lower())
+                for t in tags_raw
+                if str(t).strip()
+            ]
 
     # If model put a list into body only, split to items for list-like types
     if b["type"] in ("key_points", "steps") and not b.get("items") and b.get("body"):

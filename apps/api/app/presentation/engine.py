@@ -35,6 +35,8 @@ _BLOCK_TYPES = (
     "timeline",
     "quote",
     "comparison",
+    "progress",
+    "chart",
 )
 
 
@@ -132,13 +134,14 @@ AGENT TEXT ANSWER:
 REGISTERED COMPONENTS (type field): {", ".join(_BLOCK_TYPES)}
 
 CONTEXT → COMPONENT MAP (use at least 3 DIFFERENT types; avoid summary+key_points+chips only):
-- Resume / profile / skills → metrics (Label | Value items) + chips + table (Skill | Level | Notes rows)
+- Resume / profile / skills → progress (Skill | 85 percent items) + chart (same shape, ranked bars) + chips (filter tags) + table
 - Career / history / milestones → timeline (Period | Role | Detail per item) + callout for standout insight
 - Compare / gap analysis / vs → comparison (Aspect | Option A | Option B) OR table with header row
 - Teach / explain concepts → key_terms + faq + steps (ordered items)
 - Risks / caveats / important → callout (body required; use title like "Watch out")
 - Memorable insight / testimonial line → quote (body=quote text, title=attribution or topic)
-- Quick scan / themes → chips + metrics
+- Skill fit / readiness / scores → progress or chart (Label | 0-100 or Label | 85%)
+- Quick scan / themes → chips (items as "Theme|slug") + tag other blocks with matching tags: ["slug"]
 - Process / how-to → steps (ordered items) — not bullets in key_points
 - Narrative only → at most ONE summary block; pair with specialized types above
 
@@ -147,6 +150,9 @@ FIELD SHAPES:
   - table/comparison: "Col1 | Col2 | Col3" (first row may be headers)
   - metrics: "Label | Value" per item
   - timeline: "Period | Title | Detail" per item
+  - progress/chart: "Label | 85" or "Label | 72%" (0-100 skill/fit scores)
+  - chips: "Visible label|filter-slug" — tag related blocks with tags: ["filter-slug"]
+- tags: optional string array on ANY block (lowercase slugs) for chip filtering
 - key_terms: [{{"term":"","definition":""}}]
 - faq: [{{"question":"","answer":""}}]
 - callout/quote/summary: body text; title optional

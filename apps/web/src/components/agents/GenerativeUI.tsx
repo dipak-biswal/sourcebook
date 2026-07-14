@@ -1,6 +1,7 @@
 import { useState } from "react";
 import {
   AlertTriangle,
+  BarChart3,
   BookOpen,
   ChevronDown,
   ChevronRight,
@@ -22,6 +23,34 @@ import { generativeUIToNoteBody } from "./generative-ui";
 
 function parsePipeRow(row: string): string[] {
   return row.split("|").map((c) => c.trim());
+}
+
+function parsePercent(value: string): number {
+  const match = value.match(/(\d+(?:\.\d+)?)/);
+  if (!match) return 0;
+  const n = parseFloat(match[1]);
+  if (n <= 1) return Math.round(n * 100);
+  return Math.min(100, Math.max(0, Math.round(n)));
+}
+
+function slugify(value: string): string {
+  return value.trim().toLowerCase().replace(/\s+/g, "-");
+}
+
+function parseChip(item: string): { label: string; tag: string } {
+  const parts = parsePipeRow(item);
+  const label = parts[0] || item;
+  const tag = slugify(parts[1] || parts[0] || item);
+  return { label, tag };
+}
+
+function blockMatchesTag(block: GenUIBlock, tag: string | null): boolean {
+  if (!tag) return true;
+  if (block.type === "chips" || block.type === "summary") return true;
+  const tags = (block.tags ?? []).map((t) => slugify(t));
+  if (tags.includes(tag)) return true;
+  const titleSlug = slugify(block.title ?? "");
+  return titleSlug.includes(tag) || tag.includes(titleSlug);
 }
 
 function BlockLabel({
@@ -46,6 +75,8 @@ function BlockLabel({
     callout: AlertTriangle,
     quote: MessageSquareQuote,
     comparison: Table2,
+    progress: BarChart3,
+    chart: BarChart3,
   };
   const Icon = icons[type] ?? Sparkles;
   return (
@@ -114,22 +145,56 @@ function QuoteBlock({ block }: { block: GenUIBlock }) {
   );
 }
 
-function ChipsBlock({ block }: { block: GenUIBlock }) {
+function ChipsBlock({
+  block,
+  activeTag,
+  onSelect,
+}: {
+  block: GenUIBlock;
+  activeTag: string | null;
+  onSelect: (tag: string | null) => void;
+}) {
   const items = block.items ?? [];
   if (!items.length) return null;
+  const chips = items.map(parseChip);
+
   return (
     <div>
-      <BlockLabel type="chips" title={block.title} />
-      <div className="flex flex-wrap gap-1.5">
-        {items.map((item, j) => (
-          <span
+      <BlockLabel type="chips" title={block.title ?? "Filter by theme"} />
+      <div className="flex flex-wrap items-center gap-1.5">
+        <button
+          type="button"
+          onClick={() => onSelect(null)}
+          className={cn(
+            "inline-flex rounded-full border px-2.5 py-1 text-[11px] font-medium transition-colors",
+            activeTag === null
+              ? "border-ink bg-ink text-[var(--canvas)]"
+              : "border-hairline bg-canvas text-ink hover:bg-canvas-soft-2",
+          )}
+        >
+          All
+        </button>
+        {chips.map((chip, j) => (
+          <button
             key={j}
-            className="inline-flex rounded-full border border-hairline bg-canvas px-2.5 py-1 text-[11px] font-medium text-ink transition-colors hover:bg-canvas-soft-2"
+            type="button"
+            onClick={() => onSelect(activeTag === chip.tag ? null : chip.tag)}
+            className={cn(
+              "inline-flex rounded-full border px-2.5 py-1 text-[11px] font-medium transition-colors",
+              activeTag === chip.tag
+                ? "border-ink bg-ink text-[var(--canvas)]"
+                : "border-hairline bg-canvas text-ink hover:bg-canvas-soft-2",
+            )}
           >
-            {item}
-          </span>
+            {chip.label}
+          </button>
         ))}
       </div>
+      {activeTag && (
+        <p className="mt-1.5 text-[10px] text-mute">
+          Showing sections tagged &ldquo;{activeTag}&rdquo; — click All to reset
+        </p>
+      )}
     </div>
   );
 }
@@ -159,6 +224,70 @@ function MetricsBlock({ block }: { block: GenUIBlock }) {
             </div>
           );
         })}
+      </div>
+    </div>
+  );
+}
+
+function ProgressBlock({ block }: { block: GenUIBlock }) {
+  const items = block.items ?? [];
+  if (!items.length) return null;
+  return (
+    <div>
+      <BlockLabel type="progress" title={block.title} />
+      <div className="space-y-2.5">
+        {items.map((item, j) => {
+          const [label, raw] = parsePipeRow(item);
+          const pct = parsePercent(raw || "0");
+          return (
+            <div key={j}>
+              <div className="mb-1 flex items-center justify-between gap-2 text-xs">
+                <span className="font-medium text-ink">{label || item}</span>
+                <span className="tabular-nums text-mute">{pct}%</span>
+              </div>
+              <div className="h-2 overflow-hidden rounded-full bg-canvas-soft">
+                <div
+                  className="h-full rounded-full bg-ink transition-all duration-300"
+                  style={{ width: `${pct}%` }}
+                />
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function ChartBlock({ block }: { block: GenUIBlock }) {
+  const items = block.items ?? [];
+  if (!items.length) return null;
+  const rows = items.map((item) => {
+    const [label, raw] = parsePipeRow(item);
+    return { label: label || item, pct: parsePercent(raw || "0") };
+  });
+  const max = Math.max(...rows.map((r) => r.pct), 1);
+
+  return (
+    <div>
+      <BlockLabel type="chart" title={block.title} />
+      <div className="space-y-2">
+        {rows.map((row, j) => (
+          <div key={j} className="flex items-center gap-2">
+            <span className="w-24 shrink-0 truncate text-[11px] font-medium text-ink">
+              {row.label}
+            </span>
+            <div className="relative h-6 min-w-0 flex-1 overflow-hidden rounded-[4px] bg-canvas-soft">
+              <div
+                className="absolute inset-y-0 left-0 rounded-[4px] bg-ink/80 transition-all duration-300"
+                style={{ width: `${(row.pct / max) * 100}%` }}
+              />
+              <span className="relative z-10 flex h-full items-center px-2 text-[10px] font-semibold tabular-nums text-ink">
+                {row.pct}%
+              </span>
+            </div>
+          </div>
+        ))}
       </div>
     </div>
   );
@@ -393,7 +522,16 @@ function FaqBlock({ block }: { block: GenUIBlock }) {
   );
 }
 
-function GenerativeUIBlock({ block }: { block: GenUIBlock }) {
+function GenerativeUIBlock({
+  block,
+  chipProps,
+}: {
+  block: GenUIBlock;
+  chipProps?: {
+    activeTag: string | null;
+    onSelect: (tag: string | null) => void;
+  };
+}) {
   switch (block.type) {
     case "summary":
       return <SummaryBlock block={block} />;
@@ -402,9 +540,19 @@ function GenerativeUIBlock({ block }: { block: GenUIBlock }) {
     case "quote":
       return <QuoteBlock block={block} />;
     case "chips":
-      return <ChipsBlock block={block} />;
+      return chipProps ? (
+        <ChipsBlock
+          block={block}
+          activeTag={chipProps.activeTag}
+          onSelect={chipProps.onSelect}
+        />
+      ) : null;
     case "metrics":
       return <MetricsBlock block={block} />;
+    case "progress":
+      return <ProgressBlock block={block} />;
+    case "chart":
+      return <ChartBlock block={block} />;
     case "key_points":
       return <KeyPointsBlock block={block} />;
     case "steps":
@@ -450,6 +598,8 @@ export function GenerativeUIView({
   savingNote?: boolean;
 }) {
   const blocks = payload.blocks ?? [];
+  const [activeTag, setActiveTag] = useState<string | null>(null);
+  const chipProps = { activeTag, onSelect: setActiveTag };
 
   return (
     <div
@@ -506,9 +656,28 @@ export function GenerativeUIView({
       )}
 
       <div className="space-y-4">
-        {blocks.map((b, i) => (
-          <GenerativeUIBlock key={`${b.type}-${i}`} block={b} />
-        ))}
+        {blocks.map((b, i) => {
+          if (!blockMatchesTag(b, activeTag)) return null;
+          const highlighted =
+            activeTag &&
+            b.type !== "chips" &&
+            b.type !== "summary" &&
+            (b.tags ?? []).map(slugify).includes(activeTag);
+          return (
+            <div
+              key={`${b.type}-${i}`}
+              className={cn(
+                "transition-opacity duration-200",
+                highlighted && "rounded-[10px] ring-1 ring-ink/15",
+              )}
+            >
+              <GenerativeUIBlock
+                block={b}
+                chipProps={b.type === "chips" ? chipProps : undefined}
+              />
+            </div>
+          );
+        })}
       </div>
 
       {blocks.length === 0 && (

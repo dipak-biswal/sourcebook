@@ -19,3 +19,16 @@ def test_comparison_alias():
     norm = _normalize_block_dict({"type": "vs", "items": ["A | B"]})
     assert norm is not None
     assert norm["type"] == "comparison"
+
+
+def test_progress_and_tags():
+    norm = _normalize_block_dict(
+        {
+            "type": "skill_bar",
+            "items": ["React | 85"],
+            "tags": ["skills"],
+        }
+    )
+    assert norm is not None
+    assert norm["type"] == "progress"
+    assert norm["tags"] == ["skills"]

@@ -5,6 +5,7 @@ export type GenUIBlock = {
   items?: string[] | null;
   terms?: { term: string; definition: string }[] | null;
   faqs?: { question: string; answer: string }[] | null;
+  tags?: string[] | null;
   source_indices?: number[] | null;
 };
 
@@ -95,12 +96,35 @@ export function normalizeGenerativeUI(raw: GenerativeUIPayload): GenerativeUIPay
         .filter((f) => f.question && f.answer);
     }
 
+    let tags = b.tags;
+    if ((!tags || !tags.length) && Array.isArray(anyB.filter_tags)) {
+      tags = (anyB.filter_tags as unknown[])
+        .map((t) =>
+          String(t)
+            .trim()
+            .toLowerCase()
+            .replace(/\s+/g, "-"),
+        )
+        .filter(Boolean);
+    }
+    if ((!tags || !tags.length) && Array.isArray(anyB.themes)) {
+      tags = (anyB.themes as unknown[])
+        .map((t) =>
+          String(t)
+            .trim()
+            .toLowerCase()
+            .replace(/\s+/g, "-"),
+        )
+        .filter(Boolean);
+    }
+
     return {
       ...b,
       body: body || b.body,
       items: items && items.length ? items : b.items,
       terms: terms && terms.length ? terms : b.terms,
       faqs: faqs && faqs.length ? faqs : b.faqs,
+      tags: tags && tags.length ? tags : b.tags,
     };
   });
 
@@ -115,7 +139,9 @@ export function normalizeGenerativeUI(raw: GenerativeUIPayload): GenerativeUIPay
         b.type === "table" ||
         b.type === "metrics" ||
         b.type === "timeline" ||
-        b.type === "comparison"
+        b.type === "comparison" ||
+        b.type === "progress" ||
+        b.type === "chart"
       ),
   );
 
