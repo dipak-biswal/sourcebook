@@ -71,6 +71,13 @@ class Settings(BaseSettings):
     # Cosine floor: below this → no hits, no sources (off-topic questions).
     # Raise (e.g. 0.25) if off-topic still retrieves; lower if on-topic misses.
     rag_min_score: float = 0.22
+    # Hybrid retrieval (vector + full-text, fused with Reciprocal Rank Fusion).
+    rag_candidate_k: int = 20  # per-arm candidate pool before fusion
+    rag_rrf_k: int = 60  # RRF constant; higher = flatter rank weighting
+    # Keyword-arm relevance floor for the denial gate. A query is denied only
+    # when max cosine < rag_min_score AND no keyword row beats this ts_rank.
+    # Raise slightly (e.g. 0.02) if common single-word matches leak through.
+    rag_keyword_min_rank: float = 0.0
 
     # Local testing helpers (list users / set test passwords). NEVER enable in production.
     dev_mode: bool = True
