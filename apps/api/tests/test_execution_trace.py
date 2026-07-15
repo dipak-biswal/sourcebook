@@ -545,6 +545,67 @@ def test_visual_summary_interleaves_orchestrator_decisions_with_tools():
     assert [c.get("label") for c in plan_stage["children"]] == ["Tool call", "LLM call"]
 
 
+def test_visual_summary_handoff_uses_synthesis_and_run_final_answer():
+    run = _run_with_steps(
+        "Summarize with visual",
+        [
+            {
+                "type": "synthesis",
+                "output": "Synthesized main agent answer for the visual handoff.",
+            },
+            {
+                "type": "approval",
+                "tool_name": "generative_ui",
+                "output": {"status": "approved"},
+            },
+            {
+                "type": "agent_handoff",
+                "input": {
+                    "answer_preview": "Preview from handoff step.",
+                },
+                "output": {"status": "handoff", "agent": "Visual Summary Agent"},
+            },
+            {"type": "tool_call", "tool_name": "plan_layout", "input": {"notes": ""}},
+            {
+                "type": "tool_result",
+                "tool_name": "plan_layout",
+                "input": {
+                    "prompt": "Plan prompt",
+                    "llm_output": '{"presentation_profile":"guide"}',
+                    "prompt_tokens": 12,
+                    "completion_tokens": 4,
+                    "total_tokens": 16,
+                },
+                "output": {
+                    "status": "planned",
+                    "layout_plan": {
+                        "presentation_profile": "guide",
+                        "components": ["summary"],
+                        "block_outline": [],
+                    },
+                },
+            },
+        ],
+    )
+    run.final_answer = "Synthesized main agent answer for the visual handoff."
+    trace = build_execution_trace(run)
+    visual = next(
+        p
+        for p in trace["phases"]
+        if p.get("agent_label") == "Visual Summary Agent"
+    )
+    handoff = next(c for c in visual["children"] if c["type"] == "handoff")
+    assert (
+        handoff["output"]
+        == "Synthesized main agent answer for the visual handoff."
+    )
+    plan_stage = next(c for c in visual["children"] if c["label"] == "Plan layout")
+    plan_tool = next(c for c in plan_stage["children"] if c["label"] == "Tool call")
+    assert plan_tool["output"]["layout_plan"]["presentation_profile"] == "guide"
+    planner = next(c for c in plan_stage["children"] if c["label"] == "LLM call")
+    assert planner["prompt_tokens"] == 12
+
+
 def test_visual_summary_llm_does_not_reactivate_main_agent_turn():
     """After HITL approval, live LLM work belongs to Visual Summary Agent only."""
     run = _run_with_steps(

@@ -128,12 +128,12 @@ def build_visual_tools(
             "layout_plan": result["plan"],
             "structured_input": result.get("structured_input"),
             "model": usage["model"],
-        "prompt": result["prompt"],
-        "llm_output": result["llm_output"],
-        "prompt_tokens": usage["prompt_tokens"],
-        "completion_tokens": usage["completion_tokens"],
-        "total_tokens": usage["total_tokens"],
-    }
+            "prompt": result["prompt"],
+            "llm_output": result["llm_output"],
+            "prompt_tokens": usage["prompt_tokens"],
+            "completion_tokens": usage["completion_tokens"],
+            "total_tokens": usage["total_tokens"],
+        }
 
     @tool
     def render_ui(layout_plan_json: str) -> dict[str, Any]:

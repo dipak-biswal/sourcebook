@@ -47,6 +47,12 @@ _VISUAL_TOOL_OUTPUT_KEYS = frozenset(
     }
 )
 COMPLETE_STATUSES = frozenset({"completed", "cancelled", "failed"})
+_WEAK_FINAL_ANSWERS = frozenset(
+    {
+        "(no final answer)",
+        "Stopped after max_steps without a final answer.",
+    }
+)
 
 
 def _agent_name(workspace_name: str | None) -> str:
@@ -133,9 +139,74 @@ def _visual_tool_llm_meta(step: AgentStep | None) -> dict[str, Any] | None:
         for key in ("prompt_tokens", "completion_tokens", "total_tokens")
     )
     has_llm_payload = bool(meta.get("prompt") or meta.get("llm_output"))
-    if not has_tokens and not has_llm_payload:
+    has_tool_artifact = bool(
+        meta.get("layout_plan") or meta.get("spec") or meta.get("structured_input")
+    )
+    if not has_tokens and not has_llm_payload and not has_tool_artifact:
         return None
     return meta
+
+
+def _tool_result_payload(step: AgentStep | None) -> Any:
+    """Merge tool_result input + output for trace display."""
+    if not step:
+        return None
+    if isinstance(step.output, dict):
+        merged: dict[str, Any] = {}
+        if isinstance(step.input, dict):
+            merged.update(step.input)
+        merged.update(step.output)
+        return merged
+    if step.output is not None:
+        return step.output
+    if isinstance(step.input, dict) and step.input:
+        return step.input
+    return None
+
+
+def _resolve_main_agent_handoff_output(
+    run: AgentRun,
+    steps: list[AgentStep],
+    turns: list[_TurnAcc],
+) -> str:
+    """Best-effort main-agent answer for the visual summary handoff row."""
+    answer = (run.final_answer or "").strip()
+    if answer and answer not in _WEAK_FINAL_ANSWERS:
+        return answer
+
+    for turn in reversed(turns):
+        if turn.agent_label == VISUAL_SUMMARY_AGENT_LABEL:
+            continue
+        text = (turn.main_agent_output or _step_text(turn.response_step)).strip()
+        if text:
+            return text
+
+    for step in reversed(steps):
+        if step.type == "synthesis":
+            text = _step_text(step)
+            if text.strip():
+                return text.strip()
+
+    for step in reversed(steps):
+        if step.type != "agent_handoff" or not isinstance(step.input, dict):
+            continue
+        preview = str(step.input.get("answer_preview") or "").strip()
+        if preview:
+            return preview
+
+    saw_handoff = False
+    for step in reversed(steps):
+        if step.type == "agent_handoff":
+            saw_handoff = True
+            continue
+        if not saw_handoff:
+            continue
+        if step.type in ("final", "thought"):
+            text = _step_text(step)
+            if text.strip():
+                return text.strip()
+
+    return ""
 
 
 def _compact_structured_content(structured: Any) -> dict[str, Any] | None:
@@ -429,8 +500,9 @@ class _ToolAcc:
         if llm_child:
             node["children"] = [llm_child]
             node["has_embedded_llm"] = True
-        if self.result_step and self.result_step.output is not None:
-            raw_output = self.result_step.output
+        raw_output = _tool_result_payload(self.result_step)
+        if raw_output is not None:
+            raw_dict = raw_output if isinstance(raw_output, dict) else {}
             node["output"] = _sanitize_visual_tool_output(
                 self.tool_name,
                 raw_output,
@@ -440,7 +512,7 @@ class _ToolAcc:
                 node["output"] = _enrich_visual_tool_trace_output(
                     self.tool_name,
                     node["output"],
-                    raw_output if isinstance(raw_output, dict) else {},
+                    raw_dict,
                 )
         return node
 
@@ -458,8 +530,9 @@ class _ToolAcc:
                 self.tool_name,
                 self.call_step.input,
             )
-        if self.result_step and self.result_step.output is not None:
-            raw_output = self.result_step.output
+        raw_output = _tool_result_payload(self.result_step)
+        if raw_output is not None:
+            raw_dict = raw_output if isinstance(raw_output, dict) else {}
             node["output"] = _sanitize_visual_tool_output(
                 self.tool_name,
                 raw_output,
@@ -469,7 +542,7 @@ class _ToolAcc:
                 node["output"] = _enrich_visual_tool_trace_output(
                     self.tool_name,
                     node["output"],
-                    raw_output if isinstance(raw_output, dict) else {},
+                    raw_dict,
                 )
         return node
 
@@ -990,6 +1063,7 @@ def _parse_steps(
     visual_turn_index = 0
     visual_mode = False
     last_main_final = ""
+    handoff_preview = ""
 
     def active_turns() -> list[_TurnAcc]:
         return visual_turns if visual_mode else turns
@@ -998,12 +1072,13 @@ def _parse_steps(
         nonlocal turn_index, visual_turn_index, current
         if visual_mode:
             visual_turn_index += 1
+            handoff_output = (last_main_final or handoff_preview).strip()
             current = _TurnAcc(
                 id=f"vs-turn-{visual_turn_index}",
                 turn=visual_turn_index,
                 state="done",
                 agent_label=VISUAL_SUMMARY_AGENT_LABEL,
-                main_agent_output=last_main_final,
+                main_agent_output=handoff_output,
             )
         else:
             turn_index += 1
@@ -1015,6 +1090,10 @@ def _parse_steps(
             if current is not None:
                 active_turns().append(current)
                 current = None
+            if isinstance(step.input, dict):
+                preview = str(step.input.get("answer_preview") or "").strip()
+                if preview:
+                    handoff_preview = preview
             visual_mode = True
             continue
         if step.type == "tool_call":
@@ -1115,6 +1194,10 @@ def _parse_steps(
             continue
 
         if step.type == "synthesis":
+            if not visual_mode:
+                text = _step_text(step)
+                if text.strip():
+                    last_main_final = text.strip()
             tail.append(_synthesis_phase(step))
 
     if current is not None:
@@ -1188,6 +1271,7 @@ def _active_agent_turn_index(
 def _synthetic_visual_turn_phase(
     *,
     live: LiveTraceContext | None,
+    handoff_output: str = "",
 ) -> dict[str, Any]:
     running = bool(
         live
@@ -1197,6 +1281,17 @@ def _synthetic_visual_turn_phase(
             or live.running_tool_names
         )
     )
+    children: list[dict[str, Any]] = []
+    if handoff_output.strip():
+        children.append(
+            {
+                "id": "vs-turn-live-handoff",
+                "type": "handoff",
+                "label": "Hand off",
+                "state": "done",
+                "output": handoff_output.strip(),
+            }
+        )
     phase: dict[str, Any] = {
         "id": "vs-turn-live",
         "type": "agent_turn",
@@ -1204,7 +1299,7 @@ def _synthetic_visual_turn_phase(
         "label": VISUAL_SUMMARY_AGENT_LABEL,
         "agent_label": VISUAL_SUMMARY_AGENT_LABEL,
         "state": "running" if running else "done",
-        "children": [],
+        "children": children,
     }
     if live and live.current_turn_id:
         phase["llm_turn_id"] = live.current_turn_id
@@ -1425,6 +1520,10 @@ def build_execution_trace(
     turns, visual_turns, tail = _parse_steps(
         steps, running_tools, workspace_name=workspace_name
     )
+    handoff_output = _resolve_main_agent_handoff_output(run, steps, turns)
+    for visual_turn in visual_turns:
+        if not visual_turn.main_agent_output.strip() and handoff_output:
+            visual_turn.main_agent_output = handoff_output
 
     in_visual_phase = _in_visual_summary_phase(
         steps=steps,
@@ -1468,7 +1567,10 @@ def build_execution_trace(
         len(phases),
     )
     if in_visual_phase and not visual_turns:
-        phases.insert(pres_idx, _synthetic_visual_turn_phase(live=live))
+        phases.insert(
+            pres_idx,
+            _synthetic_visual_turn_phase(live=live, handoff_output=handoff_output),
+        )
     elif visual_turns:
         for offset, turn in enumerate(visual_turns):
             phase = turn.to_phase(live, workspace_name=workspace_name)

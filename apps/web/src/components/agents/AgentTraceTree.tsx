@@ -20,7 +20,6 @@ import type {
   TraceAgentTurnPhase,
   TraceChild,
   TraceFinalAnswerChild,
-  TraceHandoffChild,
   TraceHitlEmbedChild,
   TraceLlmChild,
   TraceLlmRole,
@@ -41,7 +40,6 @@ const MAIN_ICON_COL = 36;
 const NESTED_ICON_COL = 28;
 const BRANCH_STUB = 12;
 const NESTED_BRANCH_STUB = 10;
-const VISUAL_SUMMARY_AGENT_LABEL = "Visual Summary Agent";
 
 function traceChildContainsActive(child: TraceChild, activeChildId: string | null): boolean {
   if (!activeChildId) return false;
