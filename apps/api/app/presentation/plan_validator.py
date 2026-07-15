@@ -90,9 +90,17 @@ def validate_layout_plan(
     components = list(plan.get("components") or [])
     outline_types = _outline_block_types(plan)
     combined_types = set(components) | set(outline_types)
-    goal_components = requested_components or layout_components_from_goal(goal)
+    profile = str(plan.get("presentation_profile") or "").strip()
+    skeleton_mode = profile == "workspace_derived" or any(
+        isinstance(b, dict) and b.get("source_hint") for b in (plan.get("block_outline") or [])
+    )
+    goal_components = (
+        []
+        if skeleton_mode
+        else (requested_components or layout_components_from_goal(goal))
+    )
 
-    if not str(plan.get("presentation_profile") or "").strip():
+    if not profile:
         errors.append("presentation_profile is required")
 
     for block in plan.get("block_outline") or []:
@@ -111,6 +119,7 @@ def validate_layout_plan(
             "block_outline is empty but structured content exists — plan at least one block"
         )
 
+    # Goal regex components only enforced for legacy LLM plans (not skeleton)
     for required in goal_components:
         if required not in combined_types:
             errors.append(
@@ -125,7 +134,11 @@ def validate_layout_plan(
             "timeline block planned but no dates/years found in structured content"
         )
 
-    if "progress" in combined_types and not _has_skill_labels(structured_content):
+    if (
+        not skeleton_mode
+        and "progress" in combined_types
+        and not _has_skill_labels(structured_content)
+    ):
         errors.append(
             "progress block planned but no skill labels or key_points in structured content"
         )

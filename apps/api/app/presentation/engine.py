@@ -18,6 +18,7 @@ from app.agents.gen_ui import (
 from app.config import settings
 from app.presentation.context import PresentationContext
 from app.presentation.layout import layout_components_from_goal
+from app.presentation.render_blocks import payload_from_assembly
 from app.presentation.structured import (
     extract_structured_content,
     format_render_engine_prompt,
@@ -323,80 +324,107 @@ def build_presentation(
         answer=answer,
         evidence_summary=evidence_summary,
     )
-    prompt = format_render_engine_prompt(
-        layout_plan=layout_plan,
-        structured_content=structured,
-        evidence_summary=evidence_summary,
-        workspace_name=ctx.workspace_name,
-    )
-    render_model = settings.visual_summary_model
-    system_message = (
-        "You execute an approved visual layout plan. "
-        "Populate UI blocks from structured content only. "
-        "Output valid JSON. Never invent facts."
-    )
-
     max_idx = len(sources)
     layout_components = layout_components_from_goal(goal)
     if isinstance(layout_plan.get("components"), list):
         layout_components = list(layout_plan["components"])
 
-    try:
-        resp = _client().chat.completions.create(
-            model=render_model,
-            messages=[
-                {"role": "system", "content": system_message},
-                {"role": "user", "content": prompt},
-            ],
-            temperature=0.1,
-            max_tokens=4000,
-        )
-        raw = (resp.choices[0].message.content or "").strip()
-        usage = resp.usage
-        if usage is not None:
-            log_usage(
-                db,
-                kind="presentation",
-                model=render_model,
-                user_id=ctx.user_id,
-                workspace_id=ctx.workspace_id,
-                prompt_tokens=usage.prompt_tokens,
-                completion_tokens=usage.completion_tokens,
-                total_tokens=usage.total_tokens,
-                meta={"goal": goal[:200]},
-            )
-        else:
-            log_usage(
-                db,
-                kind="presentation",
-                model=render_model,
-                user_id=ctx.user_id,
-                workspace_id=ctx.workspace_id,
-                total_tokens=estimate_tokens(prompt, raw),
-                meta={"goal": goal[:200], "estimated": True},
-            )
-        db.commit()
-    except Exception as e:
-        return {"error": f"Failed to generate presentation: {e}"}, {}
+    # --- Code-first assembly (primary path) ---
+    assembled_payload = payload_from_assembly(
+        layout_plan=layout_plan,
+        structured=structured if isinstance(structured, dict) else {},
+        goal=goal,
+        workspace_name=ctx.workspace_name,
+        source_files=source_files,
+    )
+    render_fallback_used = False
+    data: dict[str, Any]
+    prompt = ""
+    raw = ""
+    render_model = "code_assembly"
+    prompt_tokens = 0
+    completion_tokens = 0
+    total_tokens = 0
 
-    raw = re.sub(r"^```(?:json)?\s*", "", raw)
-    raw = re.sub(r"\s*```$", "", raw)
-    try:
-        data = json.loads(raw)
-    except json.JSONDecodeError:
-        data = {
-            "title": goal[:80] or "Presentation",
-            "plain_summary": answer[:500],
-            "presentation_profile": "fallback_markdown",
-            "blocks": [
-                {
-                    "type": "summary",
-                    "title": "Overview",
-                    "body": answer[:2000],
-                    "source_indices": [1] if sources else [],
-                }
-            ],
-        }
+    if assembled_payload and assembled_payload.get("blocks"):
+        data = assembled_payload
+        raw = json.dumps(assembled_payload, ensure_ascii=False)
+        prompt = "CODE ASSEMBLY (no LLM) — blocks mapped from structured content via source_hint"
+    else:
+        # --- LLM fallback when assembly is empty ---
+        render_fallback_used = True
+        prompt = format_render_engine_prompt(
+            layout_plan=layout_plan,
+            structured_content=structured,
+            evidence_summary=evidence_summary,
+            workspace_name=ctx.workspace_name,
+        )
+        render_model = settings.visual_summary_model
+        system_message = (
+            "You execute an approved visual layout plan. "
+            "Populate UI blocks from structured content only. "
+            "Output valid JSON. Never invent facts."
+        )
+        try:
+            resp = _client().chat.completions.create(
+                model=render_model,
+                messages=[
+                    {"role": "system", "content": system_message},
+                    {"role": "user", "content": prompt},
+                ],
+                temperature=0.1,
+                max_tokens=4000,
+            )
+            raw = (resp.choices[0].message.content or "").strip()
+            usage = resp.usage
+            if usage is not None:
+                prompt_tokens = int(usage.prompt_tokens or 0)
+                completion_tokens = int(usage.completion_tokens or 0)
+                total_tokens = int(usage.total_tokens or 0)
+                log_usage(
+                    db,
+                    kind="presentation",
+                    model=render_model,
+                    user_id=ctx.user_id,
+                    workspace_id=ctx.workspace_id,
+                    prompt_tokens=prompt_tokens,
+                    completion_tokens=completion_tokens,
+                    total_tokens=total_tokens,
+                    meta={"goal": goal[:200], "render_fallback": True},
+                )
+            else:
+                total_tokens = estimate_tokens(prompt, raw)
+                log_usage(
+                    db,
+                    kind="presentation",
+                    model=render_model,
+                    user_id=ctx.user_id,
+                    workspace_id=ctx.workspace_id,
+                    total_tokens=total_tokens,
+                    meta={"goal": goal[:200], "estimated": True, "render_fallback": True},
+                )
+            db.commit()
+        except Exception as e:
+            return {"error": f"Failed to generate presentation: {e}"}, {}
+
+        raw = re.sub(r"^```(?:json)?\s*", "", raw)
+        raw = re.sub(r"\s*```$", "", raw)
+        try:
+            data = json.loads(raw)
+        except json.JSONDecodeError:
+            data = {
+                "title": goal[:80] or "Presentation",
+                "plain_summary": answer[:500],
+                "presentation_profile": "fallback_markdown",
+                "blocks": [
+                    {
+                        "type": "summary",
+                        "title": "Overview",
+                        "body": answer[:2000],
+                        "source_indices": [1] if sources else [],
+                    }
+                ],
+            }
 
     plain = (
         data.get("plain_summary")
@@ -411,6 +439,9 @@ def build_presentation(
 
     blocks: list[GenUIBlock] = []
     for raw_b in raw_blocks[:10]:
+        if isinstance(raw_b, GenUIBlock):
+            blocks.append(raw_b)
+            continue
         norm = _normalize_block_dict(raw_b)
         if not norm:
             continue
@@ -427,7 +458,8 @@ def build_presentation(
         if len(blocks) >= 10:
             break
 
-    blocks = _ensure_requested_layout(blocks, layout_components, answer=answer)
+    if render_fallback_used:
+        blocks = _ensure_requested_layout(blocks, layout_components, answer=answer)
 
     blocks = _normalize_qualitative_progress(blocks, answer=answer)
 
@@ -474,22 +506,33 @@ def build_presentation(
     if isinstance(profile, str) and profile.strip():
         out["presentation_profile"] = profile.strip()[:120]
     out["version"] = 2
+    assembly_meta = data.get("assembly_meta") if isinstance(data, dict) else None
+    if not isinstance(assembly_meta, dict):
+        assembly_meta = {
+            "assembled_blocks": [b.type for b in blocks],
+            "dropped_blocks": [],
+            "render_fallback_used": render_fallback_used,
+        }
+    else:
+        assembly_meta = {
+            **assembly_meta,
+            "render_fallback_used": render_fallback_used
+            or bool(assembly_meta.get("render_fallback_used")),
+        }
+    out["assembly_meta"] = assembly_meta
+
+    if render_fallback_used and total_tokens == 0 and prompt:
+        prompt_tokens = estimate_tokens(prompt)
+        completion_tokens = estimate_tokens(raw)
+        total_tokens = prompt_tokens + completion_tokens
+
     build_meta: dict[str, Any] = {
         "prompt": prompt,
         "llm_output": raw,
         "model": render_model,
-        "prompt_tokens": None,
-        "completion_tokens": None,
-        "total_tokens": None,
+        "prompt_tokens": prompt_tokens,
+        "completion_tokens": completion_tokens,
+        "total_tokens": total_tokens,
+        "assembly_meta": assembly_meta,
     }
-    if usage is not None:
-        build_meta["prompt_tokens"] = usage.prompt_tokens
-        build_meta["completion_tokens"] = usage.completion_tokens
-        build_meta["total_tokens"] = usage.total_tokens
-    else:
-        prompt_est = estimate_tokens(prompt)
-        completion_est = estimate_tokens(raw)
-        build_meta["prompt_tokens"] = prompt_est
-        build_meta["completion_tokens"] = completion_est
-        build_meta["total_tokens"] = prompt_est + completion_est
     return out, build_meta

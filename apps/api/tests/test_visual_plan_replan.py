@@ -1,4 +1,4 @@
-"""Phase B — plan_layout auto-replan on validator failure."""
+"""Plan layout prefers code skeleton; LLM only for repair notes."""
 
 import uuid
 from types import SimpleNamespace
@@ -16,48 +16,74 @@ STRUCTURED = {
     "themes": [],
 }
 
-BAD_PLAN = (
-    '{"presentation_profile":"x","components":["summary"],'
-    '"block_outline":[{"type":"summary","title":"T","purpose":"p"}],'
-    '"rationale":"missing table"}'
-)
-GOOD_PLAN = (
-    '{"presentation_profile":"resume_dashboard","components":["table","key_points"],'
-    '"block_outline":[{"type":"table","title":"Skills","purpose":"matrix"},'
-    '{"type":"key_points","title":"Highlights","purpose":"bullets"}],'
-    '"rationale":"ok"}'
-)
 
-
-def test_plan_with_validation_auto_replans(monkeypatch):
+def test_plan_with_validation_uses_code_skeleton_by_default():
     ctx = PresentationContext(
         workspace_id=uuid.uuid4(),
         user_id=uuid.uuid4(),
-        goal="Summarize resume with table",
+        goal="Summarize materials with table",
+        final_answer="Answer with enough detail for presentation.",
+        structured_content=STRUCTURED,
+        agent_evidence=AgentEvidenceBundle(),
+    )
+    result = _plan_with_validation(ctx)
+    assert result["validation_status"] == "passed"
+    assert result["replan_attempted"] is False
+    assert result["usage"]["model"] == "code_skeleton"
+    assert result["plan"]["presentation_profile"] == "workspace_derived"
+    assert any(b.get("type") == "summary" for b in result["plan"]["block_outline"])
+
+
+def test_plan_with_validation_can_call_llm_when_notes_provided(monkeypatch):
+    ctx = PresentationContext(
+        workspace_id=uuid.uuid4(),
+        user_id=uuid.uuid4(),
+        goal="Summarize with key points",
         final_answer="Answer with enough detail.",
         structured_content=STRUCTURED,
         agent_evidence=AgentEvidenceBundle(),
     )
 
-    responses = [BAD_PLAN, GOOD_PLAN]
-    calls: list[str] = []
+    refined = {
+        "presentation_profile": "workspace_derived",
+        "components": ["summary", "key_points"],
+        "block_outline": [
+            {
+                "type": "summary",
+                "title": "Role fit",
+                "purpose": "overview",
+                "source_hint": "summary",
+            },
+            {
+                "type": "key_points",
+                "title": "Highlights",
+                "purpose": "bullets",
+                "source_hint": "key_points",
+            },
+        ],
+        "rationale": "refined titles",
+    }
 
     class _FakeResp:
-        def __init__(self, content: str):
-            self.choices = [SimpleNamespace(message=SimpleNamespace(content=content))]
+        def __init__(self):
+            import json
+
+            self.choices = [
+                SimpleNamespace(message=SimpleNamespace(content=json.dumps(refined)))
+            ]
             self.usage = SimpleNamespace(prompt_tokens=10, completion_tokens=5)
 
+    calls: list[str] = []
+
     def fake_create(**kwargs):
-        content = responses.pop(0)
         calls.append(kwargs["messages"][1]["content"])
-        return _FakeResp(content)
+        return _FakeResp()
 
     fake_client = MagicMock()
     fake_client.chat.completions.create = fake_create
     monkeypatch.setattr("app.agents.visual_tools._client", lambda: fake_client)
 
-    result = _plan_with_validation(ctx)
-    assert result["validation_status"] == "passed"
+    result = _plan_with_validation(ctx, notes="Prefer clearer titles")
     assert result["replan_attempted"] is True
-    assert len(calls) == 2
-    assert "VALIDATION FAILED" in calls[1]
+    assert len(calls) == 1
+    assert result["validation_status"] == "passed"

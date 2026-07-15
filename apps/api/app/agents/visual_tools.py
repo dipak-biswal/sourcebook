@@ -22,6 +22,7 @@ from app.presentation.structured import (
     extract_structured_content,
     format_plan_layout_prompt,
 )
+from app.presentation.ui_intent import build_skeleton_layout_plan, resolve_ui_intent
 from app.usage import estimate_tokens, log_usage
 
 VISUAL_SUMMARY_AGENT_LABEL = "Visual Summary Agent"
@@ -46,6 +47,65 @@ def _merge_usage(a: dict[str, Any], b: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _packet_and_hints(ctx: PresentationContext) -> tuple[dict[str, Any] | None, dict[str, Any] | None]:
+    packet = ctx.workspace_packet if isinstance(ctx.workspace_packet, dict) else None
+    hints = None
+    if packet and isinstance(packet.get("derived"), dict):
+        derived = packet["derived"]
+        hints = {
+            "suggested_affordances": list(derived.get("visual_affordances") or []),
+            "emphasis": str(
+                derived.get("success_criteria") or derived.get("outcome_phrase") or ""
+            ),
+        }
+    return packet, hints
+
+
+def _plan_layout_skeleton(ctx: PresentationContext) -> dict[str, Any]:
+    """Code-first layout from UiIntent (affordance ∩ data)."""
+    goal = (ctx.goal or "").strip()
+    structured = normalize_structured_content(
+        ctx.structured_content
+        or extract_structured_content(ctx.final_answer or "", goal=goal)
+    )
+    packet, hints = _packet_and_hints(ctx)
+    intent = resolve_ui_intent(
+        structured_content=structured,
+        workspace_packet=packet,
+        presentation_hints=hints,
+        goal=goal,
+    )
+    plan = build_skeleton_layout_plan(intent, structured_content=structured)
+    components = list(plan.get("components") or [])
+    planner_input = build_plan_layout_input(
+        goal=goal,
+        structured_content=structured,
+        evidence=ctx.agent_evidence,
+        components=components,
+        notes="code_skeleton",
+    )
+    return {
+        "plan": plan,
+        "structured_input": planner_input,
+        "prompt": (
+            "CODE SKELETON PLAN (no LLM)\n"
+            f"UiIntent block_order: {intent.block_order}\n"
+            f"Eligible: {intent.eligible_affordances}\n"
+            f"Emphasis: {intent.emphasis}"
+        ),
+        "llm_output": json.dumps(plan, ensure_ascii=False),
+        "usage": {
+            "model": "code_skeleton",
+            "prompt_tokens": 0,
+            "completion_tokens": 0,
+            "total_tokens": 0,
+        },
+        "structured_content": structured,
+        "requested_components": components,
+        "ui_intent": intent.to_dict(),
+    }
+
+
 def _plan_layout_llm(
     ctx: PresentationContext,
     *,
@@ -59,7 +119,9 @@ def _plan_layout_llm(
         ctx.structured_content
         or extract_structured_content(ctx.final_answer or "", goal=goal)
     )
-    components = layout_components_from_goal(goal)
+    # Prefer skeleton types as the component list so LLM does not invent resume dashboards
+    skeleton = _plan_layout_skeleton(ctx)
+    components = list(skeleton["plan"].get("components") or layout_components_from_goal(goal))
     layout_hints = format_layout_requirements(components)
     planner_input = build_plan_layout_input(
         goal=goal,
@@ -69,12 +131,25 @@ def _plan_layout_llm(
         notes=notes,
     )
     prompt = format_plan_layout_prompt(planner_input, layout_hints=layout_hints)
+    # Anchor on skeleton — titles may improve, types should stay close
+    prompt = (
+        f"{prompt}\n\n"
+        "SKELETON OUTLINE (prefer these types and source_hint values; "
+        "do not invent empty table/progress blocks without data):\n"
+        f"{json.dumps(skeleton['plan'].get('block_outline') or [], ensure_ascii=False)}\n"
+    )
 
     client = _client()
     resp = client.chat.completions.create(
         model=settings.visual_summary_model,
         messages=[
-            {"role": "system", "content": "You plan visual summary layouts. Output valid JSON only."},
+            {
+                "role": "system",
+                "content": (
+                    "You refine visual summary layouts. Output valid JSON only. "
+                    "Prefer the provided skeleton block types; do not add resume-only profiles."
+                ),
+            },
             {"role": "user", "content": prompt},
         ],
         temperature=0.2,
@@ -84,19 +159,20 @@ def _plan_layout_llm(
     try:
         plan = json.loads(raw)
     except json.JSONDecodeError:
-        plan = {
-            "presentation_profile": "fallback_markdown",
-            "components": components,
-            "block_outline": [],
-            "rationale": "Fallback plan — model returned invalid JSON.",
-        }
+        plan = dict(skeleton["plan"])
+        plan["rationale"] = "Fallback to code skeleton — model returned invalid JSON."
 
     if not isinstance(plan, dict):
         plan = {}
+    # If LLM emptied outline, fall back to skeleton
+    if not plan.get("block_outline"):
+        plan = dict(skeleton["plan"])
     plan.setdefault("components", components)
-    plan.setdefault("presentation_profile", "general_summary")
+    plan.setdefault("presentation_profile", "workspace_derived")
     plan.setdefault("block_outline", [])
     plan.setdefault("rationale", "")
+    if "ui_intent" not in plan:
+        plan["ui_intent"] = skeleton.get("ui_intent")
 
     usage = getattr(resp, "usage", None)
     prompt_tokens = int(getattr(usage, "prompt_tokens", 0) or 0)
@@ -133,6 +209,7 @@ def _plan_layout_llm(
         "usage": usage_payload,
         "structured_content": structured,
         "requested_components": components,
+        "ui_intent": skeleton.get("ui_intent"),
     }
 
 
@@ -144,14 +221,12 @@ def _plan_with_validation(
     user_id: uuid.UUID | None = None,
     workspace_id: uuid.UUID | None = None,
 ) -> dict[str, Any]:
-    """Run planner LLM, validate, and auto-replan once on validator failure."""
-    first = _plan_layout_llm(
-        ctx,
-        notes=notes,
-        db=db,
-        user_id=user_id,
-        workspace_id=workspace_id,
-    )
+    """
+    Prefer code skeleton layout (UiIntent).
+
+    LLM replan only when notes request repair or skeleton validation fails.
+    """
+    first = _plan_layout_skeleton(ctx)
     plan = first["plan"]
     structured = first["structured_content"]
     components = first["requested_components"]
@@ -159,10 +234,10 @@ def _plan_with_validation(
         plan,
         goal=ctx.goal or "",
         structured_content=structured,
-        requested_components=components,
+        requested_components=[],
         final_answer=ctx.final_answer or "",
     )
-    if ok:
+    if ok and not notes.strip():
         return {
             **first,
             "validation_status": "passed",
@@ -175,10 +250,12 @@ def _plan_with_validation(
     replan_llm_output = ""
     merged_usage = dict(first["usage"])
 
-    if _MAX_AUTO_REPLANS > 0:
-        repair_notes = format_validator_notes(errors)
-        if notes.strip():
+    if _MAX_AUTO_REPLANS > 0 and (not ok or notes.strip()):
+        repair_notes = format_validator_notes(errors) if errors else notes
+        if notes.strip() and errors:
             repair_notes = f"{notes.strip()}\n\n{repair_notes}"
+        elif notes.strip():
+            repair_notes = notes.strip()
         second = _plan_layout_llm(
             ctx,
             notes=repair_notes,
@@ -196,10 +273,23 @@ def _plan_with_validation(
             plan,
             goal=ctx.goal or "",
             structured_content=structured,
-            requested_components=components,
+            requested_components=[],
             final_answer=ctx.final_answer or "",
         )
-        first = second
+        first = {**first, **second, "plan": plan}
+
+    # Last resort: skeleton if LLM still invalid
+    if not ok:
+        skeleton = _plan_layout_skeleton(ctx)
+        plan = skeleton["plan"]
+        ok, errors = validate_layout_plan(
+            plan,
+            goal=ctx.goal or "",
+            structured_content=structured,
+            requested_components=[],
+            final_answer=ctx.final_answer or "",
+        )
+        first = {**first, **skeleton, "plan": plan}
 
     status = "passed" if ok else "failed"
     return {
@@ -241,6 +331,7 @@ def build_visual_tools(
             "status": "planned" if result["validation_status"] == "passed" else "validation_failed",
             "layout_plan": result["plan"],
             "structured_input": result.get("structured_input"),
+            "ui_intent": result.get("ui_intent") or (result.get("plan") or {}).get("ui_intent"),
             "validation_status": result["validation_status"],
             "validation_errors": result.get("validation_errors") or [],
             "replan_attempted": result.get("replan_attempted", False),
@@ -299,22 +390,24 @@ def build_visual_tools(
             agent_evidence=ctx.agent_evidence,
             structured_content=structured,
             layout_plan=plan,
+            workspace_packet=ctx.workspace_packet,
         )
         spec, meta = build_presentation(db, render_ctx)
         if isinstance(spec, dict) and spec.get("error"):
             return {"error": spec.get("error"), "meta": meta}
 
-        log_usage(
-            db,
-            user_id=user_id,
-            workspace_id=workspace_id,
-            kind="visual_summary_render",
-            model=meta.get("model") or settings.visual_summary_model,
-            prompt_tokens=int(meta.get("prompt_tokens") or 0),
-            completion_tokens=int(meta.get("completion_tokens") or 0),
-            total_tokens=int(meta.get("total_tokens") or 0),
-            meta={"goal": (ctx.goal or "")[:200]},
-        )
+        if int(meta.get("prompt_tokens") or 0) or int(meta.get("completion_tokens") or 0):
+            log_usage(
+                db,
+                user_id=user_id,
+                workspace_id=workspace_id,
+                kind="visual_summary_render",
+                model=meta.get("model") or settings.visual_summary_model,
+                prompt_tokens=int(meta.get("prompt_tokens") or 0),
+                completion_tokens=int(meta.get("completion_tokens") or 0),
+                total_tokens=int(meta.get("total_tokens") or 0),
+                meta={"goal": (ctx.goal or "")[:200]},
+            )
 
         return {
             "status": "rendered",
@@ -327,6 +420,9 @@ def build_visual_tools(
             "prompt_tokens": meta.get("prompt_tokens"),
             "completion_tokens": meta.get("completion_tokens"),
             "total_tokens": meta.get("total_tokens"),
+            "assembly_meta": meta.get("assembly_meta") or (
+                spec.get("assembly_meta") if isinstance(spec, dict) else None
+            ),
         }
 
     return [get_current_date, plan_layout, render_ui]

@@ -98,13 +98,13 @@ def test_plan_driven_render_uses_slim_prompt_and_skips_rag(monkeypatch):
     spec, meta = build_presentation(db, ctx)
 
     assert spec.get("error") is None
-    assert meta["model"] == "gpt-4o-mini"
-    prompt = captured[0]["messages"][1]["content"]
-    assert "APPROVED LAYOUT PLAN" in prompt
-    assert "STRUCTURED CONTENT" in prompt
-    assert "EXCERPTS" not in prompt
-    assert JOB_SEARCH_GOAL not in prompt
-    assert "Targeting full-stack AI developer roles" not in prompt
+    # Code assembly is preferred when structured content can fill the outline.
+    assert meta["model"] == "code_assembly"
+    assert not captured  # LLM not called
+    types = [b["type"] for b in (spec.get("blocks") or [])]
+    assert "key_points" in types
+    assert "faq" in types
+    assert meta.get("assembly_meta", {}).get("render_fallback_used") is False
 
 
 def test_build_presentation_requires_layout_plan():
