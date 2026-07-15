@@ -77,6 +77,37 @@ def test_progress_data_alias_list():
     assert norm["items"] == ["React | Strong", "Python | Gap"]
 
 
+def test_table_drops_markdown_separator_rows():
+    norm = _normalize_block_dict(
+        {
+            "type": "table",
+            "title": "Skills Overview",
+            "items": [
+                "Skill | Proficiency Level",
+                "--------------------------- | -------------------",
+                "React 18/19 | Strong",
+            ],
+        }
+    )
+    assert norm is not None
+    assert len(norm["items"]) == 2
+    assert not any("---" in row for row in norm["items"])
+
+
+def test_progress_drops_separator_items():
+    norm = _normalize_block_dict(
+        {
+            "type": "progress",
+            "items": [
+                "-------------------",
+                "React 18/19 | Strong",
+            ],
+        }
+    )
+    assert norm is not None
+    assert norm["items"] == ["React 18/19 | Strong"]
+
+
 def test_table_strips_markdown_bold():
     norm = _normalize_block_dict(
         {

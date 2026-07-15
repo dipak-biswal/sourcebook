@@ -187,6 +187,29 @@ export function cleanDisplayText(text: string): string {
   return cleanCellText(text);
 }
 
+function isSeparatorText(text: string): boolean {
+  const s = text.trim();
+  if (!s) return false;
+  if (/^[\s\-:|]+$/.test(s)) return true;
+  if (s.includes("|")) {
+    const parts = s.split("|").map((p) => p.trim()).filter(Boolean);
+    if (parts.length > 0 && parts.every((p) => /^[\s\-:]+$/.test(p))) {
+      return true;
+    }
+  }
+  return false;
+}
+
+function isSeparatorCells(cells: string[]): boolean {
+  const nonEmpty = cells.map((c) => c.trim()).filter(Boolean);
+  if (!nonEmpty.length) return false;
+  return nonEmpty.every((c) => /^[\s\-:]+$/.test(c));
+}
+
+function filterTableRows(rows: string[][]): string[][] {
+  return rows.filter((cells) => !isSeparatorCells(cells));
+}
+
 function splitDelimitedRow(text: string): string[] {
   const s = text.trim();
   if (!s) return [];
@@ -224,7 +247,7 @@ function parseMarkdownTableBody(body: string): string[][] {
   for (const line of body.split("\n")) {
     const trimmed = line.trim();
     if (!trimmed.includes("|")) continue;
-    if (/^[\s\-:|]+$/.test(trimmed)) continue;
+    if (isSeparatorText(trimmed)) continue;
     let parts = trimmed.split("|").map((c) => c.trim());
     if (parts[0] === "") parts = parts.slice(1);
     if (parts[parts.length - 1] === "") parts = parts.slice(0, -1);
@@ -240,6 +263,10 @@ function padTableRows(rows: string[][]): string[][] {
     while (out.length < cols) out.push("");
     return out.slice(0, cols);
   });
+}
+
+function finalizeTableRows(rows: string[][]): string[][] {
+  return filterTableRows(padTableRows(rows));
 }
 
 function objectRowsToTable(rows: Record<string, unknown>[]): string[][] {
@@ -260,13 +287,20 @@ function itemsToRowMatrix(items: string[]): string[][] {
       .split("\n")
       .map((l) => l.trim())
       .filter((l) => l.length > 0);
-    const rows = lines
-      .filter((l) => !/^[\s\-:|]+$/.test(l))
-      .map(splitDelimitedRow)
-      .filter((r) => r.length);
-    if (rows.length) return padTableRows(rows);
+    const rows = filterTableRows(
+      lines
+        .filter((l) => !isSeparatorText(l))
+        .map(splitDelimitedRow)
+        .filter((r) => r.length),
+    );
+    if (rows.length) return finalizeTableRows(rows);
   }
-  return items.map(splitDelimitedRow).filter((r) => r.length);
+  return filterTableRows(
+    items
+      .filter((item) => !isSeparatorText(item))
+      .map(splitDelimitedRow)
+      .filter((r) => r.length),
+  );
 }
 
 /** Normalize table blocks from pipes, markdown body, or row objects. */
@@ -296,7 +330,7 @@ export type ProgressDisplay = {
 /** Map progress/chart values to bar width; prefer qualitative labels over fake %. */
 export function parseProgressValue(raw: string): ProgressDisplay {
   const trimmed = (raw || "").trim();
-  if (!trimmed) {
+  if (!trimmed || isSeparatorText(trimmed)) {
     return { pct: 0, display: "—", qualitative: true };
   }
 
@@ -324,8 +358,8 @@ export function coerceTableRows(block: GenUIBlock): string[][] {
   if (block.items?.length) {
     const matrix = itemsToRowMatrix(block.items);
     const multiCol = matrix.filter((r) => r.length > 1);
-    if (multiCol.length >= 2) return padTableRows(matrix);
-    if (multiCol.length === 1 && matrix.length >= 2) return padTableRows(matrix);
+    if (multiCol.length >= 2) return finalizeTableRows(matrix);
+    if (multiCol.length === 1 && matrix.length >= 2) return finalizeTableRows(matrix);
   }
 
   if (Array.isArray(anyB.headers) && anyB.headers.length) {
@@ -335,14 +369,14 @@ export function coerceTableRows(block: GenUIBlock): string[][] {
       const body = bodyRaw
         .map(rowToCells)
         .filter((r) => r.length);
-      if (body.length) return padTableRows([header, ...body]);
+      if (body.length) return finalizeTableRows([header, ...body]);
     }
   }
 
   const dataField = anyB.data;
   if (typeof dataField === "string" && dataField.includes("|")) {
     const md = parseMarkdownTableBody(dataField);
-    if (md.length) return padTableRows(md);
+    if (md.length) return finalizeTableRows(md);
   }
   const rowsRaw =
     anyB.rows ??
@@ -354,10 +388,13 @@ export function coerceTableRows(block: GenUIBlock): string[][] {
     rowsRaw.every((r) => r && typeof r === "object" && !Array.isArray(r))
   ) {
     const table = objectRowsToTable(rowsRaw as Record<string, unknown>[]);
-    if (table.length) return table;
+    if (table.length) return filterTableRows(table);
   }
 
-  const fromItems = (block.items ?? []).map(rowToCells).filter((r) => r.length);
+  const fromItems = (block.items ?? [])
+    .filter((item) => !isSeparatorText(String(item)))
+    .map(rowToCells)
+    .filter((r) => r.length);
   const rawItems = block.items as unknown;
   if (
     Array.isArray(rawItems) &&
@@ -365,25 +402,25 @@ export function coerceTableRows(block: GenUIBlock): string[][] {
     rawItems.every((x) => x && typeof x === "object" && !Array.isArray(x))
   ) {
     const table = objectRowsToTable(rawItems as Record<string, unknown>[]);
-    if (table.length) return table;
+    if (table.length) return filterTableRows(table);
   }
   if (fromItems.some((r) => r.length > 1)) {
-    return padTableRows(fromItems);
+    return finalizeTableRows(fromItems);
   }
 
   if (Array.isArray(rowsRaw) && rowsRaw.length) {
     const parsed = rowsRaw.map(rowToCells).filter((r) => r.length);
     if (parsed.some((r) => r.length > 1)) {
-      return padTableRows(parsed);
+      return finalizeTableRows(parsed);
     }
   }
 
   if (block.body?.includes("|")) {
     const md = parseMarkdownTableBody(block.body);
-    if (md.length) return padTableRows(md);
+    if (md.length) return finalizeTableRows(md);
   }
 
-  if (fromItems.length) return padTableRows(fromItems);
+  if (fromItems.length) return finalizeTableRows(fromItems);
   return [];
 }
 
@@ -416,11 +453,14 @@ function firstStringList(...values: unknown[]): string[] | undefined {
 }
 
 function cleanBlockFields(block: GenUIBlock): GenUIBlock {
+  const items = block.items
+    ?.filter((item) => !isSeparatorText(item))
+    .map(cleanDisplayText);
   return {
     ...block,
     title: block.title ? cleanDisplayText(block.title) : block.title,
     body: block.body ? cleanDisplayText(block.body) : block.body,
-    items: block.items?.map(cleanDisplayText),
+    items,
     terms: block.terms?.map((t) => ({
       term: cleanDisplayText(t.term),
       definition: cleanDisplayText(t.definition),

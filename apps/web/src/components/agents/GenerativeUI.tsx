@@ -33,6 +33,12 @@ import {
   parseProgressValue,
 } from "./generative-ui";
 
+function isDashOnlyRow(text: string): boolean {
+  const s = text.trim();
+  if (!s) return true;
+  return /^[\s\-:|]+$/.test(s);
+}
+
 function parsePipeRow(row: string): string[] {
   return row.split("|").map((c) => c.trim());
 }
@@ -234,13 +240,18 @@ function MetricsBlock({ block }: { block: GenUIBlock }) {
 }
 
 function ProgressBlock({ block }: { block: GenUIBlock }) {
-  const items = block.items ?? [];
+  const items = (block.items ?? []).filter((item) => !isDashOnlyRow(item));
   if (!items.length) return null;
   return (
     <div>
       <BlockLabel type="progress" title={block.title} />
       <div className="space-y-2.5">
-        {items.map((item, j) => {
+        {items
+          .filter((item) => {
+            const [label, raw] = parsePipeRow(item);
+            return !(isDashOnlyRow(label) && isDashOnlyRow(raw || ""));
+          })
+          .map((item, j) => {
           const [label, raw] = parsePipeRow(item);
           const { pct, display } = parseProgressValue(raw || "");
           return (

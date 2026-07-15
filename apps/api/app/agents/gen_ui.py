@@ -117,13 +117,27 @@ def _table_row_to_pipe(row: Any) -> str | None:
     return None
 
 
+def _is_separator_text(text: str) -> bool:
+    """Markdown table divider rows and dash-only placeholders."""
+    s = text.strip()
+    if not s:
+        return False
+    if re.fullmatch(r"[\s\-:|]+", s):
+        return True
+    if "|" in s:
+        parts = [p.strip() for p in s.split("|") if p.strip()]
+        if parts and all(re.fullmatch(r"[\s\-:]+", p) for p in parts):
+            return True
+    return False
+
+
 def _markdown_table_to_items(body: str) -> list[str]:
     rows: list[str] = []
     for line in body.splitlines():
         line = line.strip()
         if "|" not in line:
             continue
-        if re.match(r"^[\s\-:|]+$", line):
+        if _is_separator_text(line):
             continue
         parts = [p.strip() for p in line.split("|")]
         if parts and parts[0] == "":
@@ -410,7 +424,11 @@ def _normalize_block_dict(raw: Any) -> dict[str, Any] | None:
         or b.get("faqs")
     )
     if b.get("items") and isinstance(b["items"], list):
-        b["items"] = [_clean_display_text(str(x)) for x in b["items"] if str(x).strip()]
+        b["items"] = [
+            _clean_display_text(str(x))
+            for x in b["items"]
+            if str(x).strip() and not _is_separator_text(str(x))
+        ]
 
     if not has_content:
         return None
