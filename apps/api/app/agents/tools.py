@@ -21,6 +21,7 @@ def build_tools(
     user_id: uuid.UUID,
     agent_type: str = "general",
     presentation_context: PresentationContext | None = None,
+    allow_web_search: bool = True,
 ):
     """Return tool callables bound to this request's db+tenant and agent profile."""
     profile = get_profile(agent_type)
@@ -34,6 +35,10 @@ def build_tools(
             user_id=user_id,
             ctx=presentation_context,
         )
+
+    tool_names = set(profile.tool_names)
+    if not allow_web_search:
+        tool_names.discard("web_search")
 
     @tool
     def list_documents() -> list[dict[str, Any]]:
@@ -88,8 +93,8 @@ def build_tools(
     @tool
     def web_search(query: str, max_results: int = 5) -> dict[str, Any]:
         """
-        Search the public web via DuckDuckGo for role requirements, market context,
-        benchmarks, or definitions not found in workspace documents.
+        Search the public web via DuckDuckGo for external context, benchmarks,
+        or definitions not found in workspace documents (when policy allows).
         Requires get_current_date to have run earlier in this run — embed the
         returned year/month in the query (never stale years like 2023).
         """
@@ -126,6 +131,6 @@ def build_tools(
         "create_note": create_note,
         "get_current_date": get_current_date,
     }
-    ordered_names = [name for name in GENERAL_TOOL_ORDER if name in profile.tool_names]
-    extra = [name for name in profile.tool_names if name not in GENERAL_TOOL_ORDER]
+    ordered_names = [name for name in GENERAL_TOOL_ORDER if name in tool_names]
+    extra = [name for name in tool_names if name not in GENERAL_TOOL_ORDER]
     return [by_name[name] for name in (*ordered_names, *extra) if name in by_name]

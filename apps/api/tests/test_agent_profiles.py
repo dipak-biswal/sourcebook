@@ -25,6 +25,35 @@ def test_agent_system_prompt_uses_date_tool_not_hardcoded_header():
     assert "outdated years" in prompt
     assert "list_documents" in prompt
     assert "web_search" in prompt
+    # Generic template — no resume/ATS vertical hardcoding
+    assert "resume" not in prompt.lower()
+    assert "ats" not in prompt.lower()
+    assert "gap analysis vs a target role" not in prompt.lower()
+
+
+def test_build_tools_can_disable_web_search():
+    db = MagicMock()
+    ws_id = uuid.uuid4()
+    user_id = uuid.uuid4()
+    with_web = {
+        t.name
+        for t in build_tools(
+            db, workspace_id=ws_id, user_id=user_id, agent_type="general"
+        )
+    }
+    no_web = {
+        t.name
+        for t in build_tools(
+            db,
+            workspace_id=ws_id,
+            user_id=user_id,
+            agent_type="general",
+            allow_web_search=False,
+        )
+    }
+    assert "web_search" in with_web
+    assert "web_search" not in no_web
+    assert "search_documents" in no_web
 
 
 def test_build_tools_orders_date_first():

@@ -115,10 +115,19 @@ def _client() -> OpenAI:
     return OpenAI(api_key=settings.openai_api_key, base_url=settings.openai_base_url)
 
 
-def _format_llm_extraction_prompt(answer: str, *, goal: str) -> str:
+def _format_llm_extraction_prompt(
+    answer: str,
+    *,
+    goal: str,
+    workspace_block: str = "",
+) -> str:
+    ws = ""
+    if workspace_block.strip():
+        ws = f"WORKSPACE CONTEXT:\n{workspace_block.strip()}\n\n"
     return (
         "Extract structured content from the main workspace agent answer below.\n"
         "Use ONLY facts present in the answer — do not invent employers, metrics, or dates.\n"
+        "Prefer structure that supports the workspace outcome and tone when facts allow.\n"
         "Return JSON only with this shape:\n"
         "{\n"
         '  "summary": "2-4 sentence overview",\n'
@@ -127,6 +136,7 @@ def _format_llm_extraction_prompt(answer: str, *, goal: str) -> str:
         '  "sections": [{"heading": "...", "bullets": ["..."], "body": "..."}],\n'
         '  "themes": ["theme", ...]\n'
         "}\n\n"
+        f"{ws}"
         f"USER GOAL:\n{(goal or '').strip()}\n\n"
         f"MAIN AGENT ANSWER:\n{(answer or '').strip()[:12000]}"
     )
@@ -139,13 +149,26 @@ def extract_structured_content_llm(
     db: Session | None = None,
     user_id: uuid.UUID | None = None,
     workspace_id: uuid.UUID | None = None,
+    workspace_packet: Any = None,
 ) -> dict[str, Any] | None:
     """LLM extraction with strict JSON schema; returns None on failure."""
     text = (answer or "").strip()
     if len(text) < 40:
         return None
 
-    prompt = _format_llm_extraction_prompt(text, goal=goal)
+    workspace_block = ""
+    if workspace_packet is not None:
+        from app.presentation.workspace_context import (
+            WorkspaceContextPacket,
+            format_workspace_block_for_handoff,
+        )
+
+        if isinstance(workspace_packet, WorkspaceContextPacket):
+            workspace_block = format_workspace_block_for_handoff(workspace_packet)
+
+    prompt = _format_llm_extraction_prompt(
+        text, goal=goal, workspace_block=workspace_block
+    )
     try:
         resp = _client().chat.completions.create(
             model=settings.visual_summary_model,
@@ -204,6 +227,7 @@ def resolve_structured_content(
     db: Session | None = None,
     user_id: uuid.UUID | None = None,
     workspace_id: uuid.UUID | None = None,
+    workspace_packet: Any = None,
 ) -> tuple[dict[str, Any], str]:
     """
     Resolve structured handoff: heuristic first, LLM upgrade when thin.
@@ -222,6 +246,7 @@ def resolve_structured_content(
         db=db,
         user_id=user_id,
         workspace_id=workspace_id,
+        workspace_packet=workspace_packet,
     )
     if llm_result and structured_content_has_substance(llm_result):
         return llm_result, "llm"

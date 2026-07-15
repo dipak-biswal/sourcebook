@@ -92,8 +92,8 @@ def _synthesize_final_answer(
                 "(status: ready), then try again."
             )
         return (
-            "No documents are available in this workspace yet. Upload your resume "
-            "or other files under Documents and wait until status is ready."
+            "No documents are available in this workspace yet. Upload files under "
+            "Documents and wait until status is ready."
         )
 
     prompt = (

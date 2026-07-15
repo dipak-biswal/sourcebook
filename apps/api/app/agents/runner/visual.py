@@ -19,6 +19,7 @@ from app.presentation.evidence import (
     serialize_agent_evidence,
 )
 from app.presentation.handoff import resolve_structured_content
+from app.presentation.workspace_context import resolve_workspace_context
 
 
 def _is_presentation_pending(pending: dict[str, Any] | None) -> bool:
@@ -50,12 +51,17 @@ def _presentation_context_for_run(db: Session, run: AgentRun) -> PresentationCon
     )
     goal = run.goal or ""
     user_id = run.user_id or uuid.UUID(int=0)
+    packet = getattr(run, "_workspace_context", None) or resolve_workspace_context(
+        db, run.workspace_id
+    )
+    run._workspace_context = packet  # type: ignore[attr-defined]
     structured_content, _source = resolve_structured_content(
         narrative,
         goal=goal,
         db=db,
         user_id=user_id,
         workspace_id=run.workspace_id,
+        workspace_packet=packet,
     )
     return PresentationContext(
         workspace_id=run.workspace_id,
@@ -68,6 +74,7 @@ def _presentation_context_for_run(db: Session, run: AgentRun) -> PresentationCon
         document_filenames=filenames,
         agent_evidence=agent_evidence,
         structured_content=structured_content,
+        workspace_packet=packet.to_dict(),
     )
 
 

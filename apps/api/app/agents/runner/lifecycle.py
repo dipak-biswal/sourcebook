@@ -36,6 +36,10 @@ from app.agents.visual_tools import VISUAL_SUMMARY_AGENT_LABEL
 from app.config import settings
 from app.models import AgentRun
 from app.presentation.handoff import handoff_error_message, validate_handoff
+from app.presentation.workspace_context import (
+    format_main_agent_system_prompt,
+    resolve_workspace_context,
+)
 
 
 def run_agent(
@@ -73,8 +77,14 @@ def run_agent(
     db.add(run)
     db.flush()
 
+    packet = resolve_workspace_context(db, workspace_id)
+    run._workspace_context = packet  # type: ignore[attr-defined]
+    system = format_main_agent_system_prompt(
+        agent_system_prompt(profile.system_prompt),
+        packet,
+    )
     messages: list[BaseMessage] = [
-        SystemMessage(content=agent_system_prompt(profile.system_prompt)),
+        SystemMessage(content=system),
         HumanMessage(content=goal),
     ]
     _emit(
@@ -85,6 +95,14 @@ def run_agent(
         workspace_id=str(workspace_id),
         agent_type=resolved_type,
         status="running",
+        workspace_context={
+            "confidence": packet.meta.confidence,
+            "derivation_version": packet.meta.derivation_version,
+            "outcome_phrase": packet.derived.outcome_phrase,
+            "tone": packet.derived.tone,
+            "external_context_ok": packet.derived.tool_policy.external_context_ok,
+            "visual_affordances": list(packet.derived.visual_affordances),
+        },
     )
     trace_live = LiveTraceContext()
     run._trace_live = trace_live  # type: ignore[attr-defined]
@@ -282,6 +300,11 @@ def approve_agent_run(
     if name not in WRITE_TOOLS:
         raise ValueError(f"Pending tool is not a write tool: {name}")
 
+    if getattr(run, "_workspace_context", None) is None:
+        run._workspace_context = resolve_workspace_context(  # type: ignore[attr-defined]
+            db, run.workspace_id
+        )
+    packet = run._workspace_context  # type: ignore[attr-defined]
     tools = {
         t.name: t
         for t in build_tools(
@@ -289,6 +312,7 @@ def approve_agent_run(
             workspace_id=run.workspace_id,
             user_id=run.user_id or uuid.UUID(int=0),
             agent_type=run.agent_type,
+            allow_web_search=bool(packet.derived.tool_policy.external_context_ok),
         )
     }
     tool = tools.get(name)
@@ -342,8 +366,12 @@ def approve_agent_run(
     if not messages:
         # Fallback if old runs lack checkpoint
         profile = get_profile(run.agent_type)
+        system = format_main_agent_system_prompt(
+            agent_system_prompt(profile.system_prompt),
+            packet,
+        )
         messages = [
-            SystemMessage(content=agent_system_prompt(profile.system_prompt)),
+            SystemMessage(content=system),
             HumanMessage(content=run.goal or ""),
             AIMessage(
                 content="",

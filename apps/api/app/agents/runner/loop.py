@@ -62,12 +62,18 @@ def _run_tool_loop(
     user_id = run.user_id or uuid.UUID(int=0)
     resolved_agent_type = agent_type_override or run.agent_type
     resolved_model = chat_model or settings.chat_model
+    allow_web = True
+    if resolved_agent_type != "visual_summary":
+        packet = getattr(run, "_workspace_context", None)
+        if packet is not None:
+            allow_web = bool(packet.derived.tool_policy.external_context_ok)
     tools = build_tools(
         db,
         workspace_id=run.workspace_id,
         user_id=user_id,
         agent_type=resolved_agent_type,
         presentation_context=presentation_context,
+        allow_web_search=allow_web,
     )
     tool_by_name = {t.name: t for t in tools}
     model = _llm(resolved_model).bind_tools(tools)

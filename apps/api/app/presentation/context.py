@@ -21,3 +21,5 @@ class PresentationContext:
     agent_evidence: AgentEvidenceBundle = field(default_factory=AgentEvidenceBundle)
     structured_content: dict | None = None
     layout_plan: dict | None = None
+    # Derived workspace packet (dict form) for handoff / visual planning
+    workspace_packet: dict | None = None
