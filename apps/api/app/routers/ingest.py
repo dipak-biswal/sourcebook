@@ -11,7 +11,11 @@ from app.models import Document, User, WorkspaceMember
 from app.rate_limit import rate_limit
 from app.schemas import DocumentResponse
 from app.workers.ingest_jobs import process_document_ingest
-from app.workers.queue import enqueue_document_ingest, redis_ping
+from app.workers.queue import (
+    enqueue_document_ingest,
+    ingest_worker_count,
+    redis_ping,
+)
 
 logger = get_logger("sourcebook.ingest")
 
@@ -51,6 +55,8 @@ def ingest_document(
     - INGEST_USE_QUEUE=true: enqueue RQ job (needs Redis + worker; worker must see files).
     - INGEST_USE_QUEUE=false: FastAPI BackgroundTasks on this process (good for single
       Render web service; avoids gateway 502 from long embedding requests).
+    - Queue on but no worker listening: fall back to in-process ingest instead of
+      leaving the document stuck in 'queued'.
     """
     doc = db.get(Document, document_id)
     if not doc:
@@ -61,7 +67,8 @@ def ingest_document(
     _require_workspace_member(db, current_user.id, doc.workspace_id)
 
     # --- RQ queue path ---
-    if settings.ingest_use_queue:
+    use_queue = settings.ingest_use_queue
+    if use_queue:
         if not redis_ping():
             raise HTTPException(
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
@@ -71,6 +78,19 @@ def ingest_document(
                     "or set INGEST_USE_QUEUE=false for in-process background ingest."
                 ),
             )
+        if ingest_worker_count() == 0:
+            # Redis is up but nobody is consuming the queue (e.g. API-only
+            # deploy) — enqueueing would strand the document in 'queued'.
+            use_queue = False
+            logger.warning(
+                "ingest_no_worker_fallback",
+                extra=log_extra(
+                    event="ingest_no_worker_fallback",
+                    document_id=str(doc.id),
+                    workspace_id=str(doc.workspace_id),
+                ),
+            )
+    if use_queue:
         try:
             doc.status = "queued"
             doc.error = None

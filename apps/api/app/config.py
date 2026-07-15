@@ -1,4 +1,20 @@
+import ipaddress
+
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+DEFAULT_JWT_SECRET = "dev-only-change-me-sourcebook"
+
+
+def _is_local_host(host: str) -> bool:
+    """Loopback, private-range IPs, and bare/.local hostnames count as local."""
+    h = (host or "").lower()
+    if not h or h in ("localhost",) or h.endswith(".local") or "." not in h:
+        return True
+    try:
+        ip = ipaddress.ip_address(h)
+    except ValueError:
+        return False
+    return ip.is_loopback or ip.is_private
 
 
 def normalize_database_url(url: str) -> str:
@@ -29,7 +45,7 @@ class Settings(BaseSettings):
     database_url: str = (
         "postgresql+psycopg://sourcebook:sourcebook@127.0.0.1:5432/sourcebook"
     )
-    jwt_secret: str = "dev-only-change-me-sourcebook"
+    jwt_secret: str = DEFAULT_JWT_SECRET
     jwt_algorithm: str = "HS256"
     jwt_expire_minutes: int = 60 * 24 * 7
 
@@ -85,6 +101,13 @@ class Settings(BaseSettings):
     @property
     def sqlalchemy_database_url(self) -> str:
         return normalize_database_url(self.database_url)
+
+    @property
+    def is_local_database(self) -> bool:
+        """A remote (public-host) database means we're not on a dev machine."""
+        from sqlalchemy.engine import make_url
+
+        return _is_local_host(make_url(self.sqlalchemy_database_url).host or "")
 
 
 settings = Settings()

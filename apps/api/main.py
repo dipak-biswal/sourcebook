@@ -2,7 +2,7 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
-from app.config import settings
+from app.config import DEFAULT_JWT_SECRET, settings
 from app.db import engine
 from app.logging_config import get_logger, setup_logging
 from app.middleware.request_logging import RequestLoggingMiddleware
@@ -72,6 +72,33 @@ if settings.dev_mode:
     app.include_router(dev.router)
 
 
+def _enforce_prod_safety() -> None:
+    """Refuse to boot in an insecure state when the database is remote.
+
+    A remote (public-host) DATABASE_URL means this is a deployed environment,
+    where the dev defaults are dangerous: DEV_MODE exposes endpoints that list
+    users and set passwords, and the default JWT secret lets anyone mint tokens.
+    """
+    if settings.is_local_database:
+        return
+
+    problems = []
+    if settings.dev_mode:
+        problems.append("DEV_MODE=true (set DEV_MODE=false)")
+    if settings.jwt_secret == DEFAULT_JWT_SECRET:
+        problems.append("JWT_SECRET is the dev default (set a strong JWT_SECRET)")
+    if problems:
+        raise RuntimeError(
+            "Refusing to start against a remote database with insecure settings: "
+            + "; ".join(problems)
+        )
+    if len(settings.jwt_secret) < 32:
+        logger.warning(
+            "jwt_secret_short",
+            extra={"event": "prod_safety", "detail": "JWT_SECRET shorter than 32 chars"},
+        )
+
+
 def _run_db_migrations() -> None:
     """Bring the schema to head with Alembic.
 
@@ -100,6 +127,7 @@ def _run_db_migrations() -> None:
 
 @app.on_event("startup")
 def on_startup() -> None:
+    _enforce_prod_safety()
     try:
         _run_db_migrations()
         logger.info("db_tables_ready", extra={"event": "db_init"})
