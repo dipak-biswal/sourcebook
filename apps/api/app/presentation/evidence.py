@@ -143,28 +143,6 @@ def serialize_agent_evidence(bundle: AgentEvidenceBundle) -> dict[str, list[dict
     }
 
 
-def format_agent_evidence(bundle: AgentEvidenceBundle) -> str:
-    """Prompt + grounding text for evidence the agent already retrieved."""
-    if not bundle.has_content():
-        return ""
-
-    parts: list[str] = [
-        "AGENT TOOL EVIDENCE (same sources the Answer tab used — prefer over re-inferred facts):"
-    ]
-    if bundle.document_hits:
-        parts.append("Workspace search hits:")
-        for i, hit in enumerate(bundle.document_hits, start=1):
-            score = f", score={hit.score:.3f}" if hit.score is not None else ""
-            parts.append(f"[doc-{i}] ({hit.filename}{score})\n{hit.snippet}")
-    if bundle.web_hits:
-        parts.append("Web search hits:")
-        for i, hit in enumerate(bundle.web_hits, start=1):
-            src = f" ({hit.url})" if hit.url else ""
-            parts.append(f"[web-{i}] {hit.title}{src}\n{hit.snippet}")
-
-    return "\n\n".join(parts)
-
-
 def _step_index(step: Any) -> int:
     if isinstance(step, dict):
         return int(step.get("step_index") or 0)

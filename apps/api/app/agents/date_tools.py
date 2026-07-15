@@ -35,8 +35,3 @@ def get_current_date() -> dict[str, Any]:
     "current", "today", or "this year".
     """
     return current_date_payload()
-
-
-def build_date_tools() -> list:
-    """Tools available to any agent profile that lists DATE_TOOL_NAMES."""
-    return [get_current_date]

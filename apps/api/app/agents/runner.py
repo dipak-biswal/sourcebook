@@ -38,7 +38,6 @@ from app.presentation.context import PresentationContext
 
 from app.presentation.evidence import (
     collect_evidence_from_steps,
-    format_agent_evidence,
     serialize_agent_evidence,
 )
 from app.presentation.planner import should_offer_presentation

@@ -340,11 +340,6 @@ def format_plan_layout_prompt(payload: dict[str, Any], *, layout_hints: str) -> 
     )
 
 
-def format_render_content_payload(structured_content: dict[str, Any]) -> str:
-    """Serialize structured facts for the render engine (not the raw answer)."""
-    return json.dumps(structured_content, ensure_ascii=False, indent=2)
-
-
 _FIELD_SHAPE_HINTS: dict[str, str] = {
     "summary": "type summary — title optional, body = 2-4 sentences from structured summary",
     "key_points": "type key_points — items = string bullets from structured key_points",
