@@ -2,7 +2,7 @@
 
 Multi-tenant **document AI workspace**: upload files, run an ingest pipeline (parse → chunk → embed), **chat with grounded answers and citations**, and run **tool-using agents** with human approval — including a **Visual Summary** pipeline that turns agent answers into generative UI.
 
-> Not a toy chatbot — a small AI product with real backend concerns: tenancy, async jobs, rate limits, execution traces, presentation handoff, and evals.
+> Not a toy chatbot — a small AI product with real backend concerns: tenancy, async jobs, rate limits, execution traces, and presentation handoff.
 
 ---
 
@@ -34,7 +34,6 @@ Honest snapshot of the product as of the current codebase.
 | **Product UI polish** | Light/dark theme; toasts, confirms, empty states, skeletons; onboarding checklist hooks |
 | **Ops** | Structured logging + `X-Request-ID`; health endpoints; `DEV_MODE` panel; Swagger at `/docs` |
 | **Tests** | Backend unit tests for agents, presentation, handoff, plan validator, gen UI, web search, tools, workspace delete, etc. |
-| **Evals** | Manual golden set: [`evals/sourcebook-v1.md`](evals/sourcebook-v1.md) (**10/12** recorded) |
 
 ### Planned (documented, not built yet)
 
@@ -84,7 +83,6 @@ Roadmap specs live under [`docs/`](docs/). Highlights:
 | **Accessibility** | Skip-to-content link, semantic HTML, keyboard-navigable, focus management |
 | **Structured logging** | Request ID correlation (`X-Request-ID`), JSON structured logs, per-request timing |
 | **Dev tools** | `DEV_MODE` panel to list users, set/reset test passwords; Swagger docs at `/docs` |
-| **Evals** | Manual golden set: [`evals/sourcebook-v1.md`](evals/sourcebook-v1.md) (**10/12** on design-doc Qs) including denial cases |
 
 ---
 
@@ -189,8 +187,7 @@ sourcebook/
 │           ├── api.ts               # API client + SSE streaming
 │           └── App.tsx
 ├── docs/                            # Product plans (visual summary, workspace context, execution)
-├── evals/                           # RAG golden-set manual evals
-├── docker-compose.yml               # Postgres + Redis
+├── docker-compose.yml               # Postgres + Redis (local only; not used by Render)
 └── README.md
 ```
 
@@ -357,16 +354,6 @@ Tune via `RATE_LIMIT_*` env vars; set `RATE_LIMIT_ENABLED=false` for heavy local
 
 ---
 
-## Evals
-
-Manual golden set and results:
-
-- [`evals/sourcebook-v1.md`](evals/sourcebook-v1.md)  
-- Latest recorded score: **10/12 (83%)** on a Vercel design-system markdown doc (after retest of ambiguous Qs).  
-- Includes denial cases (off-topic should not invent sources).
-
----
-
 ## Roadmap status (honest)
 
 | Area | Status |
@@ -450,8 +437,7 @@ Summary:
 5. Two-phase agent product path: research answer → Visual Summary generative UI (handoff → plan → render).  
 6. Rate limits (Redis + in-memory fallback) and usage logging for cost control.  
 7. Structured logging with request ID correlation.  
-8. Eval golden set, not vibes-only quality.  
-9. Full-stack: FastAPI + React/Vite + Postgres + Redis, env-driven config.
+8. Full-stack: FastAPI + React/Vite + Postgres + Redis, env-driven config.
 
 ---
 
