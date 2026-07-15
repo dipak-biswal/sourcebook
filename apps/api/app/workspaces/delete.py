@@ -6,6 +6,7 @@ from sqlalchemy import delete, select, update
 from sqlalchemy.orm import Session
 
 from app.config import settings
+from app.storage import get_storage
 from app.models import (
     AgentRun,
     AgentStep,
@@ -35,11 +36,9 @@ def purge_workspace(db: Session, workspace_id: uuid.UUID) -> None:
     docs = db.scalars(
         select(Document).where(Document.workspace_id == workspace_id)
     ).all()
-    upload_root = Path(settings.upload_dir)
+    storage = get_storage()
     for doc in docs:
-        path = upload_root / doc.storage_key
-        if path.is_file():
-            path.unlink(missing_ok=True)
+        storage.delete(doc.storage_key)
     db.execute(delete(Document).where(Document.workspace_id == workspace_id))
 
     db.execute(delete(Note).where(Note.workspace_id == workspace_id))
@@ -50,7 +49,8 @@ def purge_workspace(db: Session, workspace_id: uuid.UUID) -> None:
         .values(workspace_id=None)
     )
 
-    ws_dir = upload_root / str(workspace_id)
+    # Local backend keeps per-workspace dirs on disk; clear leftovers
+    ws_dir = Path(settings.upload_dir) / str(workspace_id)
     if ws_dir.is_dir():
         shutil.rmtree(ws_dir, ignore_errors=True)
 

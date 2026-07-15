@@ -4,12 +4,12 @@ from pathlib import Path
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
 from sqlalchemy.orm import Session
 
-from app.config import settings
 from app.db import get_db
 from app.deps import get_current_user
 from app.ingestion.parsers import is_supported_filename, supported_types_message
 from app.models import Chunk, Document, User, WorkspaceMember
 from app.schemas import DocumentResponse
+from app.storage import get_storage
 
 router = APIRouter(prefix="/documents", tags=["documents"])
 
@@ -75,12 +75,9 @@ async def upload_document(
 
     doc_id = uuid.uuid4()
     rel_key = f"{workspace_id}/{doc_id}_{safe_name}"
-    dest_dir = Path(settings.upload_dir) / str(workspace_id)
-    dest_dir.mkdir(parents=True, exist_ok=True)
-    dest_path = dest_dir / f"{doc_id}_{safe_name}"
 
     content = await file.read()
-    dest_path.write_bytes(content)
+    get_storage().save(rel_key, content)
 
     doc = Document(
         id=doc_id,
@@ -111,10 +108,7 @@ def delete_document(
 
     _require_workspce_member(db, current_user.id, doc.workspace_id)
 
-    path = Path(settings.upload_dir) / doc.storage_key
-
-    if path.is_file():
-        path.unlink()
+    get_storage().delete(doc.storage_key)
 
     # Delete chunks first so SQLAlchemy does not NULL out document_id
     db.query(Chunk).filter(Chunk.document_id == doc.id).delete(

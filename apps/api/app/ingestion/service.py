@@ -1,5 +1,4 @@
 import uuid
-from pathlib import Path
 
 from sqlalchemy.orm import Session
 
@@ -8,15 +7,12 @@ from app.ingestion.chunking import chunk_text
 from app.ingestion.embeddings import embed_texts
 from app.ingestion.parsers import ParseError, parse_file
 from app.models import Document, Chunk
-
-
-def document_disk_path(doc: Document) -> Path:
-    return Path(settings.upload_dir) / doc.storage_key
+from app.storage import get_storage
 
 
 def extract_text(doc: Document) -> str:
-    path = document_disk_path(doc)
-    text = parse_file(path)
+    with get_storage().local_path(doc.storage_key) as path:
+        text = parse_file(path)
     if not text.strip():
         raise ParseError("Document is empty")
     return text

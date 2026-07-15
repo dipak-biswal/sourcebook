@@ -51,6 +51,13 @@ class Settings(BaseSettings):
 
     upload_dir: str = "./data/uploads"
 
+    # S3-compatible object storage (R2 / B2 / S3). Setting S3_ENDPOINT_URL
+    # switches document storage from local disk to the bucket.
+    s3_endpoint_url: str = ""
+    s3_access_key_id: str = ""
+    s3_secret_access_key: str = ""
+    s3_bucket: str = ""
+
     # Embeddings
     openai_api_key: str = ""
     openai_base_url: str = "https://api.openai.com/v1"
