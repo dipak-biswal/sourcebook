@@ -21,3 +21,13 @@ def test_format_layout_lists_required_types():
     assert "progress" in text
     assert "callout" in text
     assert "MUST include" in text
+
+
+def test_job_search_goal_requests_key_points_and_faq():
+    goal = (
+        'Explain the documents in the "Job Search" workspace '
+        "(Targeting full-stack AI developer roles) with key points and a short FAQ."
+    )
+    components = layout_components_from_goal(goal)
+    assert "key_points" in components
+    assert "faq" in components

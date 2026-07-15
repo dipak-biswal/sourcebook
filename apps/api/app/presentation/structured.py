@@ -79,6 +79,48 @@ def _extract_bullets(block: str, *, limit: int = _MAX_BULLETS) -> list[str]:
     return items
 
 
+_Q_NUMBERED_HEADING = re.compile(r"^Q\d+\s*:\s*", re.I)
+_LABEL_ONLY_BULLET = re.compile(r"^\*\*.+\*\*:?\s*$")
+
+
+def _promote_question_sections_to_faq(
+    sections: list[dict[str, Any]],
+    faq: list[dict[str, str]],
+) -> list[dict[str, str]]:
+    """Turn Q1:/question headings in sections into faq entries for render."""
+    seen = {f"{item['question']}|{item['answer']}" for item in faq}
+    for entry in sections:
+        heading = str(entry.get("heading") or "").strip()
+        if not heading:
+            continue
+        is_question = heading.endswith("?") or bool(_Q_NUMBERED_HEADING.match(heading))
+        if not is_question:
+            continue
+        question = _Q_NUMBERED_HEADING.sub("", heading).strip()
+        answer = " ".join(entry.get("bullets") or [])
+        if not answer:
+            answer = str(entry.get("body") or "").strip()
+        if not question or not answer:
+            continue
+        key = f"{question}|{answer}"
+        if key in seen:
+            continue
+        seen.add(key)
+        faq.append({"question": question[:300], "answer": answer[:800]})
+    return faq
+
+
+def _clean_key_point_bullets(key_points: list[str]) -> list[str]:
+    """Drop section labels mistaken as bullets (e.g. '**Professional Summary**:')."""
+    cleaned: list[str] = []
+    for item in key_points:
+        text = item.strip()
+        if not text or _LABEL_ONLY_BULLET.match(text):
+            continue
+        cleaned.append(text)
+    return cleaned
+
+
 def _extract_faq(block: str) -> list[dict[str, str]]:
     faq: list[dict[str, str]] = []
     lines = block.splitlines()
@@ -216,7 +258,8 @@ def extract_structured_content(answer: str, *, goal: str = "") -> dict[str, Any]
             continue
         seen.add(key)
         deduped_kp.append(item)
-    key_points = deduped_kp[:_MAX_BULLETS]
+    key_points = _clean_key_point_bullets(deduped_kp[:_MAX_BULLETS])
+    faq = _promote_question_sections_to_faq(sections, faq)
 
     if not summary and key_points:
         summary = key_points[0][:_MAX_SUMMARY_CHARS]
@@ -300,3 +343,71 @@ def format_plan_layout_prompt(payload: dict[str, Any], *, layout_hints: str) -> 
 def format_render_content_payload(structured_content: dict[str, Any]) -> str:
     """Serialize structured facts for the render engine (not the raw answer)."""
     return json.dumps(structured_content, ensure_ascii=False, indent=2)
+
+
+_FIELD_SHAPE_HINTS: dict[str, str] = {
+    "summary": "type summary — title optional, body = 2-4 sentences from structured summary",
+    "key_points": "type key_points — items = string bullets from structured key_points",
+    "faq": 'type faq — faqs = [{"question":"","answer":""}] from structured faq',
+    "key_terms": 'type key_terms — terms = [{"term":"","definition":""}]',
+    "table": "type table — items = pipe rows e.g. Col1 | Col2",
+    "progress": "type progress — items = Label | Strong/Growing/Gap (qualitative only)",
+    "chart": "type chart — items = Label | level (qualitative)",
+    "chips": 'type chips — items = "Label|slug"; optional tags on other blocks',
+    "callout": "type callout — body required, short title",
+    "steps": "type steps — ordered items list",
+    "timeline": "type timeline — items = Period | Title | Detail (only if dates in facts)",
+    "comparison": "type comparison — items = Aspect | A | B",
+    "quote": "type quote — body = quote text",
+    "metrics": "type metrics — items = Label | Value",
+}
+
+
+def format_render_engine_prompt(
+    *,
+    layout_plan: dict[str, Any],
+    structured_content: dict[str, Any],
+    evidence_summary: dict[str, Any],
+    workspace_name: str = "",
+) -> str:
+    """
+    Slim render-engine prompt: execute the approved plan using structured facts only.
+    No user goal, workspace essay, or RAG excerpt dump.
+    """
+    components = list(layout_plan.get("components") or [])
+    profile = str(layout_plan.get("presentation_profile") or "general_summary")
+    outline = layout_plan.get("block_outline") or []
+    shape_lines = [
+        f"  - {_FIELD_SHAPE_HINTS[c]}"
+        for c in components
+        if c in _FIELD_SHAPE_HINTS
+    ]
+    shapes = "\n".join(shape_lines) if shape_lines else "  - Use block types from block_outline"
+
+    return (
+        "You are the VISUAL SUMMARY render engine.\n"
+        "Execute the APPROVED LAYOUT PLAN below — populate UI blocks from STRUCTURED CONTENT.\n"
+        "Do NOT re-analyze documents, repeat the user goal, or add block types not in the plan.\n\n"
+        f"WORKSPACE: {workspace_name.strip() or '(unnamed)'}\n\n"
+        "APPROVED LAYOUT PLAN:\n"
+        f"{json.dumps(layout_plan, ensure_ascii=False, indent=2)}\n\n"
+        "STRUCTURED CONTENT (facts — map into block_outline; do not invent):\n"
+        f"{json.dumps(structured_content, ensure_ascii=False, indent=2)}\n\n"
+        "EVIDENCE SUMMARY (use only if a fact is missing from structured content):\n"
+        f"{json.dumps(evidence_summary, ensure_ascii=False, indent=2)}\n\n"
+        "BLOCK SHAPES FOR THIS PLAN:\n"
+        f"{shapes}\n\n"
+        "RULES:\n"
+        f"- Output presentation_profile: {profile}\n"
+        f"- Emit exactly the block types in components: {components or ['from block_outline']}\n"
+        f"- One block per block_outline entry ({len(outline)} planned) when outline is non-empty.\n"
+        "- Prefer structured_content.faq for faq blocks; use sections with Q headings if faq is empty.\n"
+        "- Never invent employers, metrics, or dates not present in structured content or evidence.\n"
+        "- Return ONLY valid JSON (no markdown fences):\n"
+        "{\n"
+        '  "title": "short title",\n'
+        '  "plain_summary": "2-4 sentences from structured summary",\n'
+        f'  "presentation_profile": "{profile}",\n'
+        '  "blocks": [...]\n'
+        "}\n"
+    )

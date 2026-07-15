@@ -12,6 +12,7 @@ _COMPONENT_RULES: tuple[tuple[re.Pattern[str], str], ...] = (
     (re.compile(r"callout|main\s+gap", re.I), "callout"),
     (re.compile(r"\btimeline\b|milestones?", re.I), "timeline"),
     (re.compile(r"\bfaq\b", re.I), "faq"),
+    (re.compile(r"key\s*points?", re.I), "key_points"),
     (re.compile(r"comparison|side\s+by\s+side", re.I), "comparison"),
     (re.compile(r"glossary|key\s+terms?", re.I), "key_terms"),
 )
@@ -27,6 +28,7 @@ _COMPONENT_GUIDE: dict[str, str] = {
     "callout": "body = main gap or key insight; short title",
     "timeline": "Only if answer lists explicit dates/roles; Period | Role | Detail",
     "faq": "At least 3 faq items from answer themes",
+    "key_points": "Bullet highlights from structured content — no prose dump",
     "comparison": "Side-by-side columns from answer",
     "key_terms": "Glossary terms drawn from answer",
 }
@@ -56,7 +58,7 @@ def format_layout_requirements(components: list[str]) -> str:
         guide = _COMPONENT_GUIDE.get(typ, typ)
         lines.append(f"  • {typ}: {guide}")
     lines.append(
-        "Populate from AGENT TEXT ANSWER + EXCERPTS. "
+        "Populate from structured content passed to the planner. "
         "Do NOT echo UI component names from the answer as content."
     )
     return "\n".join(lines)

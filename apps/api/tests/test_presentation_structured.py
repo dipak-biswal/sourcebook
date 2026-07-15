@@ -39,6 +39,23 @@ def test_extract_structured_content_parses_sections():
     assert structured["faq"][0]["question"].endswith("?")
 
 
+def test_promotes_q_numbered_sections_to_faq():
+    answer = """\
+Overview of the workspace documents.
+
+**Q1: What roles should I target?**
+- Full-stack AI developer roles with shipped LLM features.
+
+**Q2: What stack to emphasize?**
+- TypeScript/React, Python/FastAPI, Postgres, vector search.
+"""
+    structured = extract_structured_content(answer, goal="Explain with FAQ")
+    questions = [item["question"] for item in structured["faq"]]
+    assert len(structured["faq"]) >= 2
+    assert any("roles" in q.lower() for q in questions)
+    assert any("stack" in q.lower() for q in questions)
+
+
 def test_plan_layout_prompt_uses_structured_input_not_raw_answer(monkeypatch):
     long_tail = "extra detail " * 500
     ctx = PresentationContext(

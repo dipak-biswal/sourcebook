@@ -24,6 +24,7 @@ from app.presentation.layout import format_layout_requirements, layout_component
 from app.presentation.structured import (
     extract_structured_content,
     format_render_content_payload,
+    format_render_engine_prompt,
     summarize_agent_evidence,
 )
 from app.usage import estimate_tokens, log_usage
@@ -280,86 +281,32 @@ def _workspace_context_lines(ctx: PresentationContext) -> str:
     return "\n".join(lines) if lines else "Workspace: (no extra metadata)"
 
 
-def build_presentation(
-    db: Session,
-    ctx: PresentationContext,
-) -> tuple[dict[str, Any], dict[str, Any]]:
-    """
-    Produce a generative_ui payload from agent goal + answer + workspace context.
-    Uses RAG chunks for grounding; layout is chosen freely from registered block types.
-    """
-    goal = (ctx.goal or "").strip()
-    answer = (ctx.final_answer or "").strip()
-    if not goal or not answer:
-        return {"error": "goal and final_answer are required"}, {}
+def _structured_grounding_corpus(
+    structured: dict[str, Any],
+    *,
+    answer: str,
+    evidence_summary: dict[str, Any],
+) -> str:
+    """Compact text corpus for post-render grounding when RAG excerpts are skipped."""
+    parts = [answer, json.dumps(structured, ensure_ascii=False)]
+    for hit in evidence_summary.get("document_snippets") or []:
+        if isinstance(hit, dict):
+            parts.append(hit.get("snippet") or "")
+    return "\n".join(parts).lower()
 
-    structured = ctx.structured_content or extract_structured_content(
-        answer,
-        goal=goal,
-    )
-    structured_payload = format_render_content_payload(structured)
-    query = f"{goal}\n{structured.get('summary') or answer[:800]}".strip()
-    hits = retrieve_chunks(
-        db,
-        workspace_id=ctx.workspace_id,
-        query=query,
-        top_k=12,
-        min_score=settings.rag_min_score,
-        user_id=ctx.user_id,
-        usage_meta={"source": "presentation", "goal": goal[:200]},
-    )
-    if not hits:
-        hits = retrieve_chunks(
-            db,
-            workspace_id=ctx.workspace_id,
-            query=goal or "overview summary",
-            top_k=8,
-            min_score=0.05,
-            user_id=ctx.user_id,
-            usage_meta={"source": "presentation_fallback", "goal": goal[:200]},
-        )
 
-    source_files: list[str] = []
-    seen_files: set[str] = set()
-    sources: list[SourceSnippet] = []
-    context_parts: list[str] = []
-
-    for i, (ch, score) in enumerate(hits, start=1):
-        doc = db.get(Document, ch.document_id)
-        name = doc.filename if doc else "document"
-        if name not in seen_files:
-            seen_files.add(name)
-            source_files.append(name)
-        snippet = (ch.content or "")[:280]
-        sources.append(
-            SourceSnippet(
-                index=i,
-                chunk_id=str(ch.id),
-                document_id=str(ch.document_id),
-                filename=name,
-                score=round(float(score), 4) if score is not None else None,
-                snippet=snippet,
-            )
-        )
-        context_parts.append(f"[{i}] ({name}, score={score:.3f})\n{ch.content}")
-
-    context = "\n\n".join(context_parts) if context_parts else "(no document excerpts)"
-    evidence_summary = summarize_agent_evidence(ctx.agent_evidence)
-    evidence_json = json.dumps(evidence_summary, ensure_ascii=False, indent=2)
-    grounding_context = context
-    max_idx = len(sources)
-    ws_lines = _workspace_context_lines(ctx)
-    layout_components = layout_components_from_goal(goal)
-    if ctx.layout_plan and isinstance(ctx.layout_plan.get("components"), list):
-        layout_components = list(ctx.layout_plan["components"])
-    layout_section = format_layout_requirements(layout_components)
-    plan_section = ""
-    if ctx.layout_plan:
-        plan_section = (
-            "\nAPPROVED LAYOUT PLAN (from Visual Summary Agent — follow this structure):\n"
-            f"{json.dumps(ctx.layout_plan, ensure_ascii=False)[:4000]}\n"
-        )
-    prompt = f"""You are the VISUAL SUMMARY render engine. The main agent already finished analysis.
+def _legacy_render_prompt(
+    *,
+    goal: str,
+    ws_lines: str,
+    layout_section: str,
+    plan_section: str,
+    structured_payload: str,
+    evidence_json: str,
+    context: str,
+    max_idx: int,
+) -> str:
+    return f"""You are the VISUAL SUMMARY render engine. The main agent already finished analysis.
 Your job: turn STRUCTURED CONTENT (+ layout plan) into UI blocks. Do NOT dump prose or re-run analysis.
 
 WORKSPACE CONTEXT:
@@ -428,19 +375,146 @@ EXCERPTS:
 {context}
 """
 
+
+def build_presentation(
+    db: Session,
+    ctx: PresentationContext,
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    """
+    Produce a generative_ui payload from agent goal + answer + workspace context.
+
+    When layout_plan is set (post plan_layout), uses a slim plan-driven prompt and
+    skips RAG. Otherwise falls back to the legacy goal+RAG render path.
+    """
+    goal = (ctx.goal or "").strip()
+    answer = (ctx.final_answer or "").strip()
+    if not goal or not answer:
+        return {"error": "goal and final_answer are required"}, {}
+
+    structured = ctx.structured_content or extract_structured_content(
+        answer,
+        goal=goal,
+    )
+    evidence_summary = summarize_agent_evidence(ctx.agent_evidence)
+    layout_plan = ctx.layout_plan if isinstance(ctx.layout_plan, dict) else None
+    plan_driven = bool(layout_plan)
+
+    source_files: list[str] = []
+    sources: list[SourceSnippet] = []
+    grounding_context = ""
+
+    if plan_driven:
+        for i, hit in enumerate(ctx.agent_evidence.document_hits[:6], start=1):
+            name = hit.filename or "document"
+            if name not in source_files:
+                source_files.append(name)
+            sources.append(
+                SourceSnippet(
+                    index=i,
+                    chunk_id="",
+                    document_id="",
+                    filename=name,
+                    score=None,
+                    snippet=(hit.snippet or "")[:280],
+                )
+            )
+        grounding_context = _structured_grounding_corpus(
+            structured,
+            answer=answer,
+            evidence_summary=evidence_summary,
+        )
+        prompt = format_render_engine_prompt(
+            layout_plan=layout_plan,
+            structured_content=structured,
+            evidence_summary=evidence_summary,
+            workspace_name=ctx.workspace_name,
+        )
+        render_model = settings.visual_summary_model
+        system_message = (
+            "You execute an approved visual layout plan. "
+            "Populate UI blocks from structured content only. "
+            "Output valid JSON. Never invent facts."
+        )
+    else:
+        structured_payload = format_render_content_payload(structured)
+        query = f"{goal}\n{structured.get('summary') or answer[:800]}".strip()
+        hits = retrieve_chunks(
+            db,
+            workspace_id=ctx.workspace_id,
+            query=query,
+            top_k=12,
+            min_score=settings.rag_min_score,
+            user_id=ctx.user_id,
+            usage_meta={"source": "presentation", "goal": goal[:200]},
+        )
+        if not hits:
+            hits = retrieve_chunks(
+                db,
+                workspace_id=ctx.workspace_id,
+                query=goal or "overview summary",
+                top_k=8,
+                min_score=0.05,
+                user_id=ctx.user_id,
+                usage_meta={"source": "presentation_fallback", "goal": goal[:200]},
+            )
+
+        seen_files: set[str] = set()
+        context_parts: list[str] = []
+
+        for i, (ch, score) in enumerate(hits, start=1):
+            doc = db.get(Document, ch.document_id)
+            name = doc.filename if doc else "document"
+            if name not in seen_files:
+                seen_files.add(name)
+                source_files.append(name)
+            snippet = (ch.content or "")[:280]
+            sources.append(
+                SourceSnippet(
+                    index=i,
+                    chunk_id=str(ch.id),
+                    document_id=str(ch.document_id),
+                    filename=name,
+                    score=round(float(score), 4) if score is not None else None,
+                    snippet=snippet,
+                )
+            )
+            context_parts.append(f"[{i}] ({name}, score={score:.3f})\n{ch.content}")
+
+        context = "\n\n".join(context_parts) if context_parts else "(no document excerpts)"
+        grounding_context = context
+        evidence_json = json.dumps(evidence_summary, ensure_ascii=False, indent=2)
+        ws_lines = _workspace_context_lines(ctx)
+        layout_components = layout_components_from_goal(goal)
+        layout_section = format_layout_requirements(layout_components)
+        plan_section = ""
+        prompt = _legacy_render_prompt(
+            goal=goal,
+            ws_lines=ws_lines,
+            layout_section=layout_section,
+            plan_section=plan_section,
+            structured_payload=structured_payload,
+            evidence_json=evidence_json,
+            context=context,
+            max_idx=len(sources),
+        )
+        render_model = settings.chat_model
+        system_message = (
+            "You are a visual layout engine. Input: user goal (which widgets) "
+            "+ agent text answer (facts). Output: JSON UI blocks. "
+            "Build every requested component type with grounded content. "
+            "Never invent facts. Never put UI meta-text in blocks."
+        )
+
+    max_idx = len(sources)
+    layout_components = layout_components_from_goal(goal)
+    if plan_driven and isinstance(layout_plan.get("components"), list):
+        layout_components = list(layout_plan["components"])
+
     try:
         resp = _client().chat.completions.create(
-            model=settings.chat_model,
+            model=render_model,
             messages=[
-                {
-                    "role": "system",
-                    "content": (
-                        "You are a visual layout engine. Input: user goal (which widgets) "
-                        "+ agent text answer (facts). Output: JSON UI blocks. "
-                        "Build every requested component type with grounded content. "
-                        "Never invent facts. Never put UI meta-text in blocks."
-                    ),
-                },
+                {"role": "system", "content": system_message},
                 {"role": "user", "content": prompt},
             ],
             temperature=0.1,
@@ -452,23 +526,23 @@ EXCERPTS:
             log_usage(
                 db,
                 kind="presentation",
-                model=settings.chat_model,
+                model=render_model,
                 user_id=ctx.user_id,
                 workspace_id=ctx.workspace_id,
                 prompt_tokens=usage.prompt_tokens,
                 completion_tokens=usage.completion_tokens,
                 total_tokens=usage.total_tokens,
-                meta={"goal": goal[:200]},
+                meta={"goal": goal[:200], "plan_driven": plan_driven},
             )
         else:
             log_usage(
                 db,
                 kind="presentation",
-                model=settings.chat_model,
+                model=render_model,
                 user_id=ctx.user_id,
                 workspace_id=ctx.workspace_id,
                 total_tokens=estimate_tokens(prompt, raw),
-                meta={"goal": goal[:200], "estimated": True},
+                meta={"goal": goal[:200], "estimated": True, "plan_driven": plan_driven},
             )
         db.commit()
     except Exception as e:
@@ -572,7 +646,7 @@ EXCERPTS:
     build_meta: dict[str, Any] = {
         "prompt": prompt,
         "llm_output": raw,
-        "model": settings.chat_model,
+        "model": render_model,
         "prompt_tokens": None,
         "completion_tokens": None,
         "total_tokens": None,
