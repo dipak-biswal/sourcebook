@@ -395,8 +395,8 @@ _FIELD_SHAPE_HINTS: dict[str, str] = {
     "key_points": "type key_points — items = string bullets from structured key_points",
     "faq": 'type faq — faqs = [{"question":"","answer":""}] from structured faq',
     "key_terms": 'type key_terms — terms = [{"term":"","definition":""}]',
-    "table": "type table — items = pipe rows e.g. Col1 | Col2",
-    "progress": "type progress — items = Label | Strong/Growing/Gap (qualitative only)",
+    "table": "type table — items = pipe rows e.g. Col1 | Col2 (never use a data field)",
+    "progress": "type progress — items = Label | Strong/Growing/Gap (never use a data field)",
     "chart": "type chart — items = Label | level (qualitative)",
     "chips": 'type chips — items = "Label|slug"; optional tags on other blocks',
     "callout": "type callout — body required, short title",
@@ -448,11 +448,12 @@ def format_render_engine_prompt(
         f"- One block per block_outline entry ({len(outline)} planned) when outline is non-empty.\n"
         "- Prefer structured_content.faq for faq blocks; use sections with Q headings if faq is empty.\n"
         "- Never invent employers, metrics, or dates not present in structured content or evidence.\n"
-        "- Return ONLY valid JSON (no markdown fences):\n"
+        "- Return ONLY valid JSON (no markdown fences).\n"
+        "- Each block uses items (string[]), body, faqs, or terms — never a data field.\n"
         "{\n"
         '  "title": "short title",\n'
         '  "plain_summary": "2-4 sentences from structured summary",\n'
         f'  "presentation_profile": "{profile}",\n'
-        '  "blocks": [...]\n'
+        '  "blocks": [{"type":"table","title":"...","items":["Col1 | Col2","a | b"]}]\n'
         "}\n"
     )

@@ -37,6 +37,127 @@ export function isGenerativeUI(value: unknown): value is GenerativeUIPayload {
   return v.type === "generative_ui" && typeof v.title === "string";
 }
 
+function looksLikeGenerativePayload(value: unknown): value is Record<string, unknown> {
+  if (!value || typeof value !== "object") return false;
+  const v = value as Record<string, unknown>;
+  return typeof v.title === "string" && Array.isArray(v.blocks);
+}
+
+function coerceGenerativeUIPayload(
+  raw: Record<string, unknown>,
+): GenerativeUIPayload {
+  return normalizeGenerativeUI({
+    type: "generative_ui",
+    title: String(raw.title),
+    plain_summary:
+      typeof raw.plain_summary === "string"
+        ? raw.plain_summary
+        : typeof raw.summary === "string"
+          ? raw.summary
+          : undefined,
+    presentation_profile:
+      typeof raw.presentation_profile === "string"
+        ? raw.presentation_profile
+        : undefined,
+    blocks: (raw.blocks ?? []) as GenUIBlock[],
+    source_files: Array.isArray(raw.source_files)
+      ? (raw.source_files as string[])
+      : undefined,
+    sources: Array.isArray(raw.sources)
+      ? (raw.sources as GenerativeUIPayload["sources"])
+      : undefined,
+    document_id:
+      typeof raw.document_id === "string" ? raw.document_id : undefined,
+    document_filename:
+      typeof raw.document_filename === "string"
+        ? raw.document_filename
+        : undefined,
+  });
+}
+
+function stripJsonFences(raw: string): string {
+  return raw
+    .trim()
+    .replace(/^```(?:json)?\s*/i, "")
+    .replace(/\s*```$/i, "")
+    .trim();
+}
+
+function parseJsonGenerativeUI(raw: string): GenerativeUIPayload | null {
+  const trimmed = stripJsonFences(raw);
+  if (!trimmed.startsWith("{")) return null;
+  try {
+    const parsed = JSON.parse(trimmed) as unknown;
+    return extractFromValue(parsed);
+  } catch {
+    return null;
+  }
+}
+
+function blockContentScore(block: GenUIBlock): number {
+  const anyB = block as GenUIBlock & Record<string, unknown>;
+  let score = 0;
+  if (block.body?.trim()) score += 2;
+  if (block.items?.length) score += block.items.length * 2;
+  if (block.terms?.length) score += block.terms.length * 2;
+  if (block.faqs?.length) score += block.faqs.length * 2;
+  if (typeof anyB.data === "string" && anyB.data.trim()) score += 4;
+  if (Array.isArray(anyB.data) && anyB.data.length) score += anyB.data.length * 2;
+  if (block.type === "table" && coerceTableRows(block).length) score += 4;
+  return score;
+}
+
+function payloadContentScore(payload: GenerativeUIPayload): number {
+  return (payload.blocks ?? []).reduce(
+    (sum, block) => sum + blockContentScore(block),
+    payload.plain_summary?.trim() ? 1 : 0,
+  );
+}
+
+function pickRicherGenerativeUI(
+  primary: GenerativeUIPayload | null,
+  secondary: GenerativeUIPayload | null,
+): GenerativeUIPayload | null {
+  if (!primary) return secondary;
+  if (!secondary) return primary;
+  return payloadContentScore(secondary) > payloadContentScore(primary)
+    ? secondary
+    : primary;
+}
+
+type RunStep = {
+  type: string;
+  tool_name?: string | null;
+  input?: unknown;
+  output?: unknown;
+};
+
+function extractLlmOutputGenerativeUI(steps: RunStep[]): GenerativeUIPayload | null {
+  let best: GenerativeUIPayload | null = null;
+
+  for (let i = steps.length - 1; i >= 0; i--) {
+    const step = steps[i];
+    const candidates: string[] = [];
+
+    if (step.type === "tool_result" && step.tool_name === "render_ui") {
+      const out = step.output as Record<string, unknown> | undefined;
+      if (typeof out?.llm_output === "string") candidates.push(out.llm_output);
+    }
+
+    if (step.type === "presentation") {
+      const input = step.input as Record<string, unknown> | undefined;
+      if (typeof input?.llm_output === "string") candidates.push(input.llm_output);
+    }
+
+    for (const raw of candidates) {
+      const parsed = parseJsonGenerativeUI(raw);
+      best = pickRicherGenerativeUI(best, parsed);
+    }
+  }
+
+  return best;
+}
+
 function splitDelimitedRow(text: string): string[] {
   const s = text.trim();
   if (!s) return [];
@@ -189,7 +310,15 @@ export function coerceTableRows(block: GenUIBlock): string[][] {
     }
   }
 
-  const rowsRaw = anyB.rows ?? anyB.data ?? anyB.table;
+  const dataField = anyB.data;
+  if (typeof dataField === "string" && dataField.includes("|")) {
+    const md = parseMarkdownTableBody(dataField);
+    if (md.length) return padTableRows(md);
+  }
+  const rowsRaw =
+    anyB.rows ??
+    (typeof dataField === "string" ? undefined : dataField) ??
+    anyB.table;
   if (
     Array.isArray(rowsRaw) &&
     rowsRaw.length &&
@@ -249,6 +378,14 @@ function asStringList(value: unknown): string[] {
   return out;
 }
 
+function firstStringList(...values: unknown[]): string[] | undefined {
+  for (const value of values) {
+    const list = asStringList(value);
+    if (list.length) return list;
+  }
+  return undefined;
+}
+
 export function normalizeGenerativeUI(raw: GenerativeUIPayload): GenerativeUIPayload {
   const blocks = (raw.blocks ?? []).map((b) => {
     const anyB = b as GenUIBlock & Record<string, unknown>;
@@ -258,19 +395,35 @@ export function normalizeGenerativeUI(raw: GenerativeUIPayload): GenerativeUIPay
       (typeof anyB.text === "string" ? anyB.text : null) ||
       (typeof anyB.description === "string" ? anyB.description : null);
 
-    let items =
-      (b.items && b.items.length ? b.items : null) ||
-      asStringList(anyB.points) ||
-      asStringList(anyB.bullets) ||
-      asStringList(anyB.key_points) ||
-      asStringList(anyB.steps) ||
-      undefined;
+    let items = firstStringList(
+      b.items,
+      anyB.points,
+      anyB.bullets,
+      anyB.key_points,
+      anyB.steps,
+      anyB.data,
+    );
+
+    const dataStr =
+      typeof anyB.data === "string" && anyB.data.trim() ? anyB.data.trim() : null;
 
     if (b.type === "table") {
-      const coerced = coerceTableRows({ ...b, items: items ?? b.items });
+      const coerced = coerceTableRows({
+        ...b,
+        items: items ?? b.items,
+        body: body || b.body || dataStr || undefined,
+      });
       if (coerced.length) {
         items = coerced.map((row) => row.join(" | "));
       }
+    }
+
+    if (
+      (b.type === "progress" || b.type === "chart" || b.type === "metrics") &&
+      (!items || !items.length) &&
+      dataStr
+    ) {
+      items = dataStr.split("\n").map((l) => l.trim()).filter(Boolean);
     }
 
     let terms = b.terms;
@@ -318,12 +471,14 @@ export function normalizeGenerativeUI(raw: GenerativeUIPayload): GenerativeUIPay
     }
 
     return {
-      ...b,
+      type: b.type,
+      title: b.title,
       body: body || b.body,
       items: items && items.length ? items : b.items,
       terms: terms && terms.length ? terms : b.terms,
       faqs: faqs && faqs.length ? faqs : b.faqs,
       tags: tags && tags.length ? tags : b.tags,
+      source_indices: b.source_indices,
     };
   });
 
@@ -358,17 +513,16 @@ export function normalizeGenerativeUI(raw: GenerativeUIPayload): GenerativeUIPay
 function extractFromValue(value: unknown): GenerativeUIPayload | null {
   if (isGenerativeUI(value)) return normalizeGenerativeUI(value);
   if (typeof value === "string") {
-    try {
-      const parsed = JSON.parse(value) as unknown;
-      if (isGenerativeUI(parsed)) return normalizeGenerativeUI(parsed);
-    } catch {
-      /* ignore */
-    }
+    const parsed = parseJsonGenerativeUI(value);
+    if (parsed) return parsed;
   }
   if (value && typeof value === "object") {
     const record = value as Record<string, unknown>;
     if (record.spec) {
       return extractFromValue(record.spec);
+    }
+    if (looksLikeGenerativePayload(record)) {
+      return coerceGenerativeUIPayload(record);
     }
   }
   return null;
@@ -377,25 +531,36 @@ function extractFromValue(value: unknown): GenerativeUIPayload | null {
 export function extractGenerativeUIFromRun(
   run: {
     presentation_spec?: unknown;
-    steps?: { type: string; tool_name?: string | null; output?: unknown }[];
+    final_answer?: string | null;
+    steps?: RunStep[];
   } | null | undefined,
 ): GenerativeUIPayload | null {
   if (!run) return null;
+  const steps = run.steps ?? [];
   const fromSpec = extractFromValue(run.presentation_spec);
-  if (fromSpec) return fromSpec;
-  return extractGenerativeUIFromSteps(run.steps ?? []);
+  const fromLlmOutput = extractLlmOutputGenerativeUI(steps);
+  const fromFinalAnswer =
+    typeof run.final_answer === "string"
+      ? parseJsonGenerativeUI(run.final_answer)
+      : null;
+  const fromSteps = extractGenerativeUIFromSteps(steps);
+
+  return [fromSpec, fromLlmOutput, fromFinalAnswer, fromSteps].reduce(
+    (best, candidate) => pickRicherGenerativeUI(best, candidate),
+    null as GenerativeUIPayload | null,
+  );
 }
 
 export function extractGenerativeUIFromSteps(
-  steps: { type: string; tool_name?: string | null; output?: unknown }[],
+  steps: RunStep[],
 ): GenerativeUIPayload | null {
+  let best: GenerativeUIPayload | null = null;
   for (let i = steps.length - 1; i >= 0; i--) {
     const s = steps[i];
-    const out = s.output;
-    const gen = extractFromValue(out);
-    if (gen) return gen;
+    const gen = extractFromValue(s.output);
+    best = pickRicherGenerativeUI(best, gen);
   }
-  return null;
+  return best;
 }
 
 export function generativeUIToNoteBody(payload: GenerativeUIPayload): string {

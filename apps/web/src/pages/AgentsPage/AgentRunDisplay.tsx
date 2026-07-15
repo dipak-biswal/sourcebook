@@ -70,11 +70,12 @@ export function AgentRunDisplay() {
         selected
           ? {
               presentation_spec: selected.presentation_spec,
+              final_answer: selected.final_answer,
               steps: liveSteps.length ? liveSteps : steps,
             }
           : null,
       ),
-    [selected?.id, selected?.presentation_spec, liveSteps, steps],
+    [selected?.id, selected?.presentation_spec, selected?.final_answer, liveSteps, steps],
   );
   const presentationPending =
     selected?.status === "waiting_approval" &&

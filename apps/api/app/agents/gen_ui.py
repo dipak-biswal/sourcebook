@@ -245,7 +245,7 @@ def _normalize_block_dict(raw: Any) -> dict[str, Any] | None:
     if body:
         b["body"] = body.strip()
 
-    # list aliases
+    # list aliases (models often use "data" instead of "items")
     items = (
         b.get("items")
         or b.get("points")
@@ -254,6 +254,8 @@ def _normalize_block_dict(raw: Any) -> dict[str, Any] | None:
         or b.get("steps")
         or b.get("list")
     )
+    if items is None and isinstance(b.get("data"), list):
+        items = b.get("data")
     items_list = _as_str_list(items)
     if items_list:
         b["items"] = items_list
@@ -307,7 +309,14 @@ def _normalize_block_dict(raw: Any) -> dict[str, Any] | None:
 
     if b["type"] == "table":
         headers = b.get("headers") or b.get("columns")
-        raw_rows = b.get("rows") or b.get("data") or b.get("table")
+        raw_rows = b.get("rows") or b.get("table")
+        data_val = b.get("data")
+        if isinstance(data_val, list):
+            raw_rows = data_val
+        elif isinstance(data_val, str) and data_val.strip() and not raw_rows:
+            md_items = _markdown_table_to_items(data_val)
+            if md_items:
+                b["items"] = md_items
         if isinstance(headers, list) and headers and isinstance(raw_rows, list):
             hdr = " | ".join(str(h).strip() for h in headers if str(h).strip())
             piped = [_table_row_to_pipe(r) for r in raw_rows]
@@ -334,6 +343,14 @@ def _normalize_block_dict(raw: Any) -> dict[str, Any] | None:
             md_items = _markdown_table_to_items(str(b["body"]))
             if md_items:
                 b["items"] = md_items
+        if (
+            not b.get("items")
+            and isinstance(data_val, str)
+            and data_val.strip()
+        ):
+            md_items = _markdown_table_to_items(data_val)
+            if md_items:
+                b["items"] = md_items
         if b.get("items") and isinstance(b["items"], list):
             coerced: list[str] = []
             for row in b["items"]:
@@ -352,13 +369,19 @@ def _normalize_block_dict(raw: Any) -> dict[str, Any] | None:
             # keep body as short intro optional — clear to avoid duplicate
             b.pop("body", None)
 
+    if b["type"] in ("progress", "chart", "metrics") and not b.get("items"):
+        data_val = b.get("data")
+        if isinstance(data_val, list):
+            coerced = _as_str_list(data_val)
+            if coerced:
+                b["items"] = coerced
+
     # Drop blocks with no renderable content
     has_content = bool(
         b.get("body")
         or b.get("items")
         or b.get("terms")
         or b.get("faqs")
-        or b["type"] in ("chips", "table", "metrics", "progress", "chart")
     )
     if not has_content:
         return None
