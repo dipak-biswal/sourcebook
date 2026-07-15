@@ -450,6 +450,7 @@ def format_render_engine_prompt(
         "- Never invent employers, metrics, or dates not present in structured content or evidence.\n"
         "- Return ONLY valid JSON (no markdown fences).\n"
         "- Each block uses items (string[]), body, faqs, or terms — never a data field.\n"
+        "- Use plain text in cells and labels — no markdown (no **bold**, bullets, or 1. numbering).\n"
         "{\n"
         '  "title": "short title",\n'
         '  "plain_summary": "2-4 sentences from structured summary",\n'

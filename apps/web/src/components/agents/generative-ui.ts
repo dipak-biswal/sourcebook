@@ -158,6 +158,35 @@ function extractLlmOutputGenerativeUI(steps: RunStep[]): GenerativeUIPayload | n
   return best;
 }
 
+function cleanCellText(text: string): string {
+  let s = text.trim();
+  s = s.replace(/^\d+[.)]\s+/, "");
+  s = s.replace(/^[-•*]\s+/, "");
+  s = s.replace(/\*\*([^*]+)\*\*/g, "$1");
+  s = s.replace(/__([^_]+)__/g, "$1");
+  s = s.replace(/(?<!\*)\*([^*]+)\*(?!\*)/g, "$1");
+  s = s.replace(/`([^`]+)`/g, "$1");
+  s = s.replace(/\*\*/g, "");
+  return s.trim();
+}
+
+/** Strip markdown/list markers from render-engine strings for card UI. */
+export function cleanDisplayText(text: string): string {
+  if (text.includes("\n")) {
+    return text
+      .split("\n")
+      .map((line) => cleanDisplayText(line))
+      .join("\n");
+  }
+  if (text.includes("|")) {
+    return text
+      .split("|")
+      .map((part) => cleanCellText(part))
+      .join(" | ");
+  }
+  return cleanCellText(text);
+}
+
 function splitDelimitedRow(text: string): string[] {
   const s = text.trim();
   if (!s) return [];
@@ -381,9 +410,26 @@ function asStringList(value: unknown): string[] {
 function firstStringList(...values: unknown[]): string[] | undefined {
   for (const value of values) {
     const list = asStringList(value);
-    if (list.length) return list;
+    if (list.length) return list.map(cleanDisplayText);
   }
   return undefined;
+}
+
+function cleanBlockFields(block: GenUIBlock): GenUIBlock {
+  return {
+    ...block,
+    title: block.title ? cleanDisplayText(block.title) : block.title,
+    body: block.body ? cleanDisplayText(block.body) : block.body,
+    items: block.items?.map(cleanDisplayText),
+    terms: block.terms?.map((t) => ({
+      term: cleanDisplayText(t.term),
+      definition: cleanDisplayText(t.definition),
+    })),
+    faqs: block.faqs?.map((f) => ({
+      question: cleanDisplayText(f.question),
+      answer: cleanDisplayText(f.answer),
+    })),
+  };
 }
 
 export function normalizeGenerativeUI(raw: GenerativeUIPayload): GenerativeUIPayload {
@@ -414,7 +460,9 @@ export function normalizeGenerativeUI(raw: GenerativeUIPayload): GenerativeUIPay
         body: body || b.body || dataStr || undefined,
       });
       if (coerced.length) {
-        items = coerced.map((row) => row.join(" | "));
+        items = coerced.map((row) =>
+          row.map(cleanCellText).join(" | "),
+        );
       }
     }
 
@@ -470,7 +518,7 @@ export function normalizeGenerativeUI(raw: GenerativeUIPayload): GenerativeUIPay
         .filter(Boolean);
     }
 
-    return {
+    return cleanBlockFields({
       type: b.type,
       title: b.title,
       body: body || b.body,
@@ -479,7 +527,7 @@ export function normalizeGenerativeUI(raw: GenerativeUIPayload): GenerativeUIPay
       faqs: faqs && faqs.length ? faqs : b.faqs,
       tags: tags && tags.length ? tags : b.tags,
       source_indices: b.source_indices,
-    };
+    });
   });
 
   const filled = blocks.filter(
@@ -499,13 +547,16 @@ export function normalizeGenerativeUI(raw: GenerativeUIPayload): GenerativeUIPay
       ),
   );
 
+  const plain =
+    raw.plain_summary ||
+    (typeof (raw as { summary?: string }).summary === "string"
+      ? (raw as { summary?: string }).summary
+      : undefined);
+
   return {
     ...raw,
-    plain_summary:
-      raw.plain_summary ||
-      (typeof (raw as { summary?: string }).summary === "string"
-        ? (raw as { summary?: string }).summary
-        : undefined),
+    title: cleanDisplayText(raw.title),
+    plain_summary: plain ? cleanDisplayText(plain) : undefined,
     blocks: filled.length ? filled : blocks,
   };
 }

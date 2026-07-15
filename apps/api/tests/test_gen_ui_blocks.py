@@ -77,6 +77,42 @@ def test_progress_data_alias_list():
     assert norm["items"] == ["React | Strong", "Python | Gap"]
 
 
+def test_table_strips_markdown_bold():
+    norm = _normalize_block_dict(
+        {
+            "type": "table",
+            "title": "Skills Overview",
+            "data": (
+                "| Skill | Level |\n"
+                "| --- | --- |\n"
+                "| **Frontend Development** | |\n"
+                "| React 18/19 | Strong |"
+            ),
+        }
+    )
+    assert norm is not None
+    assert any("Frontend Development" in row for row in norm["items"])
+    assert not any("**" in row for row in norm["items"])
+
+
+def test_faq_strips_numbered_markdown():
+    norm = _normalize_block_dict(
+        {
+            "type": "faq",
+            "faqs": [
+                {
+                    "question": "1. **What is your experience with AI?",
+                    "answer": "- I have integrated AI features into applications.",
+                }
+            ],
+        }
+    )
+    assert norm is not None
+    assert norm["faqs"][0]["question"].startswith("What is your experience")
+    assert "**" not in norm["faqs"][0]["question"]
+    assert norm["faqs"][0]["answer"].startswith("I have integrated")
+
+
 def test_table_data_markdown_string():
     norm = _normalize_block_dict(
         {

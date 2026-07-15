@@ -135,25 +135,46 @@ def _markdown_table_to_items(body: str) -> list[str]:
     return rows
 
 
+def _clean_cell_text(text: str) -> str:
+    """Strip markdown/list noise from render-engine strings shown as plain UI text."""
+    s = text.strip()
+    s = re.sub(r"^\d+[.)]\s+", "", s)
+    s = re.sub(r"^[-•*]\s+", "", s)
+    s = re.sub(r"\*\*([^*]+)\*\*", r"\1", s)
+    s = re.sub(r"__([^_]+)__", r"\1", s)
+    s = re.sub(r"(?<!\*)\*([^*]+)\*(?!\*)", r"\1", s)
+    s = re.sub(r"`([^`]+)`", r"\1", s)
+    s = re.sub(r"\*\*", "", s)
+    return s.strip()
+
+
+def _clean_display_text(text: str) -> str:
+    if "\n" in text:
+        return "\n".join(_clean_display_text(line) for line in text.splitlines())
+    if "|" in text:
+        return " | ".join(_clean_cell_text(part) for part in text.split("|"))
+    return _clean_cell_text(text)
+
+
 def _as_str_list(value: Any) -> list[str]:
     if value is None:
         return []
     if isinstance(value, str):
-        s = value.strip()
+        s = _clean_display_text(value.strip())
         return [s] if s else []
     if isinstance(value, list):
         out: list[str] = []
         for x in value:
             if isinstance(x, str) and x.strip():
-                out.append(x.strip())
+                out.append(_clean_display_text(x.strip()))
             elif isinstance(x, dict):
                 # {"text": "..."} or {"point": "..."}
                 for k in ("text", "point", "item", "value", "content"):
                     if k in x and str(x[k]).strip():
-                        out.append(str(x[k]).strip())
+                        out.append(_clean_display_text(str(x[k]).strip()))
                         break
             else:
-                t = str(x).strip()
+                t = _clean_display_text(str(x).strip())
                 if t:
                     out.append(t)
         return out
@@ -243,7 +264,7 @@ def _normalize_block_dict(raw: Any) -> dict[str, Any] | None:
     if body is not None and not isinstance(body, str):
         body = str(body)
     if body:
-        b["body"] = body.strip()
+        b["body"] = _clean_display_text(body.strip())
 
     # list aliases (models often use "data" instead of "items")
     items = (
@@ -292,7 +313,12 @@ def _normalize_block_dict(raw: Any) -> dict[str, Any] | None:
             q = x.get("question") or x.get("q") or x.get("prompt")
             a = x.get("answer") or x.get("a") or x.get("response")
             if q and a:
-                faqs_out.append({"question": str(q).strip(), "answer": str(a).strip()})
+                faqs_out.append(
+                    {
+                        "question": _clean_display_text(str(q).strip()),
+                        "answer": _clean_display_text(str(a).strip()),
+                    }
+                )
     if faqs_out:
         b["faqs"] = faqs_out
 
@@ -383,6 +409,9 @@ def _normalize_block_dict(raw: Any) -> dict[str, Any] | None:
         or b.get("terms")
         or b.get("faqs")
     )
+    if b.get("items") and isinstance(b["items"], list):
+        b["items"] = [_clean_display_text(str(x)) for x in b["items"] if str(x).strip()]
+
     if not has_content:
         return None
 
