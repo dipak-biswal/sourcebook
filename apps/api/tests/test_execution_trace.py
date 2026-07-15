@@ -365,7 +365,10 @@ def test_visual_summary_agent_turns_after_handoff():
     planner = next(
         child for child in plan_tool.get("children") or [] if child.get("type") == "llm_response"
     )
-    assert planner["label"] == "Layout planner"
+    assert planner["label"] == "Layout planner LLM"
+    assert planner.get("llm_role") == "embedded_planner"
+    assert "prompt" not in (plan_tool.get("output") or {})
+    assert plan_tool.get("has_embedded_llm") is True
     assert planner["prompt_tokens"] == 180
     assert planner["completion_tokens"] == 42
     assert planner["total_tokens"] == 222
@@ -440,6 +443,74 @@ def test_hitl_before_presentation():
     trace = build_execution_trace(run)
     types = [p["type"] for p in trace["phases"]]
     assert types.index("hitl") < types.index("presentation")
+
+
+def test_visual_summary_interleaves_orchestrator_decisions_with_tools():
+    run = _run_with_steps(
+        "Explain with visual",
+        [
+            {"type": "final", "output": "Main answer."},
+            {
+                "type": "approval",
+                "tool_name": "generative_ui",
+                "output": {"status": "approved"},
+            },
+            {
+                "type": "agent_handoff",
+                "output": {"status": "handoff", "agent": "Visual Summary Agent"},
+            },
+            {"type": "tool_call", "tool_name": "plan_layout", "input": {"notes": ""}},
+            {
+                "type": "thought",
+                "input": {"messages": [], "prompt_tokens": 5, "completion_tokens": 2},
+                "output": "Planning layout.",
+            },
+            {
+                "type": "tool_result",
+                "tool_name": "plan_layout",
+                "input": {"prompt": "hidden", "prompt_tokens": 10, "completion_tokens": 4},
+                "output": {
+                    "status": "planned",
+                    "layout_plan": {"presentation_profile": "guide"},
+                    "prompt": "hidden",
+                    "prompt_tokens": 10,
+                    "completion_tokens": 4,
+                },
+            },
+            {"type": "tool_call", "tool_name": "render_ui", "input": {"layout_plan_json": "{}"}},
+            {
+                "type": "thought",
+                "input": {"messages": [], "prompt_tokens": 6, "completion_tokens": 2},
+                "output": "Rendering UI.",
+            },
+            {
+                "type": "tool_result",
+                "tool_name": "render_ui",
+                "input": {"prompt": "hidden", "prompt_tokens": 20, "completion_tokens": 8},
+                "output": {
+                    "status": "rendered",
+                    "spec": {"type": "generative_ui", "title": "T", "blocks": []},
+                    "prompt": "hidden",
+                    "prompt_tokens": 20,
+                    "completion_tokens": 8,
+                },
+            },
+            {"type": "final", "output": "Visual summary ready."},
+        ],
+    )
+    trace = build_execution_trace(run)
+    visual = next(
+        p
+        for p in trace["phases"]
+        if p.get("type") == "agent_turn"
+        and p.get("agent_label") == "Visual Summary Agent"
+    )
+    labels = [c.get("label") for c in visual.get("children") or []]
+    assert labels.count("Orchestrator · Decision") == 2
+    assert labels.index("Orchestrator · Decision") < labels.index("Plan layout")
+    second_decision = labels.index("Orchestrator · Decision", 1)
+    assert second_decision < labels.index("Render UI")
+    assert labels[-1] == "Orchestrator · Response"
 
 
 def test_visual_summary_llm_does_not_reactivate_main_agent_turn():

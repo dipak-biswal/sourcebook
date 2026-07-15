@@ -28,9 +28,24 @@ VISUAL_SUMMARY_AGENT_LABEL = "Visual Summary Agent"
 PRESENTATION_TOOL = "generative_ui"
 VISUAL_TOOL_LLM_NAMES = frozenset({"plan_layout", "render_ui"})
 VISUAL_TOOL_LLM_LABELS: dict[str, str] = {
-    "plan_layout": "Layout planner",
-    "render_ui": "Layout engine",
+    "plan_layout": "Layout planner LLM",
+    "render_ui": "Render engine LLM",
 }
+VISUAL_TOOL_LLM_ROLES: dict[str, str] = {
+    "plan_layout": "embedded_planner",
+    "render_ui": "embedded_render",
+}
+_VISUAL_TOOL_OUTPUT_KEYS = frozenset(
+    {
+        "prompt",
+        "llm_output",
+        "model",
+        "prompt_tokens",
+        "completion_tokens",
+        "total_tokens",
+        "structured_input",
+    }
+)
 COMPLETE_STATUSES = frozenset({"completed", "cancelled", "failed"})
 
 
@@ -113,12 +128,31 @@ def _visual_tool_llm_meta(step: AgentStep | None) -> dict[str, Any] | None:
     output_meta = dict(step.output) if isinstance(step.output, dict) else {}
     # Prefer tool_result LLM fields over tool_call handoff blobs.
     meta: dict[str, Any] = {**input_meta, **output_meta}
-    if not any(
+    has_tokens = any(
         isinstance(meta.get(key), int) and meta.get(key) >= 0
         for key in ("prompt_tokens", "completion_tokens", "total_tokens")
-    ):
+    )
+    has_llm_payload = bool(meta.get("prompt") or meta.get("llm_output"))
+    if not has_tokens and not has_llm_payload:
         return None
     return meta
+
+
+def _sanitize_visual_tool_output(
+    tool_name: str,
+    output: Any,
+    *,
+    has_embedded_llm: bool,
+) -> Any:
+    """Tool row shows payload only — embedded LLM prompt/output live on child nodes."""
+    if not has_embedded_llm or not isinstance(output, dict):
+        return output
+    cleaned = {
+        k: v
+        for k, v in output.items()
+        if k not in _VISUAL_TOOL_OUTPUT_KEYS
+    }
+    return cleaned or {"status": output.get("status", "done")}
 
 
 def _visual_tool_llm_child(tool_acc: _ToolAcc) -> dict[str, Any] | None:
@@ -141,11 +175,13 @@ def _visual_tool_llm_child(tool_acc: _ToolAcc) -> dict[str, Any] | None:
         output_text = json.dumps(llm_output, ensure_ascii=False, default=str)
     else:
         output_text = str(llm_output or "")
+    tool_name = tool_acc.tool_name or ""
     return _apply_tokens(
         {
             "id": f"{tool_acc.id}-llm",
             "type": "llm_response",
-            "label": VISUAL_TOOL_LLM_LABELS.get(tool_acc.tool_name, "LLM"),
+            "label": VISUAL_TOOL_LLM_LABELS.get(tool_name, "LLM"),
+            "llm_role": VISUAL_TOOL_LLM_ROLES.get(tool_name, "embedded"),
             "state": "done",
             "model": meta.get("model") or _resolve_model(step, None, None),
             "prompt": prompt,
@@ -269,14 +305,16 @@ class _ToolAcc:
             node["input"] = self.call_step.input
         elif self.result_step and self.result_step.input is not None:
             node["input"] = self.result_step.input
-        if self.result_step and self.result_step.output is not None:
-            node["output"] = self.result_step.output
         llm_child = _visual_tool_llm_child(self)
         if llm_child:
             node["children"] = [llm_child]
-            node = _apply_tokens(node, _tokens_from_visual_tool_meta(
-                _visual_tool_llm_meta(self.result_step) or {}
-            ))
+            node["has_embedded_llm"] = True
+        if self.result_step and self.result_step.output is not None:
+            node["output"] = _sanitize_visual_tool_output(
+                self.tool_name,
+                self.result_step.output,
+                has_embedded_llm=llm_child is not None,
+            )
         return node
 
 
@@ -286,6 +324,7 @@ class _TurnAcc:
     turn: int
     tools: list[_ToolAcc] = field(default_factory=list)
     planning_step: AgentStep | None = None
+    planning_steps: list[AgentStep] = field(default_factory=list)
     response_step: AgentStep | None = None
     state: TraceState = "done"
     llm_turn_id: str | None = None
@@ -370,23 +409,58 @@ class _TurnAcc:
             return "running"
         return self.state
 
+    def _orchestrator_label(self, phase: str) -> str:
+        if self.agent_label == VISUAL_SUMMARY_AGENT_LABEL:
+            return f"Orchestrator · {phase}"
+        return phase
+
+    def _orchestrator_llm_role(self, phase: str) -> str:
+        if self.agent_label == VISUAL_SUMMARY_AGENT_LABEL:
+            return f"orchestrator_{phase.lower()}"
+        return "orchestrator"
+
     def children(self, live: LiveTraceContext | None) -> list[dict[str, Any]]:
         nodes: list[dict[str, Any]] = []
 
-        if self.planning_step:
-            nodes.append(
+        decisions = self.planning_steps or (
+            [self.planning_step] if self.planning_step else []
+        )
+        decision_i = 0
+        for tool in self.tools:
+            if decision_i < len(decisions):
+                step = decisions[decision_i]
+                nodes.append(
+                    self._make_llm_node(
+                        suffix=f"decision-{decision_i}",
+                        label=self._orchestrator_label("Decision"),
+                        step=step,
+                        live=None,
+                        live_turn_id=None,
+                        state="done",
+                        output=_step_text(step),
+                    )
+                )
+                nodes[-1]["llm_role"] = self._orchestrator_llm_role("decision")
+                decision_i += 1
+            nodes.append(tool.to_node())
+
+        # Legacy runs: decision recorded after tools with no per-tool pairing
+        while decision_i < len(decisions):
+            step = decisions[decision_i]
+            nodes.insert(
+                0,
                 self._make_llm_node(
-                    suffix="decision",
-                    label="Decision",
-                    step=self.planning_step,
+                    suffix=f"decision-{decision_i}",
+                    label=self._orchestrator_label("Decision"),
+                    step=step,
                     live=None,
                     live_turn_id=None,
                     state="done",
-                    output=_step_text(self.planning_step),
-                )
+                    output=_step_text(step),
+                ),
             )
-
-        nodes.extend(t.to_node() for t in self.tools)
+            nodes[0]["llm_role"] = self._orchestrator_llm_role("decision")
+            decision_i += 1
 
         has_response_step = self.response_step is not None
         live_response = bool(
@@ -403,20 +477,24 @@ class _TurnAcc:
 
         if show_response:
             response_output = self.response_content(live)
-            nodes.append(
-                self._make_llm_node(
-                    suffix="response" if self.planning_step or self.tools else "llm",
-                    label="Response" if (self.planning_step or self.tools) else "LLM output",
-                    step=self.response_step,
-                    live=live,
-                    live_turn_id=self.llm_turn_id,
-                    state=self._response_llm_state(live),
-                    output=response_output,
-                    prompt=self.prompt_for_output(live)
-                    if not self.response_step
-                    else _messages_from_step_input(self.response_step),
-                )
+            has_prior = bool(decisions or self.tools)
+            response_node = self._make_llm_node(
+                suffix="response" if has_prior else "llm",
+                label=self._orchestrator_label("Response")
+                if has_prior and self.agent_label == VISUAL_SUMMARY_AGENT_LABEL
+                else ("Response" if has_prior else "LLM output"),
+                step=self.response_step,
+                live=live,
+                live_turn_id=self.llm_turn_id,
+                state=self._response_llm_state(live),
+                output=response_output,
+                prompt=self.prompt_for_output(live)
+                if not self.response_step
+                else _messages_from_step_input(self.response_step),
             )
+            if has_prior and self.agent_label == VISUAL_SUMMARY_AGENT_LABEL:
+                response_node["llm_role"] = self._orchestrator_llm_role("response")
+            nodes.append(response_node)
 
         return nodes
 
@@ -727,6 +805,7 @@ def _parse_steps(
                 start_turn()
             assert current is not None
             if any(t.result_step is None for t in current.tools):
+                current.planning_steps.append(step)
                 current.planning_step = step
                 continue
             current.response_step = step

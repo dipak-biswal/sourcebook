@@ -1,5 +1,13 @@
 export type TraceState = "pending" | "running" | "done";
 
+export type TraceLlmRole =
+  | "orchestrator_decision"
+  | "orchestrator_response"
+  | "orchestrator"
+  | "embedded_planner"
+  | "embedded_render"
+  | "embedded";
+
 export type TraceToolChild = {
   id: string;
   type: "tool";
@@ -8,6 +16,7 @@ export type TraceToolChild = {
   state: TraceState;
   input?: unknown;
   output?: unknown;
+  has_embedded_llm?: boolean;
   prompt_tokens?: number | null;
   completion_tokens?: number | null;
   total_tokens?: number | null;
@@ -34,6 +43,7 @@ export type TraceLlmChild = {
   label: string;
   state: TraceState;
   model?: string | null;
+  llm_role?: TraceLlmRole | string | null;
   prompt?: TraceLlmMessage[] | null;
   output: string;
   prompt_tokens?: number | null;

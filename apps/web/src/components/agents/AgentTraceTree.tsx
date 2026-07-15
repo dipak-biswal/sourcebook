@@ -21,10 +21,12 @@ import type {
   TraceChild,
   TraceHitlEmbedChild,
   TraceLlmChild,
+  TraceLlmRole,
   TracePhase,
   TracePresentationPhase,
   TraceState,
   TraceSynthesisPhase,
+  TraceToolChild,
 } from "@/components/agents/execution-trace-types";
 import { isGenerativeUI } from "@/components/agents/generative-ui";
 import { AgentApprovalCard } from "@/components/agents/shared";
@@ -81,6 +83,7 @@ function ExpandableTraceRow({
   isLast,
   defaultOpen = false,
   model,
+  llmRole,
   children,
 }: {
   icon: typeof Brain;
@@ -93,6 +96,7 @@ function ExpandableTraceRow({
   isLast?: boolean;
   defaultOpen?: boolean;
   model?: string | null;
+  llmRole?: TraceLlmRole | string | null;
   children?: ReactNode;
 }) {
   const [open, setOpen] = useState(defaultOpen);
@@ -160,6 +164,7 @@ function ExpandableTraceRow({
                       active={active}
                       nested={nested}
                       model={model}
+                      llmRole={llmRole}
                     />
                   </span>
                 </button>
@@ -171,7 +176,13 @@ function ExpandableTraceRow({
               </div>
             ) : (
               <div className="px-1 py-0.5">
-                <PhaseLabel label={label} state={state} nested={nested} model={model} />
+                <PhaseLabel
+                  label={label}
+                  state={state}
+                  nested={nested}
+                  model={model}
+                  llmRole={llmRole}
+                />
               </div>
             )}
           </div>
@@ -181,19 +192,39 @@ function ExpandableTraceRow({
   );
 }
 
+function llmRoleBadge(role: TraceLlmRole | string | null | undefined): string | null {
+  switch (role) {
+    case "orchestrator_decision":
+      return "Orchestrator";
+    case "orchestrator_response":
+      return "Orchestrator";
+    case "embedded_planner":
+      return "Planner LLM";
+    case "embedded_render":
+      return "Render LLM";
+    case "embedded":
+      return "Tool LLM";
+    default:
+      return null;
+  }
+}
+
 function PhaseLabel({
   label,
   state,
   active,
   nested,
   model,
+  llmRole,
 }: {
   label: string;
   state: TraceState;
   active?: boolean;
   nested?: boolean;
   model?: string | null;
+  llmRole?: TraceLlmRole | string | null;
 }) {
+  const roleBadge = llmRoleBadge(llmRole);
   return (
     <span className="flex flex-wrap items-center gap-1.5">
       <span
@@ -205,6 +236,11 @@ function PhaseLabel({
       >
         {label}
       </span>
+      {roleBadge && (
+        <Badge variant="outline" className="text-[10px] font-normal">
+          {roleBadge}
+        </Badge>
+      )}
       <LlmModelBadge model={model} />
       {state === "running" && (
         <Badge variant="warning" className="gap-1 text-[10px]">
@@ -387,34 +423,83 @@ function PresentationTraceBody({ phase }: { phase: TracePresentationPhase }) {
   );
 }
 
-function ToolChildBody({ child }: { child: Extract<TraceChild, { type: "tool" }> }) {
+function EmbeddedLlmTimeline({
+  children,
+  activeChildId,
+  activeRef,
+  defaultOpen,
+}: {
+  children: TraceLlmChild[];
+  activeChildId?: string | null;
+  activeRef?: React.RefObject<HTMLDivElement | null>;
+  defaultOpen: boolean;
+}) {
+  if (children.length === 0) return null;
+  return (
+    <div className="mb-2 rounded-[6px] border border-hairline/60 bg-canvas/60 p-1.5">
+      <p className="mb-1.5 px-1 text-[10px] font-medium uppercase tracking-wide text-mute">
+        Embedded LLM call{children.length > 1 ? "s" : ""}
+      </p>
+      {children.map((llmChild, i) => {
+        const active = llmChild.id === activeChildId;
+        return (
+          <ExpandableTraceRow
+            key={llmChild.id}
+            nodeId={llmChild.id}
+            activeRef={active ? activeRef : undefined}
+            active={active}
+            nested
+            isLast={i === children.length - 1}
+            defaultOpen={defaultOpen || active}
+            icon={Brain}
+            label={llmChild.label}
+            state={llmChild.state}
+            model={llmChild.model}
+            llmRole={llmChild.llm_role}
+          >
+            <LlmChildBody child={llmChild} />
+          </ExpandableTraceRow>
+        );
+      })}
+    </div>
+  );
+}
+
+function ToolChildBody({
+  child,
+  activeChildId,
+  activeRef,
+  defaultOpen,
+}: {
+  child: TraceToolChild;
+  activeChildId?: string | null;
+  activeRef?: React.RefObject<HTMLDivElement | null>;
+  defaultOpen?: boolean;
+}) {
   const web =
     child.tool_name === "web_search" && child.output
       ? parseWebSearchOutput(child.output)
       : null;
   const llmChildren = (child.children ?? []).filter(
-    (c): c is Extract<TraceChild, { type: "llm_response" }> => c.type === "llm_response",
+    (c): c is TraceLlmChild => c.type === "llm_response",
   );
+  const showToolIo = !child.has_embedded_llm || child.tool_name === "web_search";
 
   return (
     <div className="space-y-2">
-      {(child.prompt_tokens != null || child.completion_tokens != null) && (
-        <TokenUsageLine
-          promptTokens={child.prompt_tokens}
-          completionTokens={child.completion_tokens}
-          totalTokens={child.total_tokens}
-        />
+      {child.has_embedded_llm && (
+        <p className="text-[11px] text-mute">
+          Tool invocation — LLM prompt and output are on the embedded node
+          {llmChildren.length > 1 ? "s" : ""} below.
+        </p>
       )}
-      {llmChildren.map((llmChild) => (
-        <div key={llmChild.id} className="space-y-1.5 rounded-[6px] border border-hairline/80 bg-canvas p-2">
-          <div className="text-[10px] font-bold uppercase tracking-wide text-mute">
-            {llmChild.label}
-            {llmChild.model ? ` · ${llmChild.model}` : ""}
-          </div>
-          <LlmChildBody child={llmChild} />
-        </div>
-      ))}
-      {child.input != null && (
+      <EmbeddedLlmTimeline
+        children={llmChildren}
+        activeChildId={activeChildId}
+        activeRef={activeRef}
+        defaultOpen={defaultOpen ?? false}
+      />
+      {showToolIo && child.input != null && (
         <div>
           <div className="mb-1 text-[10px] font-bold uppercase tracking-wide text-mute">Input</div>
           <pre className="max-h-36 overflow-auto rounded-[6px] border border-hairline bg-canvas p-2 font-mono text-[11px] text-body">
@@ -422,7 +507,7 @@ function ToolChildBody({ child }: { child: Extract<TraceChild, { type: "tool" }>
           </pre>
         </div>
       )}
-      {child.output != null && (
+      {showToolIo && child.output != null && (
         <div>
           <div className="mb-1 text-[10px] font-bold uppercase tracking-wide text-mute">Output</div>
           {web ? (
@@ -474,7 +559,12 @@ function TurnChildrenTimeline({
               label={child.label}
               state={child.state}
             >
-              <ToolChildBody child={child} />
+              <ToolChildBody
+                child={child}
+                activeChildId={activeChildId}
+                activeRef={activeRef}
+                defaultOpen={defaultOpen || active}
+              />
             </ExpandableTraceRow>
           );
         }
@@ -509,6 +599,7 @@ function TurnChildrenTimeline({
             label={child.label}
             state={child.state}
             model={child.model}
+            llmRole={child.llm_role}
           >
             <LlmChildBody child={child} />
           </ExpandableTraceRow>
@@ -648,9 +739,13 @@ export function AgentTraceTree({
   const activeChildId = useMemo(() => {
     if (!activeId || !trace) return null;
     for (const phase of phases) {
-      if (phase.type === "agent_turn") {
-        for (const child of phase.children) {
-          if (child.id === activeId) return child.id;
+      if (phase.type !== "agent_turn") continue;
+      for (const child of phase.children) {
+        if (child.id === activeId) return child.id;
+        if (child.type === "tool") {
+          for (const nested of child.children ?? []) {
+            if (nested.id === activeId) return nested.id;
+          }
         }
       }
     }
