@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import json
 import re
-import uuid
 from typing import Any
 
 from openai import OpenAI
@@ -17,13 +16,10 @@ from app.agents.gen_ui import (
     _normalize_block_dict,
 )
 from app.config import settings
-from app.ingestion.retrieve import retrieve_chunks
-from app.models import Document
 from app.presentation.context import PresentationContext
-from app.presentation.layout import format_layout_requirements, layout_components_from_goal
+from app.presentation.layout import layout_components_from_goal
 from app.presentation.structured import (
     extract_structured_content,
-    format_render_content_payload,
     format_render_engine_prompt,
     summarize_agent_evidence,
 )
@@ -267,20 +263,6 @@ def _sanitize_blocks_for_grounding(
     return cleaned
 
 
-def _workspace_context_lines(ctx: PresentationContext) -> str:
-    lines: list[str] = []
-    if ctx.workspace_name:
-        lines.append(f"Workspace: {ctx.workspace_name}")
-    if ctx.workspace_description.strip():
-        lines.append(f"Workspace notes: {ctx.workspace_description.strip()}")
-    if ctx.workspace_tags:
-        lines.append(f"Tags: {', '.join(ctx.workspace_tags)}")
-    if ctx.document_filenames:
-        preview = ", ".join(ctx.document_filenames[:8])
-        lines.append(f"Documents in workspace: {preview}")
-    return "\n".join(lines) if lines else "Workspace: (no extra metadata)"
-
-
 def _structured_grounding_corpus(
     structured: dict[str, Any],
     *,
@@ -295,219 +277,68 @@ def _structured_grounding_corpus(
     return "\n".join(parts).lower()
 
 
-def _legacy_render_prompt(
-    *,
-    goal: str,
-    ws_lines: str,
-    layout_section: str,
-    plan_section: str,
-    structured_payload: str,
-    evidence_json: str,
-    context: str,
-    max_idx: int,
-) -> str:
-    return f"""You are the VISUAL SUMMARY render engine. The main agent already finished analysis.
-Your job: turn STRUCTURED CONTENT (+ layout plan) into UI blocks. Do NOT dump prose or re-run analysis.
-
-WORKSPACE CONTEXT:
-{ws_lines}
-
-USER GOAL (layout intent — which components to build):
-{goal}
-
-{layout_section}
-{plan_section}
-STRUCTURED CONTENT (extracted from main agent answer — facts only):
-{structured_payload}
-
-EVIDENCE SUMMARY (compact tool hits — supplemental grounding):
-{evidence_json}
-REGISTERED COMPONENTS (type field): {", ".join(_BLOCK_TYPES)}
-
-GROUNDING RULES (MANDATORY):
-- NEVER invent employers, job titles with fake companies, dates, projects, scores, or metrics.
-- NEVER use placeholder names (XYZ Corp, ABC Inc, DEF Ltd, GHI Co, Acme, Example Company, etc.).
-- Prefer facts from STRUCTURED CONTENT and EVIDENCE SUMMARY; use EXCERPTS as supplemental workspace context.
-- timeline: ONLY if STRUCTURED CONTENT or EXCERPTS list explicit roles/dates/employers. If unclear, OMIT timeline entirely.
-- progress/chart: use qualitative levels (Strong, Growing, Foundational, Gap, Moderate) — NEVER invent numeric percentages unless structured content explicitly states that number for that skill.
-- If the user requests a component but grounded data is missing, SKIP that block — do not fabricate filler.
-- Rephrase and structure existing facts; do not hallucinate new ones.
-
-CONTEXT → COMPONENT MAP (use at least 3 DIFFERENT types; avoid summary+key_points+chips only):
-- Resume / profile / skills → progress (Skill | Strong/Growing/Gap) + chart (same qualitative levels) + chips + table
-- Career / history → timeline ONLY with verbatim employers/dates from ANSWER/EXCERPTS; else use key_points or table
-- Compare / gap analysis / vs → comparison (Aspect | Option A | Option B) OR table with header row
-- Teach / explain concepts → key_terms + faq + steps (ordered items)
-- Risks / caveats / important → callout (body required; use title like "Watch out")
-- Memorable insight / testimonial line → quote (body=quote text, title=attribution or topic)
-- Skill fit / readiness → progress or chart with qualitative levels (Label | Strong), not fake %
-- Quick scan / themes → chips (items as "Theme|slug") + tag other blocks with matching tags: ["slug"]
-- Process / how-to → steps (ordered items) — not bullets in key_points
-- Narrative only → at most ONE summary block; pair with specialized types above
-
-FIELD SHAPES:
-- items: string list. Pipe-encoded rows for table/timeline/comparison/metrics:
-  - table/comparison: "Col1 | Col2 | Col3" (first row may be headers)
-  - metrics: "Label | Value" per item
-  - timeline: "Period | Title | Detail" per item
-  - progress/chart: "Label | Strong" or "Label | Growing" or "Label | Gap" (qualitative; numbers only if in answer)
-  - chips: "Visible label|filter-slug" — tag related blocks with tags: ["filter-slug"]
-- tags: optional string array on ANY block (lowercase slugs) for chip filtering
-- key_terms: [{{"term":"","definition":""}}]
-- faq: [{{"question":"","answer":""}}]
-- callout/quote/summary: body text; title optional
-- source_indices: 1-based excerpt refs (1..{max_idx}) or []
-
-STRICT RULES:
-- Include one block per requested component type when grounded (see REQUESTED UI COMPONENTS).
-- Also add summary or key_points only if they add value — prefer specialized blocks.
-- NEVER return only summary+key_points when the goal requests table/progress/chips/callout.
-- Minimum blocks: max(3, number of requested component types).
-- Return ONLY valid JSON (no markdown fences):
-{{
-  "title": "short title",
-  "plain_summary": "2-4 sentence overview",
-  "presentation_profile": "e.g. resume_dashboard, comparison_matrix, concept_guide",
-  "blocks": [...]
-}}
-
-EXCERPTS:
-{context}
-"""
-
-
 def build_presentation(
     db: Session,
     ctx: PresentationContext,
 ) -> tuple[dict[str, Any], dict[str, Any]]:
     """
-    Produce a generative_ui payload from agent goal + answer + workspace context.
+    Produce a generative_ui payload by executing an approved layout plan.
 
-    When layout_plan is set (post plan_layout), uses a slim plan-driven prompt and
-    skips RAG. Otherwise falls back to the legacy goal+RAG render path.
+    Called from render_ui after plan_layout; requires layout_plan on the context.
     """
     goal = (ctx.goal or "").strip()
     answer = (ctx.final_answer or "").strip()
     if not goal or not answer:
         return {"error": "goal and final_answer are required"}, {}
 
+    layout_plan = ctx.layout_plan if isinstance(ctx.layout_plan, dict) else None
+    if not layout_plan:
+        return {"error": "layout_plan is required — call plan_layout before render_ui"}, {}
+
     structured = ctx.structured_content or extract_structured_content(
         answer,
         goal=goal,
     )
     evidence_summary = summarize_agent_evidence(ctx.agent_evidence)
-    layout_plan = ctx.layout_plan if isinstance(ctx.layout_plan, dict) else None
-    plan_driven = bool(layout_plan)
 
     source_files: list[str] = []
     sources: list[SourceSnippet] = []
-    grounding_context = ""
-
-    if plan_driven:
-        for i, hit in enumerate(ctx.agent_evidence.document_hits[:6], start=1):
-            name = hit.filename or "document"
-            if name not in source_files:
-                source_files.append(name)
-            sources.append(
-                SourceSnippet(
-                    index=i,
-                    chunk_id="",
-                    document_id="",
-                    filename=name,
-                    score=None,
-                    snippet=(hit.snippet or "")[:280],
-                )
+    for i, hit in enumerate(ctx.agent_evidence.document_hits[:6], start=1):
+        name = hit.filename or "document"
+        if name not in source_files:
+            source_files.append(name)
+        sources.append(
+            SourceSnippet(
+                index=i,
+                chunk_id="",
+                document_id="",
+                filename=name,
+                score=None,
+                snippet=(hit.snippet or "")[:280],
             )
-        grounding_context = _structured_grounding_corpus(
-            structured,
-            answer=answer,
-            evidence_summary=evidence_summary,
         )
-        prompt = format_render_engine_prompt(
-            layout_plan=layout_plan,
-            structured_content=structured,
-            evidence_summary=evidence_summary,
-            workspace_name=ctx.workspace_name,
-        )
-        render_model = settings.visual_summary_model
-        system_message = (
-            "You execute an approved visual layout plan. "
-            "Populate UI blocks from structured content only. "
-            "Output valid JSON. Never invent facts."
-        )
-    else:
-        structured_payload = format_render_content_payload(structured)
-        query = f"{goal}\n{structured.get('summary') or answer[:800]}".strip()
-        hits = retrieve_chunks(
-            db,
-            workspace_id=ctx.workspace_id,
-            query=query,
-            top_k=12,
-            min_score=settings.rag_min_score,
-            user_id=ctx.user_id,
-            usage_meta={"source": "presentation", "goal": goal[:200]},
-        )
-        if not hits:
-            hits = retrieve_chunks(
-                db,
-                workspace_id=ctx.workspace_id,
-                query=goal or "overview summary",
-                top_k=8,
-                min_score=0.05,
-                user_id=ctx.user_id,
-                usage_meta={"source": "presentation_fallback", "goal": goal[:200]},
-            )
 
-        seen_files: set[str] = set()
-        context_parts: list[str] = []
-
-        for i, (ch, score) in enumerate(hits, start=1):
-            doc = db.get(Document, ch.document_id)
-            name = doc.filename if doc else "document"
-            if name not in seen_files:
-                seen_files.add(name)
-                source_files.append(name)
-            snippet = (ch.content or "")[:280]
-            sources.append(
-                SourceSnippet(
-                    index=i,
-                    chunk_id=str(ch.id),
-                    document_id=str(ch.document_id),
-                    filename=name,
-                    score=round(float(score), 4) if score is not None else None,
-                    snippet=snippet,
-                )
-            )
-            context_parts.append(f"[{i}] ({name}, score={score:.3f})\n{ch.content}")
-
-        context = "\n\n".join(context_parts) if context_parts else "(no document excerpts)"
-        grounding_context = context
-        evidence_json = json.dumps(evidence_summary, ensure_ascii=False, indent=2)
-        ws_lines = _workspace_context_lines(ctx)
-        layout_components = layout_components_from_goal(goal)
-        layout_section = format_layout_requirements(layout_components)
-        plan_section = ""
-        prompt = _legacy_render_prompt(
-            goal=goal,
-            ws_lines=ws_lines,
-            layout_section=layout_section,
-            plan_section=plan_section,
-            structured_payload=structured_payload,
-            evidence_json=evidence_json,
-            context=context,
-            max_idx=len(sources),
-        )
-        render_model = settings.chat_model
-        system_message = (
-            "You are a visual layout engine. Input: user goal (which widgets) "
-            "+ agent text answer (facts). Output: JSON UI blocks. "
-            "Build every requested component type with grounded content. "
-            "Never invent facts. Never put UI meta-text in blocks."
-        )
+    grounding_context = _structured_grounding_corpus(
+        structured,
+        answer=answer,
+        evidence_summary=evidence_summary,
+    )
+    prompt = format_render_engine_prompt(
+        layout_plan=layout_plan,
+        structured_content=structured,
+        evidence_summary=evidence_summary,
+        workspace_name=ctx.workspace_name,
+    )
+    render_model = settings.visual_summary_model
+    system_message = (
+        "You execute an approved visual layout plan. "
+        "Populate UI blocks from structured content only. "
+        "Output valid JSON. Never invent facts."
+    )
 
     max_idx = len(sources)
     layout_components = layout_components_from_goal(goal)
-    if plan_driven and isinstance(layout_plan.get("components"), list):
+    if isinstance(layout_plan.get("components"), list):
         layout_components = list(layout_plan["components"])
 
     try:
@@ -532,7 +363,7 @@ def build_presentation(
                 prompt_tokens=usage.prompt_tokens,
                 completion_tokens=usage.completion_tokens,
                 total_tokens=usage.total_tokens,
-                meta={"goal": goal[:200], "plan_driven": plan_driven},
+                meta={"goal": goal[:200]},
             )
         else:
             log_usage(
@@ -542,7 +373,7 @@ def build_presentation(
                 user_id=ctx.user_id,
                 workspace_id=ctx.workspace_id,
                 total_tokens=estimate_tokens(prompt, raw),
-                meta={"goal": goal[:200], "estimated": True, "plan_driven": plan_driven},
+                meta={"goal": goal[:200], "estimated": True},
             )
         db.commit()
     except Exception as e:

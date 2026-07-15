@@ -54,12 +54,6 @@ def test_plan_driven_render_uses_slim_prompt_and_skips_rag(monkeypatch):
         ),
     )
 
-    rag_called = {"count": 0}
-
-    def fake_retrieve(*_args, **_kwargs):
-        rag_called["count"] += 1
-        return []
-
     captured: list[dict] = []
 
     class _FakeResp:
@@ -96,7 +90,6 @@ def test_plan_driven_render_uses_slim_prompt_and_skips_rag(monkeypatch):
 
     fake_client = MagicMock()
     fake_client.chat.completions.create = fake_create
-    monkeypatch.setattr("app.presentation.engine.retrieve_chunks", fake_retrieve)
     monkeypatch.setattr("app.presentation.engine._client", lambda: fake_client)
 
     db = MagicMock()
@@ -104,7 +97,6 @@ def test_plan_driven_render_uses_slim_prompt_and_skips_rag(monkeypatch):
 
     spec, meta = build_presentation(db, ctx)
 
-    assert rag_called["count"] == 0
     assert spec.get("error") is None
     assert meta["model"] == "gpt-4o-mini"
     prompt = captured[0]["messages"][1]["content"]
@@ -113,3 +105,15 @@ def test_plan_driven_render_uses_slim_prompt_and_skips_rag(monkeypatch):
     assert "EXCERPTS" not in prompt
     assert JOB_SEARCH_GOAL not in prompt
     assert "Targeting full-stack AI developer roles" not in prompt
+
+
+def test_build_presentation_requires_layout_plan():
+    ctx = PresentationContext(
+        workspace_id=uuid.uuid4(),
+        user_id=uuid.uuid4(),
+        goal=JOB_SEARCH_GOAL,
+        final_answer=SAMPLE_ANSWER,
+    )
+    spec, meta = build_presentation(MagicMock(), ctx)
+    assert spec.get("error") == "layout_plan is required — call plan_layout before render_ui"
+    assert meta == {}
