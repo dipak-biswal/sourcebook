@@ -3,7 +3,7 @@ import { agentStatusVariant } from "@/components/agents/agent-utils";
 import { Badge } from "@/components/ui/badge";
 import { ListSkeleton } from "@/components/ui/skeleton";
 import { WorkspaceSelect } from "@/components/workspace/WorkspaceSelect";
-import { formatDate } from "@/lib/utils";
+import { cn, formatDate } from "@/lib/utils";
 import { useAgentPage } from "./agent-page-context";
 
 export function AgentSidebar() {
@@ -11,6 +11,7 @@ export function AgentSidebar() {
     workspaces,
     workspaceId,
     runs,
+    selectedId,
     loading,
     onChangeWorkspace,
     onRefresh,
@@ -48,8 +49,18 @@ export function AgentSidebar() {
           </p>
         ) : (
           <ul className="space-y-1">
-            {runs.map((r) => (
-              <li key={r.id} className="group rounded-[6px] border border-transparent hover:border-hairline hover:bg-canvas-soft-2">
+            {runs.map((r) => {
+              const isSelected = r.id === selectedId;
+              return (
+              <li
+                key={r.id}
+                className={cn(
+                  "group rounded-[6px] border transition-colors",
+                  isSelected
+                    ? "border-hairline bg-canvas-soft-2"
+                    : "border-transparent hover:border-hairline hover:bg-canvas-soft-2",
+                )}
+              >
                 <div className="flex items-start gap-1 px-2 py-2">
                   <div className="min-w-0 flex-1">
                     <button
@@ -83,7 +94,8 @@ export function AgentSidebar() {
                   </button>
                 </div>
               </li>
-            ))}
+            );
+            })}
           </ul>
         )}
       </div>

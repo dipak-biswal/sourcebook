@@ -318,14 +318,64 @@ def build_plan_layout_input(
     }
 
 
+_PLANNER_FEW_SHOTS: dict[str, str] = {
+    "resume_dashboard": (
+        'EXAMPLE (resume_dashboard):\n'
+        '{"presentation_profile":"resume_dashboard","components":["table","progress","key_points"],'
+        '"block_outline":[{"type":"summary","title":"Overview","purpose":"Role fit summary"},'
+        '{"type":"table","title":"Skills matrix","purpose":"Skills vs role requirements"},'
+        '{"type":"progress","title":"Skill levels","purpose":"Qualitative skill strength"}],'
+        '"rationale":"Table and progress for resume scan; key_points for highlights."}'
+    ),
+    "gap_analysis": (
+        'EXAMPLE (gap_analysis):\n'
+        '{"presentation_profile":"gap_analysis","components":["callout","table","faq"],'
+        '"block_outline":[{"type":"callout","title":"Main gap","purpose":"Primary role gap"},'
+        '{"type":"table","title":"Requirements vs evidence","purpose":"Gap comparison rows"},'
+        '{"type":"faq","title":"FAQ","purpose":"Common questions from answer"}],'
+        '"rationale":"Callout surfaces the main gap; table compares requirements."}'
+    ),
+    "faq_guide": (
+        'EXAMPLE (faq_guide):\n'
+        '{"presentation_profile":"faq_guide","components":["summary","faq","key_points"],'
+        '"block_outline":[{"type":"summary","title":"Overview","purpose":"Short overview"},'
+        '{"type":"faq","title":"FAQ","purpose":"Question and answer pairs"},'
+        '{"type":"key_points","title":"Highlights","purpose":"Top bullets"}],'
+        '"rationale":"FAQ-first layout when the answer is Q&A heavy."}'
+    ),
+}
+
+
+def _planner_few_shot(goal: str, components: list[str]) -> str:
+    goal_l = (goal or "").lower()
+    if "faq" in components or re.search(r"\bfaq\b", goal_l):
+        return _PLANNER_FEW_SHOTS["faq_guide"]
+    if any(c in components for c in ("progress", "table", "chart")) or re.search(
+        r"resume|cv|role|gap", goal_l
+    ):
+        if re.search(r"gap|compare|vs\b", goal_l):
+            return _PLANNER_FEW_SHOTS["gap_analysis"]
+        return _PLANNER_FEW_SHOTS["resume_dashboard"]
+    return _PLANNER_FEW_SHOTS["faq_guide"]
+
+
 def format_plan_layout_prompt(payload: dict[str, Any], *, layout_hints: str) -> str:
     """Compact planner prompt — structured JSON in, layout JSON out."""
     body = json.dumps(payload, ensure_ascii=False, indent=2)
+    goal = str(payload.get("user_goal") or "")
+    components = list(payload.get("requested_components") or [])
+    few_shot = _planner_few_shot(goal, components)
+    planner_notes = payload.get("planner_notes")
+    notes_block = ""
+    if planner_notes:
+        notes_block = f"\nPLANNER NOTES (address these):\n{planner_notes}\n"
     return (
         "You are the Visual Summary layout planner.\n"
         "Input is STRUCTURED CONTENT extracted from the main workspace agent's answer.\n"
         "Do not invent facts. Plan UI blocks that present the structured content.\n\n"
-        f"STRUCTURED INPUT:\n{body}\n\n"
+        f"{few_shot}\n\n"
+        f"STRUCTURED INPUT:\n{body}\n"
+        f"{notes_block}\n"
         f"{layout_hints}\n\n"
         "Return JSON only:\n"
         "{\n"

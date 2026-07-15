@@ -33,8 +33,12 @@ from app.agents.execution_trace import (
     emit_execution_trace,
 )
 from app.presentation.answer import clip_presentation_answer, resolve_presentation_answer
-from app.presentation.structured import extract_structured_content
 from app.presentation.context import PresentationContext
+from app.presentation.handoff import (
+    handoff_error_message,
+    resolve_structured_content,
+    validate_handoff,
+)
 
 from app.presentation.evidence import (
     collect_evidence_from_steps,
@@ -871,9 +875,17 @@ def _presentation_context_for_run(db: Session, run: AgentRun) -> PresentationCon
         steps=steps,
     )
     goal = run.goal or ""
+    user_id = run.user_id or uuid.UUID(int=0)
+    structured_content, _source = resolve_structured_content(
+        narrative,
+        goal=goal,
+        db=db,
+        user_id=user_id,
+        workspace_id=run.workspace_id,
+    )
     return PresentationContext(
         workspace_id=run.workspace_id,
-        user_id=run.user_id or uuid.UUID(int=0),
+        user_id=user_id,
         goal=goal,
         final_answer=narrative,
         workspace_name=ws.name if ws else "",
@@ -881,7 +893,7 @@ def _presentation_context_for_run(db: Session, run: AgentRun) -> PresentationCon
         workspace_tags=tags,
         document_filenames=filenames,
         agent_evidence=agent_evidence,
-        structured_content=extract_structured_content(narrative, goal=goal),
+        structured_content=structured_content,
     )
 
 
@@ -1109,6 +1121,39 @@ def _run_visual_summary_agent(
         trace_live.visual_agent_active = True
 
     ctx = _presentation_context_for_run(db, run)
+    handoff_ok, handoff_errors = validate_handoff(ctx.structured_content)
+    if not handoff_ok:
+        step_index += 1
+        message = handoff_error_message(handoff_errors)
+        _append_step(
+            db,
+            run,
+            step_index=step_index,
+            type="agent_handoff",
+            input={
+                "from": run.agent_type or "general",
+                "to": "visual_summary",
+                "goal": run.goal,
+                "answer_preview": (run.final_answer or "")[:500],
+            },
+            output={"status": "handoff_failed", "errors": handoff_errors},
+            on_event=on_event,
+        )
+        run.status = "failed"
+        run.error = message
+        db.commit()
+        db.refresh(run)
+        _emit(
+            on_event,
+            "status",
+            run_id=str(run.id),
+            status=run.status,
+            final_answer=run.final_answer,
+        )
+        if trace_live is not None:
+            trace_live.visual_agent_active = False
+        return run
+
     step_index += 1
     _append_step(
         db,

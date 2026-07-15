@@ -76,22 +76,14 @@ export function AgentRunDisplay() {
       ),
     [selected?.id, selected?.presentation_spec, liveSteps, steps],
   );
-  const hasVisualSummary = gen != null;
   const presentationPending =
     selected?.status === "waiting_approval" &&
     isPresentationPending(selected.pending_tool);
   const [activeTab, setActiveTab] = useState<TabKey>(running ? "trace" : "answer");
 
   useEffect(() => {
-    if (running) setActiveTab("trace");
-  }, [running]);
-
-  // Auto-open visual tab once when a summary becomes available (not on every render).
-  useEffect(() => {
-    if (hasVisualSummary && !running && !approving) {
-      setActiveTab("visual");
-    }
-  }, [hasVisualSummary, running, approving, selected?.id]);
+    if (running || approving) setActiveTab("trace");
+  }, [running, approving]);
 
   if (!selected && !running) {
     return (

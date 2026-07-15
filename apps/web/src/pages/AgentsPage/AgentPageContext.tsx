@@ -357,7 +357,7 @@ export function AgentPageProvider({
           await queryClient.invalidateQueries({
             queryKey: ["agentRuns", effectiveWorkspaceId],
           });
-          success("Visual summary ready", "Open the Visual summary tab.");
+          success("Visual summary ready", "Still on Trace — open Visual summary when you want.");
         }
         return;
       }
