@@ -39,6 +39,9 @@ class Settings(BaseSettings):
     openai_api_key: str = ""
     openai_base_url: str = "https://api.openai.com/v1"
     embedding_model: str = "text-embedding-3-small"
+    # Must match the pgvector column dimension (chunks.embedding); changing
+    # the embedding model to one with different dims needs a migration.
+    embedding_dimensions: int = 1536
     chat_model: str = "gpt-4o-mini"
     visual_summary_model: str = "gpt-4o-mini"
     rag_top_k: int = 5

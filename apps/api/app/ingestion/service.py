@@ -58,6 +58,7 @@ def ingest_document_chunks(
             content=tc.content,
             token_count=tc.token_count,
             embedding=vector,
+            embedding_model=settings.embedding_model,
         )
         db.add(row)
         rows.append(row)

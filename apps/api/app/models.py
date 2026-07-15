@@ -1,11 +1,16 @@
 import uuid
 from datetime import datetime
 
+from pgvector.sqlalchemy import Vector
 from sqlalchemy import JSON, DateTime, ForeignKey, String, Text, UniqueConstraint, func
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
+from app.config import settings
 from app.db import Base
+
+# JSON variant keeps SQLite (unit tests) working; Postgres gets pgvector.
+EmbeddingVector = Vector(settings.embedding_dimensions).with_variant(JSON, "sqlite")
 
 
 class User(Base):
@@ -108,7 +113,10 @@ class Chunk(Base):
     chunk_index: Mapped[int] = mapped_column()
     content: Mapped[str] = mapped_column(Text)
     token_count: Mapped[int | None] = mapped_column(nullable=True)
-    embedding: Mapped[list[float] | None] = mapped_column(JSON, nullable=True)
+    embedding: Mapped[list[float] | None] = mapped_column(
+        EmbeddingVector, nullable=True
+    )
+    embedding_model: Mapped[str | None] = mapped_column(String(120), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )
