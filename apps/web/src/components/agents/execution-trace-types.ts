@@ -62,35 +62,38 @@ export type TraceHitlEmbedChild = {
   output?: unknown;
 };
 
-export type TraceHandoffStructured = {
-  summary?: string;
-  key_points_count?: number;
-  key_points_preview?: string[];
-  faq_count?: number;
-  faq_preview?: Array<{ question?: string; answer?: string }>;
-  sections_count?: number;
-  themes?: string[];
-};
-
-export type TraceHandoffInput = {
-  goal?: string;
-  structured_content?: TraceHandoffStructured;
-  planner_notes?: string;
-};
-
 export type TraceHandoffChild = {
   id: string;
   type: "handoff";
   label: string;
   state: TraceState;
-  input?: TraceHandoffInput;
+  output?: string;
+};
+
+export type TraceFinalAnswerChild = {
+  id: string;
+  type: "final_answer";
+  label: string;
+  state: TraceState;
+  output?: string;
+};
+
+export type TraceVisualStageChild = {
+  id: string;
+  type: "visual_stage";
+  label: string;
+  stage?: string;
+  state: TraceState;
+  children: TraceChild[];
 };
 
 export type TraceChild =
   | TraceToolChild
   | TraceLlmChild
   | TraceHitlEmbedChild
-  | TraceHandoffChild;
+  | TraceHandoffChild
+  | TraceFinalAnswerChild
+  | TraceVisualStageChild;
 
 export type TraceGoalPhase = {
   id: string;

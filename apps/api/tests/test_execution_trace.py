@@ -349,6 +349,7 @@ def test_visual_summary_agent_turns_after_handoff():
                 "tool_name": "render_ui",
                 "output": {
                     "status": "rendered",
+                    "llm_output": '{"title":"Summary","blocks":[]}',
                     "spec": {
                         "type": "generative_ui",
                         "title": "Summary",
@@ -379,45 +380,29 @@ def test_visual_summary_agent_turns_after_handoff():
     assert agent_turns[0]["label"] == "Resume Agent"
     visual_turns = [p for p in agent_turns if p.get("agent_label") == "Visual Summary Agent"]
     assert len(visual_turns) >= 1
-    tool_labels = [
-        c.get("label")
-        for vt in visual_turns
-        for c in vt.get("children") or []
-        if c.get("type") == "tool"
-    ]
-    assert "Plan layout" in tool_labels
-    assert "Render UI" in tool_labels
-    plan_tool = next(
-        c
-        for vt in visual_turns
-        for c in vt.get("children") or []
-        if c.get("type") == "tool" and c.get("tool_name") == "plan_layout"
-    )
-    planner = next(
-        child for child in plan_tool.get("children") or [] if child.get("type") == "llm_response"
-    )
-    assert planner["label"] == "Layout planner LLM"
-    assert planner.get("llm_role") == "embedded_planner"
-    assert "prompt" not in (plan_tool.get("output") or {})
-    assert plan_tool.get("has_embedded_llm") is True
-    assert planner["prompt_tokens"] == 180
-    assert planner["completion_tokens"] == 42
-    assert planner["total_tokens"] == 222
-    child_types = [c.get("type") for c in visual_turns[0].get("children") or []]
-    assert child_types[0] == "handoff"
-    handoff = visual_turns[0]["children"][0]
-    assert handoff["input"]["goal"] == "Summarize resume with visual summary"
-    assert handoff["input"]["structured_content"]["key_points_count"] == 2
+    visual = visual_turns[0]
+    child_types = [c.get("type") for c in visual.get("children") or []]
+    assert child_types == ["handoff", "visual_stage", "visual_stage", "final_answer"]
+    handoff = visual["children"][0]
+    assert handoff["label"] == "Hand off"
+    assert handoff["output"] == "Main agent answer with enough detail for layout."
+    assert "input" not in handoff
+    plan_stage = visual["children"][1]
+    assert plan_stage["label"] == "Plan layout"
+    assert plan_stage["type"] == "visual_stage"
+    plan_tool = next(c for c in plan_stage["children"] if c.get("label") == "Tool call")
+    planner = next(c for c in plan_stage["children"] if c.get("label") == "LLM call")
+    assert plan_tool["input"] == {"notes": ""}
     assert plan_tool["output"]["layout_plan"]["components"] == ["table", "progress"]
     assert "prompt" not in plan_tool["output"]
-    assert plan_tool["output"]["structured_summary"]["summary"].startswith("Strong React")
-    render_tool = next(
-        c
-        for c in visual_turns[0]["children"]
-        if c.get("type") == "tool" and c.get("tool_name") == "render_ui"
-    )
+    assert planner["prompt_tokens"] == 180
+    render_stage = visual["children"][2]
+    assert render_stage["label"] == "Render UI"
+    render_tool = next(c for c in render_stage["children"] if c.get("label") == "Tool call")
     assert render_tool["output"]["ui_preview"]["title"] == "Summary"
-    assert render_tool["output"]["ui_preview"]["block_types"] == ["summary", "key_points"]
+    final = visual["children"][3]
+    assert final["label"] == "Final answer"
+    assert final["output"] == '{"title":"Summary","blocks":[]}'
     pres = next(p for p in trace["phases"] if p["type"] == "presentation")
     assert pres.get("children") == []
 
@@ -552,11 +537,12 @@ def test_visual_summary_interleaves_orchestrator_decisions_with_tools():
         and p.get("agent_label") == "Visual Summary Agent"
     )
     labels = [c.get("label") for c in visual.get("children") or []]
-    assert labels.count("Orchestrator · Decision") == 2
-    assert labels.index("Orchestrator · Decision") < labels.index("Plan layout")
-    second_decision = labels.index("Orchestrator · Decision", 1)
-    assert second_decision < labels.index("Render UI")
-    assert labels[-1] == "Orchestrator · Response"
+    assert "Hand off" in labels
+    assert "Plan layout" in labels
+    assert "Render UI" in labels
+    assert labels.index("Plan layout") < labels.index("Render UI")
+    plan_stage = next(c for c in visual["children"] if c.get("label") == "Plan layout")
+    assert [c.get("label") for c in plan_stage["children"]] == ["Tool call", "LLM call"]
 
 
 def test_visual_summary_llm_does_not_reactivate_main_agent_turn():

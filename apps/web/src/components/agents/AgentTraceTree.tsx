@@ -19,9 +19,8 @@ import type {
   ExecutionTrace,
   TraceAgentTurnPhase,
   TraceChild,
+  TraceFinalAnswerChild,
   TraceHandoffChild,
-  TraceHandoffInput,
-  TraceHandoffStructured,
   TraceHitlEmbedChild,
   TraceLlmChild,
   TraceLlmRole,
@@ -30,6 +29,7 @@ import type {
   TraceState,
   TraceSynthesisPhase,
   TraceToolChild,
+  TraceVisualStageChild,
 } from "@/components/agents/execution-trace-types";
 import { isGenerativeUI } from "@/components/agents/generative-ui";
 import { AgentApprovalCard } from "@/components/agents/shared";
@@ -42,7 +42,33 @@ const NESTED_ICON_COL = 28;
 const BRANCH_STUB = 12;
 const NESTED_BRANCH_STUB = 10;
 const VISUAL_SUMMARY_AGENT_LABEL = "Visual Summary Agent";
-const VISUAL_TOOL_NAMES = new Set(["plan_layout", "render_ui"]);
+
+function traceChildContainsActive(child: TraceChild, activeChildId: string | null): boolean {
+  if (!activeChildId) return false;
+  if (child.id === activeChildId) return true;
+  if (child.type === "visual_stage") {
+    return child.children.some((nested) => traceChildContainsActive(nested, activeChildId));
+  }
+  if (child.type === "tool") {
+    return (child.children ?? []).some((nested) => nested.id === activeChildId);
+  }
+  return false;
+}
+
+function OutputOnlyBody({ output, state }: { output?: string; state: TraceState }) {
+  const text = output?.trim() ?? "";
+  return (
+    <div>
+      <div className="mb-1 text-[10px] font-bold uppercase tracking-wide text-mute">Output</div>
+      <pre className="max-h-44 overflow-auto whitespace-pre-wrap rounded-[6px] border border-hairline bg-canvas p-2 font-mono text-[11px] text-body">
+        {text || (state === "running" ? "" : "—")}
+      </pre>
+      {state === "running" && !text && (
+        <span className="mt-1 inline-block h-3 w-0.5 animate-pulse bg-ink" />
+      )}
+    </div>
+  );
+}
 
 function TraceIcon({
   icon: Icon,
@@ -371,314 +397,6 @@ function LlmChildBody({ child }: { child: Extract<TraceChild, { type: "llm_respo
   );
 }
 
-function normalizeStructuredPreview(data: unknown): TraceHandoffStructured | null {
-  if (!data || typeof data !== "object") return null;
-  const d = data as Record<string, unknown>;
-  if ("key_points_preview" in d || "key_points_count" in d) {
-    return d as TraceHandoffStructured;
-  }
-  const keyPoints = Array.isArray(d.key_points) ? d.key_points.map(String) : [];
-  const faq = Array.isArray(d.faq)
-    ? (d.faq as Array<{ question?: string; answer?: string }>)
-    : [];
-  const sections = Array.isArray(d.sections) ? d.sections : [];
-  const themes = Array.isArray(d.themes) ? d.themes.map(String) : [];
-  return {
-    summary: typeof d.summary === "string" ? d.summary : undefined,
-    key_points_count: keyPoints.length,
-    key_points_preview: keyPoints.slice(0, 5),
-    faq_count: faq.length,
-    faq_preview: faq.slice(0, 3),
-    sections_count: sections.length,
-    themes: themes.slice(0, 4),
-  };
-}
-
-function StructuredContentPreview({ structured }: { structured: TraceHandoffStructured }) {
-  return (
-    <div className="space-y-2 rounded-[6px] border border-hairline bg-canvas p-2.5">
-      {structured.summary && (
-        <div>
-          <p className="mb-1 text-[10px] font-bold uppercase tracking-wide text-mute">Summary</p>
-          <p className="text-[11px] leading-relaxed text-body">{structured.summary}</p>
-        </div>
-      )}
-      <div className="flex flex-wrap gap-2 text-[10px] text-mute">
-        {(structured.key_points_count ?? 0) > 0 && (
-          <Badge variant="outline">{structured.key_points_count} key points</Badge>
-        )}
-        {(structured.faq_count ?? 0) > 0 && (
-          <Badge variant="outline">{structured.faq_count} FAQ items</Badge>
-        )}
-        {(structured.sections_count ?? 0) > 0 && (
-          <Badge variant="outline">{structured.sections_count} sections</Badge>
-        )}
-      </div>
-      {(structured.key_points_preview?.length ?? 0) > 0 && (
-        <div>
-          <p className="mb-1 text-[10px] font-bold uppercase tracking-wide text-mute">
-            Key points preview
-          </p>
-          <ul className="list-inside list-disc space-y-0.5 text-[11px] text-body">
-            {structured.key_points_preview!.map((point, i) => (
-              <li key={i}>{point}</li>
-            ))}
-          </ul>
-        </div>
-      )}
-      {(structured.faq_preview?.length ?? 0) > 0 && (
-        <div>
-          <p className="mb-1 text-[10px] font-bold uppercase tracking-wide text-mute">
-            FAQ preview
-          </p>
-          <div className="space-y-1.5">
-            {structured.faq_preview!.map((item, i) => (
-              <div key={i} className="rounded border border-hairline/70 bg-canvas-soft/50 px-2 py-1.5">
-                <p className="text-[11px] font-medium text-ink">{item.question}</p>
-                {item.answer && <p className="mt-0.5 text-[10px] text-mute">{item.answer}</p>}
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-      {(structured.themes?.length ?? 0) > 0 && (
-        <div className="flex flex-wrap gap-1">
-          {structured.themes!.map((theme) => (
-            <Badge key={theme} variant="secondary" className="text-[10px]">
-              {theme}
-            </Badge>
-          ))}
-        </div>
-      )}
-    </div>
-  );
-}
-
-function HandoffChildBody({ child }: { child: TraceHandoffChild }) {
-  const input = child.input as TraceHandoffInput | undefined;
-  if (!input) {
-    return <p className="text-[11px] text-mute">No handoff payload recorded.</p>;
-  }
-  return (
-    <div className="space-y-2">
-      <p className="text-[11px] text-mute">
-        Structured facts extracted from the main agent answer — this is what plan/render use.
-      </p>
-      {input.goal && (
-        <div>
-          <p className="mb-1 text-[10px] font-bold uppercase tracking-wide text-mute">Goal</p>
-          <p className="rounded-[6px] border border-hairline bg-canvas p-2 text-[11px] text-body">
-            {input.goal}
-          </p>
-        </div>
-      )}
-      {input.structured_content && (
-        <StructuredContentPreview structured={input.structured_content} />
-      )}
-      {input.planner_notes && (
-        <div>
-          <p className="mb-1 text-[10px] font-bold uppercase tracking-wide text-mute">Notes</p>
-          <p className="text-[11px] text-body">{input.planner_notes}</p>
-        </div>
-      )}
-    </div>
-  );
-}
-
-type LayoutPlanPreview = {
-  presentation_profile?: string;
-  components?: string[];
-  block_outline?: Array<{ type?: string; title?: string; purpose?: string }>;
-  rationale?: string;
-};
-
-type UiPreview = {
-  title?: string;
-  plain_summary?: string;
-  presentation_profile?: string;
-  block_count?: number;
-  block_types?: string[];
-  source_files?: string[];
-};
-
-function LayoutPlanOutputCard({ plan }: { plan: LayoutPlanPreview }) {
-  return (
-    <div className="space-y-2 rounded-[6px] border border-hairline bg-canvas p-2.5">
-      <div className="flex flex-wrap items-center gap-2">
-        {plan.presentation_profile && (
-          <Badge variant="outline" className="text-[10px]">
-            {plan.presentation_profile.replace(/_/g, " ")}
-          </Badge>
-        )}
-        {(plan.components?.length ?? 0) > 0 && (
-          <span className="text-[10px] text-mute">
-            Components: {plan.components!.join(", ")}
-          </span>
-        )}
-      </div>
-      {(plan.block_outline?.length ?? 0) > 0 && (
-        <div className="space-y-1">
-          <p className="text-[10px] font-bold uppercase tracking-wide text-mute">Block outline</p>
-          {plan.block_outline!.map((block, i) => (
-            <div
-              key={i}
-              className="rounded border border-hairline/70 bg-canvas-soft/40 px-2 py-1.5 text-[11px]"
-            >
-              <span className="font-medium text-ink">
-                {block.type}
-                {block.title ? ` · ${block.title}` : ""}
-              </span>
-              {block.purpose && <p className="mt-0.5 text-[10px] text-mute">{block.purpose}</p>}
-            </div>
-          ))}
-        </div>
-      )}
-      {plan.rationale && <p className="text-[10px] italic text-mute">{plan.rationale}</p>}
-    </div>
-  );
-}
-
-function UiOutputCard({ preview }: { preview: UiPreview }) {
-  return (
-    <div className="space-y-2 rounded-[6px] border border-success-border/40 bg-success-soft/20 p-2.5">
-      <p className="text-[10px] font-bold uppercase tracking-wide text-success-text">
-        Final visual summary
-      </p>
-      {preview.title && <p className="font-medium text-ink">{preview.title}</p>}
-      {preview.plain_summary && (
-        <p className="text-[11px] leading-relaxed text-mute">{preview.plain_summary}</p>
-      )}
-      <div className="flex flex-wrap gap-2 text-[10px] text-mute">
-        {preview.presentation_profile && (
-          <span>Profile: {preview.presentation_profile.replace(/_/g, " ")}</span>
-        )}
-        {preview.block_count != null && <span>{preview.block_count} blocks</span>}
-      </div>
-      {(preview.block_types?.length ?? 0) > 0 && (
-        <div className="flex flex-wrap gap-1">
-          {preview.block_types!.map((t) => (
-            <Badge key={t} variant="secondary" className="text-[10px]">
-              {t.replace(/_/g, " ")}
-            </Badge>
-          ))}
-        </div>
-      )}
-      {(preview.source_files?.length ?? 0) > 0 && (
-        <p className="text-[10px] text-mute">Sources: {preview.source_files!.join(", ")}</p>
-      )}
-    </div>
-  );
-}
-
-function VisualToolInputBody({ child }: { child: TraceToolChild }) {
-  const input = child.input as Record<string, unknown> | undefined;
-  if (!input) return null;
-
-  if (child.tool_name === "plan_layout") {
-    const structured = normalizeStructuredPreview(input.structured_handoff);
-    const goal = typeof input.goal === "string" ? input.goal : undefined;
-    const notes = typeof input.notes === "string" && input.notes.trim() ? input.notes : undefined;
-    return (
-      <div className="space-y-2">
-        {goal && (
-          <div>
-            <p className="mb-1 text-[10px] font-bold uppercase tracking-wide text-mute">Goal</p>
-            <p className="text-[11px] text-body">{goal}</p>
-          </div>
-        )}
-        {structured && <StructuredContentPreview structured={structured} />}
-        {notes && (
-          <p className="text-[11px] text-mute">
-            Planner notes: <span className="text-body">{notes}</span>
-          </p>
-        )}
-      </div>
-    );
-  }
-
-  if (child.tool_name === "render_ui") {
-    const raw = input.layout_plan_json;
-    if (typeof raw === "string" && raw.trim()) {
-      try {
-        const plan = JSON.parse(raw) as LayoutPlanPreview;
-        return (
-          <div>
-            <p className="mb-1 text-[10px] font-bold uppercase tracking-wide text-mute">
-              Approved layout plan
-            </p>
-            <LayoutPlanOutputCard plan={plan} />
-          </div>
-        );
-      } catch {
-        /* fall through */
-      }
-    }
-  }
-
-  return (
-    <pre className="max-h-36 overflow-auto rounded-[6px] border border-hairline bg-canvas p-2 font-mono text-[11px] text-body">
-      {prettyJson(input)}
-    </pre>
-  );
-}
-
-function VisualToolOutputBody({ child }: { child: TraceToolChild }) {
-  const output = child.output as Record<string, unknown> | undefined;
-  if (!output) return null;
-
-  if (child.tool_name === "plan_layout") {
-    const plan =
-      (output.layout_plan as LayoutPlanPreview | undefined) ??
-      (output as LayoutPlanPreview);
-    const summary = output.structured_summary as TraceHandoffStructured | undefined;
-    return (
-      <div className="space-y-2">
-        {output.status != null && (
-          <Badge variant="success" className="text-[10px]">
-            {String(output.status)}
-          </Badge>
-        )}
-        {summary && (
-          <div>
-            <p className="mb-1 text-[10px] font-bold uppercase tracking-wide text-mute">
-              Structured input used
-            </p>
-            <StructuredContentPreview structured={summary} />
-          </div>
-        )}
-        {(plan.components?.length ?? plan.block_outline?.length) ? (
-          <LayoutPlanOutputCard plan={plan} />
-        ) : null}
-      </div>
-    );
-  }
-
-  if (child.tool_name === "render_ui") {
-    const preview =
-      (output.ui_preview as UiPreview | undefined) ??
-      (output.final_output as UiPreview | undefined);
-    return (
-      <div className="space-y-2">
-        {output.status != null && (
-          <Badge variant="success" className="text-[10px]">
-            {String(output.status)}
-          </Badge>
-        )}
-        {preview && <UiOutputCard preview={preview} />}
-        {output.block_count != null && !preview && (
-          <p className="text-[11px] text-body">{String(output.block_count)} blocks rendered</p>
-        )}
-      </div>
-    );
-  }
-
-  return (
-    <pre className="max-h-44 overflow-auto rounded-[6px] border border-hairline bg-canvas p-2 font-mono text-[11px] text-body">
-      {prettyJson(output)}
-    </pre>
-  );
-}
-
 function HitlEmbedBody({ child }: { child: TraceHitlEmbedChild }) {
   const output =
     child.output && typeof child.output === "object"
@@ -736,48 +454,6 @@ function PresentationTraceBody({ phase }: { phase: TracePresentationPhase }) {
   );
 }
 
-function EmbeddedLlmTimeline({
-  children,
-  activeChildId,
-  activeRef,
-  defaultOpen,
-}: {
-  children: TraceLlmChild[];
-  activeChildId?: string | null;
-  activeRef?: React.RefObject<HTMLDivElement | null>;
-  defaultOpen: boolean;
-}) {
-  if (children.length === 0) return null;
-  return (
-    <div className="mb-2 rounded-[6px] border border-hairline/60 bg-canvas/60 p-1.5">
-      <p className="mb-1.5 px-1 text-[10px] font-medium uppercase tracking-wide text-mute">
-        Embedded LLM call{children.length > 1 ? "s" : ""}
-      </p>
-      {children.map((llmChild, i) => {
-        const active = llmChild.id === activeChildId;
-        return (
-          <ExpandableTraceRow
-            key={llmChild.id}
-            nodeId={llmChild.id}
-            activeRef={active ? activeRef : undefined}
-            active={active}
-            nested
-            isLast={i === children.length - 1}
-            defaultOpen={defaultOpen || active}
-            icon={Brain}
-            label={llmChild.label}
-            state={llmChild.state}
-            model={llmChild.model}
-            llmRole={llmChild.llm_role}
-          >
-            <LlmChildBody child={llmChild} />
-          </ExpandableTraceRow>
-        );
-      })}
-    </div>
-  );
-}
-
 function ToolChildBody({
   child,
   activeChildId,
@@ -796,30 +472,22 @@ function ToolChildBody({
   const llmChildren = (child.children ?? []).filter(
     (c): c is TraceLlmChild => c.type === "llm_response",
   );
-  const isVisualTool = VISUAL_TOOL_NAMES.has(child.tool_name);
-  const showToolIo = isVisualTool || !child.has_embedded_llm || child.tool_name === "web_search";
+  const showToolIo = !child.has_embedded_llm || child.tool_name === "web_search";
 
   return (
     <div className="space-y-2">
-      {child.has_embedded_llm && (
+      {child.has_embedded_llm && llmChildren.length > 0 && (
         <p className="text-[11px] text-mute">
-          {isVisualTool
-            ? "Tool step — payload below; LLM prompt and raw JSON on the embedded node."
-            : `Tool invocation — LLM prompt and output are on the embedded node${
-                llmChildren.length > 1 ? "s" : ""
-              } below.`}
+          Tool invocation — LLM prompt and output are on the embedded node
+          {llmChildren.length > 1 ? "s" : ""} below.
         </p>
       )}
       {showToolIo && child.input != null && (
         <div>
           <div className="mb-1 text-[10px] font-bold uppercase tracking-wide text-mute">Input</div>
-          {isVisualTool ? (
-            <VisualToolInputBody child={child} />
-          ) : (
-            <pre className="max-h-36 overflow-auto rounded-[6px] border border-hairline bg-canvas p-2 font-mono text-[11px] text-body">
-              {prettyJson(child.input)}
-            </pre>
-          )}
+          <pre className="max-h-36 overflow-auto rounded-[6px] border border-hairline bg-canvas p-2 font-mono text-[11px] text-body">
+            {prettyJson(child.input)}
+          </pre>
         </div>
       )}
       {showToolIo && child.output != null && (
@@ -827,8 +495,6 @@ function ToolChildBody({
           <div className="mb-1 text-[10px] font-bold uppercase tracking-wide text-mute">Output</div>
           {web ? (
             <WebSearchResults data={web} compact />
-          ) : isVisualTool ? (
-            <VisualToolOutputBody child={child} />
           ) : (
             <pre className="max-h-44 overflow-auto rounded-[6px] border border-hairline bg-canvas p-2 font-mono text-[11px] text-body">
               {prettyJson(child.output)}
@@ -836,12 +502,27 @@ function ToolChildBody({
           )}
         </div>
       )}
-      <EmbeddedLlmTimeline
-        children={llmChildren}
-        activeChildId={activeChildId}
-        activeRef={activeRef}
-        defaultOpen={defaultOpen ?? false}
-      />
+      {llmChildren.map((llmChild, i) => {
+        const active = llmChild.id === activeChildId;
+        return (
+          <ExpandableTraceRow
+            key={llmChild.id}
+            nodeId={llmChild.id}
+            activeRef={active ? activeRef : undefined}
+            active={active}
+            nested
+            isLast={i === llmChildren.length - 1}
+            defaultOpen={(defaultOpen ?? false) || active}
+            icon={Brain}
+            label={llmChild.label}
+            state={llmChild.state}
+            model={llmChild.model}
+            llmRole={llmChild.llm_role}
+          >
+            <LlmChildBody child={llmChild} />
+          </ExpandableTraceRow>
+        );
+      })}
       {child.state === "running" && child.output == null && (
         <div className="flex items-center gap-2 text-[11px] text-warning-text">
           <Loader2 className="h-3 w-3 animate-spin" />
@@ -857,31 +538,19 @@ function TurnChildrenTimeline({
   activeChildId,
   activeRef,
   defaultOpen,
-  visualAgent,
+  isLive,
 }: {
   children: TraceChild[];
   activeChildId?: string | null;
   activeRef?: React.RefObject<HTMLDivElement | null>;
   defaultOpen: boolean;
-  visualAgent?: boolean;
+  isLive?: boolean;
 }) {
   return (
-    <div
-      className={cn(
-        "rounded-[6px] border p-2",
-        visualAgent
-          ? "border-violet-200/80 bg-violet-50/30 dark:border-violet-900/50 dark:bg-violet-950/20"
-          : "border-hairline/80 bg-canvas-soft/40",
-      )}
-    >
-      {visualAgent && (
-        <p className="mb-2 px-1 text-[10px] font-medium uppercase tracking-wide text-violet-700 dark:text-violet-300">
-          Visual summary pipeline
-        </p>
-      )}
+    <div className="rounded-[6px] border border-hairline/80 bg-canvas-soft/40 p-2">
       {children.map((child, i) => {
         const isLast = i === children.length - 1;
-        const active = child.id === activeChildId;
+        const active = traceChildContainsActive(child, activeChildId ?? null);
         if (child.type === "handoff") {
           return (
             <ExpandableTraceRow
@@ -891,22 +560,62 @@ function TurnChildrenTimeline({
               active={active}
               nested
               isLast={isLast}
-              defaultOpen={defaultOpen || active || true}
+              defaultOpen={active}
               icon={Target}
               label={child.label}
               state={child.state}
             >
-              <HandoffChildBody child={child} />
+              <OutputOnlyBody output={child.output} state={child.state} />
+            </ExpandableTraceRow>
+          );
+        }
+        if (child.type === "final_answer") {
+          const finalChild = child as TraceFinalAnswerChild;
+          return (
+            <ExpandableTraceRow
+              key={child.id}
+              nodeId={child.id}
+              activeRef={active ? activeRef : undefined}
+              active={active}
+              nested
+              isLast={isLast}
+              defaultOpen={active}
+              icon={CheckCircle2}
+              label={finalChild.label}
+              state={finalChild.state}
+            >
+              <OutputOnlyBody output={finalChild.output} state={finalChild.state} />
+            </ExpandableTraceRow>
+          );
+        }
+        if (child.type === "visual_stage") {
+          const stage = child as TraceVisualStageChild;
+          const stageOpen =
+            active || (isLive && stage.state === "running");
+          return (
+            <ExpandableTraceRow
+              key={child.id}
+              nodeId={child.id}
+              activeRef={active ? activeRef : undefined}
+              active={active}
+              nested
+              isLast={isLast}
+              defaultOpen={stageOpen}
+              icon={Wrench}
+              label={stage.label}
+              state={stage.state}
+            >
+              <TurnChildrenTimeline
+                children={stage.children}
+                activeChildId={activeChildId}
+                activeRef={activeRef}
+                defaultOpen={false}
+                isLive={isLive}
+              />
             </ExpandableTraceRow>
           );
         }
         if (child.type === "tool") {
-          const toolIcon =
-            child.tool_name === "generative_ui" || child.tool_name === "render_ui"
-              ? Sparkles
-              : child.tool_name === "plan_layout"
-                ? GitBranch
-                : Wrench;
           return (
             <ExpandableTraceRow
               key={child.id}
@@ -916,7 +625,7 @@ function TurnChildrenTimeline({
               nested
               isLast={isLast}
               defaultOpen={defaultOpen || active}
-              icon={toolIcon}
+              icon={child.tool_name === "generative_ui" ? Sparkles : Wrench}
               label={child.label}
               state={child.state}
             >
@@ -1099,16 +808,27 @@ export function AgentTraceTree({
 
   const activeChildId = useMemo(() => {
     if (!activeId || !trace) return null;
-    for (const phase of phases) {
-      if (phase.type !== "agent_turn") continue;
-      for (const child of phase.children) {
+    const findInChildren = (children: TraceChild[]): string | null => {
+      for (const child of children) {
         if (child.id === activeId) return child.id;
+        if (child.type === "visual_stage" && traceChildContainsActive(child, activeId)) {
+          for (const nested of child.children) {
+            const hit = findInChildren([nested]);
+            if (hit) return hit;
+          }
+        }
         if (child.type === "tool") {
           for (const nested of child.children ?? []) {
             if (nested.id === activeId) return nested.id;
           }
         }
       }
+      return null;
+    };
+    for (const phase of phases) {
+      if (phase.type !== "agent_turn") continue;
+      const hit = findInChildren(phase.children);
+      if (hit) return hit;
     }
     return null;
   }, [activeId, phases, trace]);
@@ -1141,30 +861,24 @@ export function AgentTraceTree({
 
     if (phase.type === "agent_turn") {
       const turn = phase as TraceAgentTurnPhase;
-      const isVisualAgent = turn.agent_label === VISUAL_SUMMARY_AGENT_LABEL;
       return (
         <ExpandableTraceRow
           key={phase.id}
           nodeId={phase.id}
           activeRef={active && !activeChildId ? activeRef : undefined}
           active={active && !activeChildId}
-          icon={isVisualAgent ? Sparkles : Brain}
+          icon={Brain}
           label={phase.label}
           state={phase.state}
           isLast={isLast}
-          defaultOpen={defaultOpen || active || isVisualAgent}
+          defaultOpen={defaultOpen || active}
         >
-          {isVisualAgent && (
-            <p className="mb-2 text-[11px] text-mute">
-              Plans layout from structured handoff, then renders UI blocks — no document re-search.
-            </p>
-          )}
           <TurnChildrenTimeline
             children={turn.children}
             activeChildId={activeChildId}
             activeRef={activeRef}
-            defaultOpen={isVisualAgent}
-            visualAgent={isVisualAgent}
+            defaultOpen={false}
+            isLive={isLive}
           />
         </ExpandableTraceRow>
       );

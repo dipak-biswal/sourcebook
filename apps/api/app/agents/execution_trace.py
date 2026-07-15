@@ -196,23 +196,18 @@ def _compact_ui_spec(spec: Any) -> dict[str, Any] | None:
     }
 
 
-def _handoff_from_tool_input(tool_input: Any) -> dict[str, Any] | None:
+def _tool_call_input_for_trace(tool_name: str, tool_input: Any) -> Any:
+    """Trace shows the tool invocation args, not handoff blobs injected for debugging."""
     if not isinstance(tool_input, dict):
-        return None
-    structured = tool_input.get("structured_handoff")
-    if not isinstance(structured, dict) and not tool_input.get("goal"):
-        return None
-    payload: dict[str, Any] = {}
-    goal = str(tool_input.get("goal") or "").strip()
-    if goal:
-        payload["goal"] = goal
-    compact = _compact_structured_content(structured)
-    if compact:
-        payload["structured_content"] = compact
-    notes = str(tool_input.get("notes") or "").strip()
-    if notes:
-        payload["planner_notes"] = notes
-    return payload or None
+        return tool_input
+    if tool_name == "plan_layout":
+        notes = tool_input.get("notes")
+        return {"notes": notes if notes is not None else ""}
+    if tool_name == "render_ui":
+        raw = tool_input.get("layout_plan_json")
+        if raw is not None:
+            return {"layout_plan_json": raw}
+    return tool_input
 
 
 def _sanitize_visual_tool_output(
@@ -449,6 +444,35 @@ class _ToolAcc:
                 )
         return node
 
+    def to_tool_call_node(self) -> dict[str, Any]:
+        """Flat tool-call row for visual summary stages (no nested LLM)."""
+        node: dict[str, Any] = {
+            "id": f"{self.id}-tool-call",
+            "type": "tool",
+            "label": "Tool call",
+            "tool_name": self.tool_name,
+            "state": self.state,
+        }
+        if self.call_step and self.call_step.input is not None:
+            node["input"] = _tool_call_input_for_trace(
+                self.tool_name,
+                self.call_step.input,
+            )
+        if self.result_step and self.result_step.output is not None:
+            raw_output = self.result_step.output
+            node["output"] = _sanitize_visual_tool_output(
+                self.tool_name,
+                raw_output,
+                has_embedded_llm=True,
+            )
+            if self.tool_name in VISUAL_TOOL_LLM_NAMES and isinstance(node["output"], dict):
+                node["output"] = _enrich_visual_tool_trace_output(
+                    self.tool_name,
+                    node["output"],
+                    raw_output if isinstance(raw_output, dict) else {},
+                )
+        return node
+
 
 @dataclass
 class _TurnAcc:
@@ -461,7 +485,8 @@ class _TurnAcc:
     state: TraceState = "done"
     llm_turn_id: str | None = None
     agent_label: str | None = None
-    handoff: dict[str, Any] | None = None
+    main_agent_output: str = ""
+    render_raw_output: str = ""
 
     def prompt_for_output(self, live: LiveTraceContext | None) -> list[dict[str, Any]] | None:
         if self.response_step:
@@ -552,23 +577,81 @@ class _TurnAcc:
             return f"orchestrator_{phase.lower()}"
         return "orchestrator"
 
-    def _handoff_node(self) -> dict[str, Any] | None:
-        if self.agent_label != VISUAL_SUMMARY_AGENT_LABEL or not self.handoff:
-            return None
+    def _visual_stage_node(
+        self,
+        *,
+        stage_key: str,
+        label: str,
+        tool: _ToolAcc,
+    ) -> dict[str, Any]:
+        stage_children: list[dict[str, Any]] = [tool.to_tool_call_node()]
+        llm_child = _visual_tool_llm_child(tool)
+        if llm_child:
+            embedded = dict(llm_child)
+            embedded["id"] = f"{tool.id}-llm-call"
+            embedded["label"] = "LLM call"
+            stage_children.append(embedded)
         return {
-            "id": f"{self.id}-handoff",
-            "type": "handoff",
-            "label": "Handoff · Main agent answer",
-            "state": "done",
-            "input": self.handoff,
+            "id": f"{self.id}-stage-{stage_key}",
+            "type": "visual_stage",
+            "label": label,
+            "stage": stage_key,
+            "state": tool.state,
+            "children": stage_children,
         }
 
-    def children(self, live: LiveTraceContext | None) -> list[dict[str, Any]]:
+    def _visual_summary_children(self, live: LiveTraceContext | None) -> list[dict[str, Any]]:
         nodes: list[dict[str, Any]] = []
 
-        handoff = self._handoff_node()
-        if handoff:
-            nodes.append(handoff)
+        if self.main_agent_output.strip():
+            nodes.append(
+                {
+                    "id": f"{self.id}-handoff",
+                    "type": "handoff",
+                    "label": "Hand off",
+                    "state": "done",
+                    "output": self.main_agent_output.strip(),
+                }
+            )
+
+        plan_tool = next((t for t in self.tools if t.tool_name == "plan_layout"), None)
+        if plan_tool:
+            nodes.append(
+                self._visual_stage_node(
+                    stage_key="plan_layout",
+                    label="Plan layout",
+                    tool=plan_tool,
+                )
+            )
+
+        render_tool = next((t for t in self.tools if t.tool_name == "render_ui"), None)
+        if render_tool:
+            nodes.append(
+                self._visual_stage_node(
+                    stage_key="render_ui",
+                    label="Render UI",
+                    tool=render_tool,
+                )
+            )
+
+        final_text = (self.render_raw_output or _step_text(self.response_step)).strip()
+        if final_text or self.response_step is not None:
+            nodes.append(
+                {
+                    "id": f"{self.id}-final-answer",
+                    "type": "final_answer",
+                    "label": "Final answer",
+                    "state": "done" if final_text else self._response_llm_state(live),
+                    "output": final_text,
+                }
+            )
+        return nodes
+
+    def children(self, live: LiveTraceContext | None) -> list[dict[str, Any]]:
+        if self.agent_label == VISUAL_SUMMARY_AGENT_LABEL:
+            return self._visual_summary_children(live)
+
+        nodes: list[dict[str, Any]] = []
 
         decisions = self.planning_steps or (
             [self.planning_step] if self.planning_step else []
@@ -906,6 +989,7 @@ def _parse_steps(
     turn_index = 0
     visual_turn_index = 0
     visual_mode = False
+    last_main_final = ""
 
     def active_turns() -> list[_TurnAcc]:
         return visual_turns if visual_mode else turns
@@ -919,6 +1003,7 @@ def _parse_steps(
                 turn=visual_turn_index,
                 state="done",
                 agent_label=VISUAL_SUMMARY_AGENT_LABEL,
+                main_agent_output=last_main_final,
             )
         else:
             turn_index += 1
@@ -936,14 +1021,6 @@ def _parse_steps(
             if current is None:
                 start_turn()
             assert current is not None
-            if (
-                current.agent_label == VISUAL_SUMMARY_AGENT_LABEL
-                and step.tool_name == "plan_layout"
-                and current.handoff is None
-            ):
-                handoff = _handoff_from_tool_input(step.input)
-                if handoff:
-                    current.handoff = handoff
             current.tools.append(_open_tool(step.tool_name or "tool", step, running_tools))
             if any(t.state == "running" for t in current.tools):
                 current.state = "running"
@@ -954,6 +1031,17 @@ def _parse_steps(
                 start_turn()
             assert current is not None
             current.tools = _attach_tool_result(current.tools, step)
+            if (
+                current.agent_label == VISUAL_SUMMARY_AGENT_LABEL
+                and step.tool_name == "render_ui"
+            ):
+                raw_out = ""
+                if isinstance(step.output, dict):
+                    raw_out = str(step.output.get("llm_output") or "")
+                if not raw_out and isinstance(step.input, dict):
+                    raw_out = str(step.input.get("llm_output") or "")
+                if raw_out.strip():
+                    current.render_raw_output = raw_out.strip()
             continue
 
         if step.type == "thought":
@@ -974,6 +1062,8 @@ def _parse_steps(
             continue
 
         if step.type == "final":
+            if not visual_mode:
+                last_main_final = _step_text(step)
             if current is None:
                 start_turn()
             assert current is not None
