@@ -138,13 +138,90 @@ def _visual_tool_llm_meta(step: AgentStep | None) -> dict[str, Any] | None:
     return meta
 
 
+def _compact_structured_content(structured: Any) -> dict[str, Any] | None:
+    if not isinstance(structured, dict):
+        return None
+    key_points = structured.get("key_points") or []
+    faq = structured.get("faq") or []
+    sections = structured.get("sections") or []
+    return {
+        "summary": str(structured.get("summary") or "")[:400],
+        "key_points_count": len(key_points) if isinstance(key_points, list) else 0,
+        "key_points_preview": [
+            str(p)[:160] for p in key_points[:5] if p
+        ]
+        if isinstance(key_points, list)
+        else [],
+        "faq_count": len(faq) if isinstance(faq, list) else 0,
+        "faq_preview": faq[:3] if isinstance(faq, list) else [],
+        "sections_count": len(sections) if isinstance(sections, list) else 0,
+        "themes": (structured.get("themes") or [])[:4]
+        if isinstance(structured.get("themes"), list)
+        else [],
+    }
+
+
+def _compact_layout_plan(plan: Any) -> dict[str, Any] | None:
+    if not isinstance(plan, dict):
+        return None
+    outline = plan.get("block_outline") or []
+    components = plan.get("components") or []
+    return {
+        "presentation_profile": plan.get("presentation_profile"),
+        "components": components if isinstance(components, list) else [],
+        "block_outline": outline if isinstance(outline, list) else [],
+        "rationale": str(plan.get("rationale") or "")[:500],
+    }
+
+
+def _compact_ui_spec(spec: Any) -> dict[str, Any] | None:
+    if not isinstance(spec, dict):
+        return None
+    blocks = spec.get("blocks") or []
+    block_types: list[str] = []
+    if isinstance(blocks, list):
+        for block in blocks:
+            if isinstance(block, dict) and block.get("type"):
+                block_types.append(str(block["type"]))
+    return {
+        "type": spec.get("type"),
+        "title": spec.get("title"),
+        "plain_summary": str(spec.get("plain_summary") or "")[:500],
+        "presentation_profile": spec.get("presentation_profile"),
+        "block_count": len(blocks) if isinstance(blocks, list) else 0,
+        "block_types": block_types,
+        "source_files": (spec.get("source_files") or [])[:6]
+        if isinstance(spec.get("source_files"), list)
+        else [],
+    }
+
+
+def _handoff_from_tool_input(tool_input: Any) -> dict[str, Any] | None:
+    if not isinstance(tool_input, dict):
+        return None
+    structured = tool_input.get("structured_handoff")
+    if not isinstance(structured, dict) and not tool_input.get("goal"):
+        return None
+    payload: dict[str, Any] = {}
+    goal = str(tool_input.get("goal") or "").strip()
+    if goal:
+        payload["goal"] = goal
+    compact = _compact_structured_content(structured)
+    if compact:
+        payload["structured_content"] = compact
+    notes = str(tool_input.get("notes") or "").strip()
+    if notes:
+        payload["planner_notes"] = notes
+    return payload or None
+
+
 def _sanitize_visual_tool_output(
     tool_name: str,
     output: Any,
     *,
     has_embedded_llm: bool,
 ) -> Any:
-    """Tool row shows payload only — embedded LLM prompt/output live on child nodes."""
+    """Tool row shows trace-friendly payload — LLM prompt/output live on child nodes."""
     if not has_embedded_llm or not isinstance(output, dict):
         return output
     cleaned = {
@@ -152,7 +229,55 @@ def _sanitize_visual_tool_output(
         for k, v in output.items()
         if k not in _VISUAL_TOOL_OUTPUT_KEYS
     }
-    return cleaned or {"status": output.get("status", "done")}
+    if tool_name == "plan_layout":
+        structured_input = output.get("structured_input")
+        if isinstance(structured_input, dict):
+            compact = _compact_structured_content(
+                structured_input.get("structured_content")
+            )
+            if compact:
+                cleaned["structured_summary"] = compact
+        layout_plan = output.get("layout_plan")
+        plan_preview = _compact_layout_plan(layout_plan)
+        if plan_preview:
+            cleaned["layout_plan"] = plan_preview
+    elif tool_name == "render_ui":
+        spec = output.get("spec")
+        ui_preview = _compact_ui_spec(spec)
+        if ui_preview:
+            cleaned["ui_preview"] = ui_preview
+            cleaned["final_output"] = ui_preview
+    if not cleaned:
+        cleaned = {"status": output.get("status", "done")}
+    return cleaned
+
+
+def _enrich_visual_tool_trace_output(
+    tool_name: str,
+    cleaned: dict[str, Any],
+    raw: dict[str, Any],
+) -> dict[str, Any]:
+    """Add trace-friendly previews even when embedded LLM metadata is absent."""
+    out = dict(cleaned)
+    if tool_name == "plan_layout":
+        if "layout_plan" not in out:
+            plan_preview = _compact_layout_plan(raw.get("layout_plan"))
+            if plan_preview:
+                out["layout_plan"] = plan_preview
+        structured_input = raw.get("structured_input")
+        if isinstance(structured_input, dict) and "structured_summary" not in out:
+            compact = _compact_structured_content(
+                structured_input.get("structured_content")
+            )
+            if compact:
+                out["structured_summary"] = compact
+    elif tool_name == "render_ui":
+        if "ui_preview" not in out:
+            ui_preview = _compact_ui_spec(raw.get("spec"))
+            if ui_preview:
+                out["ui_preview"] = ui_preview
+                out["final_output"] = ui_preview
+    return out
 
 
 def _visual_tool_llm_child(tool_acc: _ToolAcc) -> dict[str, Any] | None:
@@ -310,11 +435,18 @@ class _ToolAcc:
             node["children"] = [llm_child]
             node["has_embedded_llm"] = True
         if self.result_step and self.result_step.output is not None:
+            raw_output = self.result_step.output
             node["output"] = _sanitize_visual_tool_output(
                 self.tool_name,
-                self.result_step.output,
+                raw_output,
                 has_embedded_llm=llm_child is not None,
             )
+            if self.tool_name in VISUAL_TOOL_LLM_NAMES and isinstance(node["output"], dict):
+                node["output"] = _enrich_visual_tool_trace_output(
+                    self.tool_name,
+                    node["output"],
+                    raw_output if isinstance(raw_output, dict) else {},
+                )
         return node
 
 
@@ -329,6 +461,7 @@ class _TurnAcc:
     state: TraceState = "done"
     llm_turn_id: str | None = None
     agent_label: str | None = None
+    handoff: dict[str, Any] | None = None
 
     def prompt_for_output(self, live: LiveTraceContext | None) -> list[dict[str, Any]] | None:
         if self.response_step:
@@ -419,8 +552,23 @@ class _TurnAcc:
             return f"orchestrator_{phase.lower()}"
         return "orchestrator"
 
+    def _handoff_node(self) -> dict[str, Any] | None:
+        if self.agent_label != VISUAL_SUMMARY_AGENT_LABEL or not self.handoff:
+            return None
+        return {
+            "id": f"{self.id}-handoff",
+            "type": "handoff",
+            "label": "Handoff · Main agent answer",
+            "state": "done",
+            "input": self.handoff,
+        }
+
     def children(self, live: LiveTraceContext | None) -> list[dict[str, Any]]:
         nodes: list[dict[str, Any]] = []
+
+        handoff = self._handoff_node()
+        if handoff:
+            nodes.append(handoff)
 
         decisions = self.planning_steps or (
             [self.planning_step] if self.planning_step else []
@@ -788,6 +936,14 @@ def _parse_steps(
             if current is None:
                 start_turn()
             assert current is not None
+            if (
+                current.agent_label == VISUAL_SUMMARY_AGENT_LABEL
+                and step.tool_name == "plan_layout"
+                and current.handoff is None
+            ):
+                handoff = _handoff_from_tool_input(step.input)
+                if handoff:
+                    current.handoff = handoff
             current.tools.append(_open_tool(step.tool_name or "tool", step, running_tools))
             if any(t.state == "running" for t in current.tools):
                 current.state = "running"
@@ -804,9 +960,12 @@ def _parse_steps(
             if current is None:
                 start_turn()
             assert current is not None
-            if any(t.result_step is None for t in current.tools):
+            pending_tools = any(t.result_step is None for t in current.tools)
+            if visual_mode or pending_tools:
                 current.planning_steps.append(step)
                 current.planning_step = step
+                if pending_tools:
+                    current.state = "running"
                 continue
             current.response_step = step
             current.state = "done"

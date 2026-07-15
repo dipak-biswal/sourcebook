@@ -62,7 +62,35 @@ export type TraceHitlEmbedChild = {
   output?: unknown;
 };
 
-export type TraceChild = TraceToolChild | TraceLlmChild | TraceHitlEmbedChild;
+export type TraceHandoffStructured = {
+  summary?: string;
+  key_points_count?: number;
+  key_points_preview?: string[];
+  faq_count?: number;
+  faq_preview?: Array<{ question?: string; answer?: string }>;
+  sections_count?: number;
+  themes?: string[];
+};
+
+export type TraceHandoffInput = {
+  goal?: string;
+  structured_content?: TraceHandoffStructured;
+  planner_notes?: string;
+};
+
+export type TraceHandoffChild = {
+  id: string;
+  type: "handoff";
+  label: string;
+  state: TraceState;
+  input?: TraceHandoffInput;
+};
+
+export type TraceChild =
+  | TraceToolChild
+  | TraceLlmChild
+  | TraceHitlEmbedChild
+  | TraceHandoffChild;
 
 export type TraceGoalPhase = {
   id: string;

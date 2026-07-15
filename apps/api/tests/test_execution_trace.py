@@ -280,7 +280,17 @@ def test_visual_summary_agent_turns_after_handoff():
             {
                 "type": "tool_call",
                 "tool_name": "plan_layout",
-                "input": {"notes": ""},
+                "input": {
+                    "notes": "",
+                    "goal": "Summarize resume with visual summary",
+                    "structured_handoff": {
+                        "summary": "Strong React and FastAPI experience.",
+                        "key_points": ["Shipped RAG features", "Led API design"],
+                        "faq": [{"question": "Top stack?", "answer": "React + FastAPI"}],
+                        "sections": [],
+                        "themes": ["Engineering"],
+                    },
+                },
             },
             {
                 "type": "tool_result",
@@ -295,9 +305,22 @@ def test_visual_summary_agent_turns_after_handoff():
                     "total_tokens": 222,
                 },
                 "output": {
+                    "status": "planned",
                     "layout_plan": {
                         "presentation_profile": "resume_dashboard",
                         "components": ["table", "progress"],
+                        "block_outline": [
+                            {"type": "table", "title": "Skills", "purpose": "skill matrix"}
+                        ],
+                        "rationale": "Table plus progress for resume scan.",
+                    },
+                    "structured_input": {
+                        "structured_content": {
+                            "summary": "Strong React and FastAPI experience.",
+                            "key_points": ["Shipped RAG features"],
+                            "faq": [],
+                            "sections": [],
+                        }
                     },
                     "model": "gpt-4o-mini",
                     "prompt_tokens": 180,
@@ -325,11 +348,19 @@ def test_visual_summary_agent_turns_after_handoff():
                 "type": "tool_result",
                 "tool_name": "render_ui",
                 "output": {
+                    "status": "rendered",
                     "spec": {
                         "type": "generative_ui",
                         "title": "Summary",
-                        "blocks": [{"type": "summary", "body": "text"}],
-                    }
+                        "plain_summary": "Overview text",
+                        "presentation_profile": "resume_dashboard",
+                        "blocks": [
+                            {"type": "summary", "body": "text"},
+                            {"type": "key_points", "items": ["a", "b"]},
+                        ],
+                        "source_files": ["resume.pdf"],
+                    },
+                    "block_count": 2,
                 },
             },
             {
@@ -372,6 +403,21 @@ def test_visual_summary_agent_turns_after_handoff():
     assert planner["prompt_tokens"] == 180
     assert planner["completion_tokens"] == 42
     assert planner["total_tokens"] == 222
+    child_types = [c.get("type") for c in visual_turns[0].get("children") or []]
+    assert child_types[0] == "handoff"
+    handoff = visual_turns[0]["children"][0]
+    assert handoff["input"]["goal"] == "Summarize resume with visual summary"
+    assert handoff["input"]["structured_content"]["key_points_count"] == 2
+    assert plan_tool["output"]["layout_plan"]["components"] == ["table", "progress"]
+    assert "prompt" not in plan_tool["output"]
+    assert plan_tool["output"]["structured_summary"]["summary"].startswith("Strong React")
+    render_tool = next(
+        c
+        for c in visual_turns[0]["children"]
+        if c.get("type") == "tool" and c.get("tool_name") == "render_ui"
+    )
+    assert render_tool["output"]["ui_preview"]["title"] == "Summary"
+    assert render_tool["output"]["ui_preview"]["block_types"] == ["summary", "key_points"]
     pres = next(p for p in trace["phases"] if p["type"] == "presentation")
     assert pres.get("children") == []
 
