@@ -31,6 +31,14 @@ dependencies = [
     "uvicorn>=0.51.0",
 ]
 
+# alembic/ lives next to app/ but is migration scripts, not an importable
+# package — exclude it from setuptools discovery so pip install works.
+[tool.setuptools]
+py-modules = ["main"]
+
+[tool.setuptools.packages.find]
+include = ["app*"]
+
 [dependency-groups]
 dev = [
     "httpx>=0.28.1",
