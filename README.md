@@ -1,18 +1,67 @@
 # Sourcebook
 
-Multi-tenant **document AI workspace**: upload files, run an ingest pipeline (parse → chunk → embed), **chat with grounded answers and citations**, and run **tool-using agents** with human approval for writes.
+Multi-tenant **document AI workspace**: upload files, run an ingest pipeline (parse → chunk → embed), **chat with grounded answers and citations**, and run **tool-using agents** with human approval — including a **Visual Summary** pipeline that turns agent answers into generative UI.
 
-> Not a toy chatbot — a small AI product with real backend concerns: tenancy, async jobs, rate limits, traces, and evals.
+> Not a toy chatbot — a small AI product with real backend concerns: tenancy, async jobs, rate limits, execution traces, presentation handoff, and evals.
 
 ---
 
-## Features
+## What we've built to date
+
+Honest snapshot of the product as of the current codebase.
+
+### Done (shipped)
+
+| Area | Status |
+|------|--------|
+| **Auth & tenancy** | Register / login (JWT + bcrypt); workspaces with membership (owner/member); all data scoped by `workspace_id` |
+| **Workspace management** | Create, edit (name, **description**, **tags**), delete; workspace selector; Settings UI |
+| **Documents & ingest** | Upload, list, delete; multi-format parse → chunk → embed; status lifecycle; Redis + **RQ** worker (or sync fallback) |
+| **RAG chat** | Top-k retrieval → LLM answer with **SSE streaming**; citations (filename, score, snippet); denial when retrieval is empty/off-topic |
+| **Conversations** | Create, list, delete; message history with citations; chat suggestions endpoint |
+| **Chat ↔ Agent mode** | Same Chat page: RAG by default, or tool-using agent + HITL |
+| **Main workspace agent** | Tools: `get_current_date`, `list_documents`, `search_documents`, `web_search`, `create_note` (HITL) |
+| **Tool execution** | Date-first tool policy; **parallel read tools** (thread pool, max 4); write tools pause for approval |
+| **HITL + resume** | `create_note` and **visual summary offer** pause for Approve / Reject; approve executes then **resumes** the loop with SSE |
+| **Visual Summary (Phase A + B)** | After main agent answer → user can approve presentation → structured **handoff** → `plan_layout` (validate + optional replan) → `render_ui` → `presentation_spec` |
+| **Handoff (spine)** | Extract `summary`, `key_points`, `faq`, `sections`, `themes` (heuristic + LLM); fail if too thin |
+| **Generative UI** | Block library: summary, key points, key terms, FAQ, steps, callout, table, progress, chart, chips, timeline, comparison, metrics, quote; normalize on API + web |
+| **Agent streaming & trace** | Live SSE (`llm_start` / `llm_end` / steps / status / done); LangSmith-style **trace tree** (main agent + Visual Summary subtree) |
+| **Run panel UX** | Answer / **Visual summary** / Trace tabs; stay on Trace while running; Visual summary opt-in (no auto-switch) |
+| **Notes** | Full CRUD; editor + sidebar; can be created via agent after HITL |
+| **Usage & rate limits** | Token usage events + Usage page; per-user limits on chat / ingest / agent starts (Redis + in-memory fallback) |
+| **Dashboard & settings** | Home stats/quick actions; profile, password, workspaces |
+| **Product UI polish** | Light/dark theme; toasts, confirms, empty states, skeletons; onboarding checklist hooks |
+| **Ops** | Structured logging + `X-Request-ID`; health endpoints; `DEV_MODE` panel; Swagger at `/docs` |
+| **Tests** | Backend unit tests for agents, presentation, handoff, plan validator, gen UI, web search, tools, workspace delete, etc. |
+| **Evals** | Manual golden set: [`evals/sourcebook-v1.md`](evals/sourcebook-v1.md) (**10/12** recorded) |
+
+### Planned (documented, not built yet)
+
+Roadmap specs live under [`docs/`](docs/). Highlights:
+
+| Area | Notes |
+|------|--------|
+| **Workspace-derived context** | `WorkspaceContextPacket` from name/description/tags/docs — inject into main agent, handoff, and visual planner ([`docs/workspace_derived_prompts.md`](docs/workspace_derived_prompts.md)) |
+| **De-bias prompts** | Remove resume/ATS few-shots and resume-shaped system copy; generic templates + packet only |
+| **Handoff v2** | Optional modules (`concepts`, `levels`, `matrix_rows`, …) + `presentation_hints` |
+| **Visual UI reliability** | Affordance ∩ data intent, code skeleton outline, **code-first block assembly** (LLM render as fallback) ([`docs/visual_summary_ui_plan.md`](docs/visual_summary_ui_plan.md)) |
+| **Workspace UX** | Description template, tag chips, derived context preview API |
+| **Execution extras** | Cached workspace derivation, optional early handoff, parallel block assembly ([`docs/agent_execution_model.md`](docs/agent_execution_model.md)) |
+
+**Product promise today:** users can upload docs, chat with citations, run agents with live traces, approve notes, and generate a **Visual summary** from a substantive agent answer.
+
+**Next leap (docs):** make that pipeline **workspace-aware** and **layout-reliable**, without hardcoded “resume vs learning” modes.
+
+---
+
+## Features (detail)
 
 | Area | What you get |
 |------|----------------|
 | **Auth** | Register / login (JWT), bcrypt password hashes; dev panel for local testing |
 | **Tenancy** | Workspaces + membership (owner/member); documents, chunks, conversations, agent runs, notes, usage all scoped by `workspace_id` |
-| **Workspace management** | Create, rename, delete workspaces; workspace selector in UI |
+| **Workspace management** | Create, rename, edit description/tags, delete; workspace selector in UI |
 | **Documents** | Upload, list, delete; local file storage + Postgres metadata; status lifecycle (uploaded → queued → processing → ready/failed) |
 | **Ingest pipeline** | PDF, DOCX, txt/md, RST, CSV/TSV, HTML/XML, JSON/JSONL, YAML/TOML, INI/CFG, CSS, JS/TS, PY, SH, LOG → parse → chunk → embed |
 | **Background jobs** | Redis + **RQ** worker for heavy ingest (API stays responsive); configurable queue on/off |
@@ -20,14 +69,15 @@ Multi-tenant **document AI workspace**: upload files, run an ingest pipeline (pa
 | **Chat ↔ Agent mode** | Same Chat page toggle: RAG by default, or tool-using agent + HITL |
 | **Denial** | Off-topic / empty retrieval → no fake sources (configurable `rag_min_score`) |
 | **Conversations** | Create, list, delete conversations; per-conversation message history with citations |
-| **Agents** | Tools: `list_documents`, `search_documents` (semantic), **`study_guide` (generative UI + citations + per-doc)**, `create_note` (HITL) |
-| **Generative UI** | Structured learning views: summary, key points, key terms, FAQ, steps, callouts; per-block source citations; save as note |
-| **Agent streaming** | LangSmith-style live SSE traces (`llm_start`, `llm_end`, step, status, done events) |
-| **HITL + resume** | `create_note` pauses for Approve / Reject; **Approve executes write then resumes** the agent loop with SSE |
-| **Notes** | Full CRUD for notes (list, get, create via agent, update, delete); editor with sidebar; linked from agent learning views |
+| **Agents (main)** | Tools: `get_current_date`, `list_documents`, `search_documents` (semantic), `web_search`, `create_note` (HITL) |
+| **Visual Summary agent** | After HITL approve: handoff extract → `plan_layout` → validate/replan → `render_ui` → generative UI on the run |
+| **Generative UI** | Structured visual blocks (summary, tables, progress, FAQ, chips, steps, …); normalization + grounding on API/web |
+| **Agent streaming** | Live SSE traces (`llm_start`, `llm_end`, step, status, done events) |
+| **HITL + resume** | Write tools and presentation offer pause for Approve / Reject; **Approve executes then resumes** the agent loop with SSE |
+| **Notes** | Full CRUD for notes (list, get, create via agent, update, delete); editor with sidebar |
 | **Usage tracking** | Token usage events (prompt/completion/total per kind); aggregated **Usage** page with by-kind breakdown |
 | **Rate limits** | Per-user fixed-window limits on chat (20/min), ingest (10/min), agent starts (10/min); Redis backed with in-memory fallback |
-| **Settings** | Profile (email update), change password, workspace management in UI |
+| **Settings** | Profile (email update), change password, workspace management (incl. description & tags) |
 | **Dashboard** | Home page with workspace stats, quick actions, recent activity |
 | **Theme** | Light/dark mode toggle with persistent preference |
 | **UI components** | Toast notifications, confirm dialogs, error boundary, empty states, skeletons, badges, cards, alerts, sheets |
@@ -52,8 +102,7 @@ Multi-tenant **document AI workspace**: upload files, run an ingest pipeline (pa
                                         └──── Redis
                                                │
                                                ├─ RQ queue: document ingest jobs
-                                               ├─ rate-limit counters
-                                               └─ agent run coordination (future)
+                                               └─ rate-limit counters
                                                       │
                                                ┌──────▼──────┐
                                                │ RQ Worker   │
@@ -72,13 +121,29 @@ flowchart LR
   Worker --> LLM
 ```
 
+### Agent run flow (shipped)
+
+```text
+User goal
+    → Main agent tool loop (date → search/web; parallel reads)
+    → final_answer
+    → optional HITL: create_note
+    → HITL: offer Visual Summary
+         → approve → handoff extract → Visual Summary agent
+              (plan_layout → validate/replan → render_ui)
+         → presentation_spec on run
+    → UI: Answer tab + Visual summary tab + Trace
+```
+
+Main agent and Visual Summary are **sequential phases of one `AgentRun`**, not two concurrent runs. See [`docs/agent_execution_model.md`](docs/agent_execution_model.md).
+
 ### Request paths (mental model)
 
 | User action | What runs |
 |-------------|-----------|
 | Login / list docs / chat | **API only** |
 | Ingest document | **API enqueues** → **Worker** embeds → Postgres |
-| Agent run | **API** (tools + optional approval) |
+| Agent run + visual summary | **API** (tools + optional approval; short visual loop) |
 
 ---
 
@@ -92,7 +157,7 @@ flowchart LR
 | DB | PostgreSQL 16 |
 | Queue / cache | Redis 7 + RQ |
 | LLM | OpenAI-compatible (`text-embedding-3-small`, `gpt-4o-mini` by default) |
-| Agents | Tool loop + LangGraph-related deps; HITL for writes |
+| Agents | Tool loop + HITL for writes and visual summary; presentation package for handoff/layout/render |
 
 ---
 
@@ -103,37 +168,40 @@ sourcebook/
 ├── apps/
 │   ├── api/                         # FastAPI backend
 │   │   ├── app/
-│   │   │   ├── agents/              # tools, runner, gen_ui (generative UI)
+│   │   │   ├── agents/              # profiles, runner, tools, gen_ui, visual tools, execution_trace
 │   │   │   ├── chat/                # RAG + SSE streaming
 │   │   │   ├── ingestion/           # parse, chunk, embed, retrieve
+│   │   │   ├── presentation/        # handoff, layout, planner, plan validator, render engine
 │   │   │   ├── middleware/          # request logging, request ID
-│   │   │   ├── routers/             # HTTP routes (auth, docs, chat, agents, notes, usage, workspaces, dev)
+│   │   │   ├── routers/             # auth, docs, chat, agents, notes, usage, workspaces, dev
 │   │   │   ├── workers/             # RQ ingest jobs + queue
-│   │   │   ├── config.py           # env-based settings
-│   │   │   ├── db.py               # SQLAlchemy session
-│   │   │   ├── deps.py             # FastAPI dependencies (auth)
-│   │   │   ├── models.py           # SQLAlchemy ORM models
-│   │   │   ├── rate_limit.py       # per-user rate limiter
-│   │   │   ├── schemas.py          # Pydantic request/response schemas
-│   │   │   ├── security.py         # JWT + bcrypt
-│   │   │   └── usage.py            # token usage logging
-│   │   ├── tests/                  # parser + logging tests
+│   │   │   ├── config.py
+│   │   │   ├── models.py
+│   │   │   └── ...
+│   │   ├── tests/                   # agent + presentation + ingest tests
 │   │   ├── main.py
 │   │   └── pyproject.toml
 │   └── web/                         # React + Vite frontend
 │       └── src/
 │           ├── pages/               # Dashboard, Login, Documents, Chat, Agents, Notes, Usage, Settings
-│           ├── components/          # layout, chat, agents (incl. GenerativeUI), theme, ui, workspace, branding
-│           ├── hooks/               # useAgentStream, queries, useDocumentTitle
-│           ├── lib/                 # utils, validation, confirm
-│           ├── api.ts              # full API client + SSE streaming
-│           ├── App.tsx             # routes + providers
-│           └── main.tsx
-├── docs/                           # Roadmap, career plan, security, build guide
-├── evals/                          # RAG golden-set manual evals
-├── docker-compose.yml              # Postgres + Redis
+│           ├── components/          # layout, chat, agents (trace + GenerativeUI), theme, ui, workspace
+│           ├── hooks/               # useAgentStream, queries, …
+│           ├── api.ts               # API client + SSE streaming
+│           └── App.tsx
+├── docs/                            # Product plans (visual summary, workspace context, execution)
+├── evals/                           # RAG golden-set manual evals
+├── docker-compose.yml               # Postgres + Redis
 └── README.md
 ```
+
+### Product docs
+
+| Doc | Purpose |
+|-----|---------|
+| [`docs/visual_summary.md`](docs/visual_summary.md) | Visual Summary + workspace-centric agent vision; baseline vs planned |
+| [`docs/visual_summary_ui_plan.md`](docs/visual_summary_ui_plan.md) | How Visual Summary should generate use-case UI (affordances, assembly) |
+| [`docs/workspace_derived_prompts.md`](docs/workspace_derived_prompts.md) | WorkspaceContextPacket — no hardcoded verticals |
+| [`docs/agent_execution_model.md`](docs/agent_execution_model.md) | Sequential vs parallel execution across main + visual agents |
 
 ---
 
@@ -184,7 +252,7 @@ DEV_MODE=true
 > Use **`OPENAI_API_KEY`** (not `OPEN_API_KEY`).  
 > After changing **embedding** model, **re-ingest** documents.
 
-Install & create tables (on first run, models use `create_all` where needed; or start API and use existing DB):
+Install & start:
 
 ```bash
 uv sync
@@ -232,13 +300,13 @@ Open the Vite URL (e.g. http://127.0.0.1:5173).
 | Route | Purpose |
 |-------|---------|
 | `/` | **Dashboard** — workspace stats, quick actions, recent activity |
-| `/login` | Auth; **DEV** panel can list users / set `password123` when `DEV_MODE=true` |
+| `/login` | Auth; **DEV** panel can list users / set test passwords when `DEV_MODE=true` |
 | `/documents` | Upload, ingest (queue), status badges |
 | `/chat` | Streaming RAG chat + citations; **Agent** mode toggle for tools + HITL |
-| `/agents` | Agent run history, step timeline, approve/reject writes, start new runs |
-| `/notes` | Notes list, sidebar, editor; linked from agent learning views |
+| `/agents` | Agent runs, Answer / Visual summary / Trace, approve presentation or writes |
+| `/notes` | Notes list, sidebar, editor |
 | `/usage` | Logged token usage summary + per-event breakdown |
-| `/settings` | Profile (email), change password, workspace management (create, rename, delete) |
+| `/settings` | Profile, password, workspaces (name, description, tags) |
 
 ---
 
@@ -253,12 +321,24 @@ Only **ready** docs contribute useful RAG chunks (after successful embed).
 
 ---
 
-## Agent HITL flow
+## Agent HITL flows
+
+### Write tool (`create_note`)
 
 ```text
-Goal → tools (list/search/explain) → if create_note → waiting_approval
+Goal → tools (list/search/web) → if create_note → waiting_approval
      → Approve → execute write → resume LLM loop → final answer / next steps
      → Reject  → cancelled
+```
+
+### Visual Summary (presentation)
+
+```text
+Main agent final_answer (substantive)
+     → offer presentation (waiting_approval)
+     → Approve → handoff extract → plan_layout → render_ui
+               → presentation_spec → Visual summary tab
+     → Reject  → keep text-only answer
 ```
 
 ---
@@ -289,17 +369,19 @@ Manual golden set and results:
 
 ## Roadmap status (honest)
 
-See [`docs/GREENFIELD_APP_ROADMAP.md`](docs/GREENFIELD_APP_ROADMAP.md).
-
 | Area | Status |
 |------|--------|
-| Weeks 0–4 core product | Largely **done** |
-| Background ingest + rate limits | **Done** |
-| **Deployed live demo** | **Not done** |
-| Hybrid retrieval / pipeline explorer | Not done (Week 6+) |
-| Demo video / job apply pack | Not done (Week 7–8) |
+| Core product (auth, workspaces, docs, ingest, RAG chat) | **Done** |
+| Background ingest + rate limits + usage | **Done** |
+| Main agent tools + HITL + SSE traces | **Done** |
+| Visual Summary Phase A + B (handoff, plan, validate, render) | **Done** |
+| Generative UI blocks + web normalize/render | **Done** |
+| Workspace-derived prompts / packet | **Planned** — [`docs/workspace_derived_prompts.md`](docs/workspace_derived_prompts.md) |
+| Use-case UI assembly (code-first, no vertical hardcoding) | **Planned** — [`docs/visual_summary_ui_plan.md`](docs/visual_summary_ui_plan.md) |
+| Deployed live demo | **Not done** |
+| Hybrid retrieval / pipeline explorer | **Not done** |
 
-Plans / career strategy: [`docs/CAREER_SWITCH_30_DAY_PLAN.md`](docs/CAREER_SWITCH_30_DAY_PLAN.md).
+Canonical product vision and pipeline detail: [`docs/visual_summary.md`](docs/visual_summary.md).
 
 ---
 
@@ -309,7 +391,7 @@ Plans / career strategy: [`docs/CAREER_SWITCH_30_DAY_PLAN.md`](docs/CAREER_SWITC
 POST   /auth/register | /auth/login
 GET    /workspaces
 POST   /workspaces                    create workspace
-PATCH  /workspaces/{id}               rename (owner only)
+PATCH  /workspaces/{id}               update name/description/tags (owner)
 DELETE /workspaces/{id}               delete (owner only)
 GET    /me
 PUT    /me                            update profile email
@@ -323,19 +405,22 @@ GET    /conversations?workspace_id=
 DELETE /conversations/{id}
 GET    /conversations/{id}/messages
 POST   /chat | /chat/stream           SSE streaming
+POST   /chat/suggestions
 POST   /agents/runs
 POST   /agents/runs/stream            SSE agent trace
 POST   /agents/runs/{id}/approve
-POST   /agents/runs/{id}/approve/stream  SSE resume trace
+POST   /agents/runs/{id}/approve/stream  SSE resume / visual summary trace
 GET    /agents/runs?workspace_id=
 GET    /agents/runs/{id}
+DELETE /agents/runs/{id}
 GET    /notes?workspace_id=
 GET    /notes/{id}
 PUT    /notes/{id}
 DELETE /notes/{id}
 GET    /usage/summary
 GET    /usage/events
-GET    /health
+GET    /usage/events/{id}
+GET    /health | /health/db
 ```
 
 Dev-only (when `DEV_MODE=true`): `GET /dev/users`, `POST /dev/users/set-password`, `POST /dev/users/set-all-passwords`.
@@ -349,14 +434,10 @@ Summary:
 - Passwords are **hashed** (never stored or displayed as originals).  
 - `DEV_MODE` test-user panel is **local only** — set `DEV_MODE=false` outside personal machines.  
 - Multi-tenant queries filter by workspace membership; retrieval always filters by `workspace_id`.  
-- Agent tools are **allowlisted**; **write** tools (`create_note`) require human approval.  
+- Agent tools are **allowlisted**; **write** tools (`create_note`) and **presentation** require human approval.  
 - Per-user **rate limits** on chat, ingest, and agent starts.  
 - **Structured logs** (JSON) with `X-Request-ID` correlation.  
 - Do not commit `.env` or API keys.
-
-Full write-up (prompt injection, allowlist, production checklist):
-
-→ **[docs/SECURITY.md](docs/SECURITY.md)**
 
 ---
 
@@ -365,11 +446,12 @@ Full write-up (prompt injection, allowlist, production checklist):
 1. Multi-tenant RAG: isolate vectors/docs by workspace.  
 2. Streaming UX for chat + agent traces (SSE).  
 3. Async ingest (queue + worker) vs blocking API.  
-4. Agent tools with max steps, generative UI, and HITL for writes (approve → resume).  
-5. Rate limits (Redis + in-memory fallback) and usage logging for cost control.  
-6. Structured logging with request ID correlation.  
-7. Eval golden set, not vibes-only quality.  
-8. Full-stack: FastAPI + React/Vite + Postgres + Redis, deployed-ready (CORS, env config).
+4. Agent tools with max steps, parallel read batching, and HITL for writes (approve → resume).  
+5. Two-phase agent product path: research answer → Visual Summary generative UI (handoff → plan → render).  
+6. Rate limits (Redis + in-memory fallback) and usage logging for cost control.  
+7. Structured logging with request ID correlation.  
+8. Eval golden set, not vibes-only quality.  
+9. Full-stack: FastAPI + React/Vite + Postgres + Redis, env-driven config.
 
 ---
 
