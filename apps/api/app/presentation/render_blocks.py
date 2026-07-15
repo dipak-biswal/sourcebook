@@ -8,6 +8,16 @@ from typing import Any
 from app.agents.gen_ui import FaqItem, GenUIBlock, KeyTerm, _normalize_block_dict
 
 
+_LEVEL_RE = re.compile(
+    r"\b(strong|growing|gap|foundational|weak|expert|advanced|proficient|basic|lacking)\b",
+    re.I,
+)
+_HEADERISH_RE = re.compile(
+    r"\b(requirement|evidence|status|skill|level|gap|column|vs\.?)\b",
+    re.I,
+)
+
+
 def _str_list(value: Any, *, limit: int = 14) -> list[str]:
     out: list[str] = []
     if not isinstance(value, list):
@@ -21,9 +31,30 @@ def _str_list(value: Any, *, limit: int = 14) -> list[str]:
     return out
 
 
-def _pipe_items_from_structured(structured: dict[str, Any]) -> list[str]:
+def _is_level_row(row: str) -> bool:
+    if "|" not in row:
+        return False
+    parts = [p.strip() for p in row.split("|")]
+    if len(parts) != 2:
+        return False
+    return bool(_LEVEL_RE.search(parts[1])) and not _HEADERISH_RE.search(parts[0])
+
+
+def _is_matrix_header(row: str) -> bool:
+    if "|" not in row:
+        return False
+    return bool(_HEADERISH_RE.search(row))
+
+
+def _pipe_items_from_structured(
+    structured: dict[str, Any],
+    *,
+    prefer_cols: int | None = None,
+    include_levels: bool = False,
+) -> list[str]:
+    """Collect pipe rows; keep consistent column counts for table UI."""
     items: list[str] = []
-    for key in ("matrix_rows", "comparisons", "levels", "key_points"):
+    for key in ("matrix_rows", "comparisons"):
         for row in structured.get(key) or []:
             if isinstance(row, str) and "|" in row:
                 items.append(row.strip()[:400])
@@ -33,14 +64,71 @@ def _pipe_items_from_structured(structured: dict[str, Any]) -> list[str]:
         for b in sec.get("bullets") or []:
             if isinstance(b, str) and "|" in b:
                 items.append(b.strip()[:400])
-    # unique preserve order
-    seen: set[str] = set()
-    uniq: list[str] = []
+    for row in structured.get("key_points") or []:
+        if not isinstance(row, str) or "|" not in row:
+            continue
+        if _is_level_row(row) and not include_levels:
+            continue
+        items.append(row.strip()[:400])
+    if include_levels:
+        for row in structured.get("levels") or []:
+            if isinstance(row, str) and "|" in row:
+                items.append(row.strip()[:400])
+
+    # Drop pure level rows from matrix unless requested
+    if not include_levels:
+        items = [i for i in items if not _is_level_row(i)]
+
+    # Prefer rows matching dominant (or preferred) column count
+    counted: list[tuple[str, int]] = []
     for i in items:
-        if i not in seen:
-            seen.add(i)
-            uniq.append(i)
+        cols = len([c.strip() for c in i.split("|")])
+        if cols >= 2:
+            counted.append((i, cols))
+    if not counted:
+        return []
+
+    if prefer_cols and any(c == prefer_cols for _, c in counted):
+        target = prefer_cols
+    else:
+        # Prefer headers / 3-col matrices for job comparison tables
+        freq: dict[int, int] = {}
+        for _, c in counted:
+            freq[c] = freq.get(c, 0) + 1
+        # Bias slightly toward 3 columns when present (requirement matrices)
+        target = max(freq.keys(), key=lambda c: (freq[c], c == 3, c))
+
+    uniq: list[str] = []
+    seen: set[str] = set()
+    # Keep header-like rows first
+    ordered = sorted(
+        counted,
+        key=lambda pair: (0 if _is_matrix_header(pair[0]) else 1, pair[0]),
+    )
+    for text, cols in ordered:
+        if cols != target:
+            continue
+        if text not in seen:
+            seen.add(text)
+            uniq.append(text)
     return uniq[:14]
+
+
+def _prose_key_points(structured: dict[str, Any]) -> list[str]:
+    """Key points without qualitative level rows (those belong in progress)."""
+    out: list[str] = []
+    for item in structured.get("key_points") or []:
+        text = str(item).strip()
+        if not text or _is_level_row(text):
+            continue
+        if "|" in text and _is_matrix_header(text):
+            continue
+        if "|" in text and len(text.split("|")) >= 3:
+            continue
+        out.append(text[:400])
+        if len(out) >= 14:
+            break
+    return out
 
 
 def _steps_from_structured(structured: dict[str, Any]) -> list[str]:
@@ -166,12 +254,10 @@ def _chips_from_themes(structured: dict[str, Any]) -> list[str]:
 def _levels_items(structured: dict[str, Any]) -> list[str]:
     items = _str_list(structured.get("levels"))
     if items:
-        return items
+        return [i for i in items if "|" in i][:10] or items[:10]
     out: list[str] = []
     for kp in structured.get("key_points") or []:
-        if isinstance(kp, str) and "|" in kp and re.search(
-            r"strong|growing|gap|foundational|weak", kp, re.I
-        ):
+        if isinstance(kp, str) and _is_level_row(kp):
             out.append(kp.strip()[:400])
     return out[:10]
 
@@ -197,17 +283,25 @@ def assemble_block(
             block = GenUIBlock(type="summary", title=title or "Overview", body=body[:2000])
 
     elif btype == "key_points" or hint == "key_points":
-        items = _str_list(structured.get("key_points"))
+        items = _prose_key_points(structured)
         if not items:
             for sec in structured.get("sections") or []:
-                if isinstance(sec, dict):
-                    items.extend(_str_list(sec.get("bullets"), limit=6))
+                if not isinstance(sec, dict):
+                    continue
+                heading = str(sec.get("heading") or "")
+                if re.search(r"checklist|step|how|process", heading, re.I):
+                    continue
+                for b in _str_list(sec.get("bullets"), limit=6):
+                    if not _is_level_row(b) and "|" not in b:
+                        items.append(b)
             items = _str_list(items)
         if items:
             block = GenUIBlock(type="key_points", title=title or "Key points", items=items)
 
     elif btype == "key_terms" or hint in ("concepts", "terms"):
         terms = _terms_from_structured(structured)
+        # Drop empty-definition noise (common when falling back from bullets)
+        terms = [t for t in terms if t.definition.strip()]
         if terms:
             block = GenUIBlock(type="key_terms", title=title or "Core concepts", terms=terms)
 
@@ -223,15 +317,22 @@ def assemble_block(
 
     elif btype == "table" or hint == "matrix_rows":
         items = _str_list(structured.get("matrix_rows"))
+        if items:
+            # Keep only consistent multi-col rows
+            items = _pipe_items_from_structured(
+                {"matrix_rows": items}, prefer_cols=None, include_levels=False
+            ) or items
         if not items:
-            items = _pipe_items_from_structured(structured)
+            items = _pipe_items_from_structured(structured, include_levels=False)
         if items:
             block = GenUIBlock(type="table", title=title or "Comparison", items=items)
 
     elif btype == "comparison" or hint == "comparisons":
         items = _str_list(structured.get("comparisons"))
         if not items:
-            items = _pipe_items_from_structured(structured)
+            items = _pipe_items_from_structured(structured, prefer_cols=3, include_levels=False)
+        if not items:
+            items = _pipe_items_from_structured(structured, include_levels=False)
         if items:
             block = GenUIBlock(type="comparison", title=title or "Tradeoffs", items=items)
 

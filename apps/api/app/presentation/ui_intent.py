@@ -276,6 +276,9 @@ def resolve_ui_intent(
         return (-scores.get(a, 0.0), default_idx)
 
     ordered = sorted(eligible, key=sort_key)
+    # Always lead with overview when present (scannable visual summary)
+    if "overview" in ordered:
+        ordered = ["overview"] + [a for a in ordered if a != "overview"]
     # Cap outline size for scannability
     block_order = ordered[:8]
 

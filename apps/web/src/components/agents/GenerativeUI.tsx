@@ -56,8 +56,24 @@ function parseChip(item: string): { label: string; tag: string } {
 
 function blockMatchesTag(block: GenUIBlock, tag: string | null): boolean {
   if (!tag) return true;
+  // Always keep filters + overview visible while filtering.
   if (block.type === "chips" || block.type === "summary") return true;
-  const tags = (block.tags ?? []).map((t) => slugify(t));
+
+  const tags = (block.tags ?? []).map((t) => slugify(t)).filter(Boolean);
+  // Most assembled blocks are untagged today. Hiding them on chip click
+  // emptied the visual summary for job-search / multi-theme layouts.
+  if (!tags.length) {
+    const hay = [
+      block.title ?? "",
+      block.body ?? "",
+      ...(block.items ?? []),
+      ...(block.terms ?? []).flatMap((t) => [t.term, t.definition]),
+      ...(block.faqs ?? []).flatMap((f) => [f.question, f.answer]),
+    ]
+      .join(" ")
+      .toLowerCase();
+    return hay.includes(tag.replace(/-/g, " ")) || hay.includes(tag);
+  }
   if (tags.includes(tag)) return true;
   const titleSlug = slugify(block.title ?? "");
   return titleSlug.includes(tag) || tag.includes(titleSlug);
@@ -406,8 +422,37 @@ function TimelineBlock({ block }: { block: GenUIBlock }) {
   );
 }
 
+function normalizeTableMatrix(rows: string[][]): string[][] {
+  if (!rows.length) return rows;
+  // Prefer the dominant column count so 2-col skill rows don't warp a 3-col matrix.
+  const counts = new Map<number, number>();
+  for (const r of rows) {
+    if (r.length >= 2) counts.set(r.length, (counts.get(r.length) ?? 0) + 1);
+  }
+  let dominant = 0;
+  let best = 0;
+  for (const [cols, n] of counts) {
+    if (n > best || (n === best && cols > dominant)) {
+      best = n;
+      dominant = cols;
+    }
+  }
+  const filtered =
+    dominant >= 2
+      ? rows.filter((r) => r.length === dominant || r.length === 0)
+      : rows;
+  const usable = filtered.filter((r) => r.length >= 2);
+  if (!usable.length) return rows.filter((r) => r.length >= 1);
+  const colCount = Math.max(...usable.map((r) => r.length), 1);
+  return usable.map((r) => {
+    const padded = [...r];
+    while (padded.length < colCount) padded.push("");
+    return padded.slice(0, colCount);
+  });
+}
+
 function TableBlock({ block }: { block: GenUIBlock }) {
-  const rows = coerceTableRows(block);
+  const rows = normalizeTableMatrix(coerceTableRows(block));
   if (!rows.length) {
     if (block.body?.trim()) {
       return (
@@ -424,21 +469,24 @@ function TableBlock({ block }: { block: GenUIBlock }) {
   const headerLooksLikeLabels =
     rows.length > 1 &&
     rows[0].every((cell) => cell.length > 0 && cell.length < 40) &&
-    rows[0].some((cell) => /[a-zA-Z]/.test(cell));
+    rows[0].some((cell) => /[a-zA-Z]/.test(cell)) &&
+    !/strong|growing|gap|weak|foundational/i.test(rows[0].join(" "));
   const useHeader = rows.length > 1 && headerLooksLikeLabels;
   const header = useHeader ? rows[0] : null;
   const bodyRows = useHeader ? rows.slice(1) : rows;
 
   return (
-    <div>
+    <div className="min-w-0">
       <BlockLabel type="table" title={block.title} />
-      <div className="rounded-[8px] border border-hairline">
+      <div className="max-w-full overflow-x-auto rounded-[8px] border border-hairline">
         <Table>
           {header && (
             <TableHeader>
               <TableRow className="hover:bg-canvas-soft">
                 {Array.from({ length: colCount }).map((_, k) => (
-                  <TableHead key={k}>{header[k] ?? ""}</TableHead>
+                  <TableHead key={k} className="whitespace-nowrap">
+                    {header[k] ?? ""}
+                  </TableHead>
                 ))}
               </TableRow>
             </TableHeader>
@@ -447,7 +495,12 @@ function TableBlock({ block }: { block: GenUIBlock }) {
             {bodyRows.map((cells, j) => (
               <TableRow key={j} className="even:bg-canvas-soft/40">
                 {Array.from({ length: colCount }).map((_, k) => (
-                  <TableCell key={k}>{cells[k] ?? ""}</TableCell>
+                  <TableCell
+                    key={k}
+                    className="max-w-[14rem] whitespace-normal break-words align-top text-xs"
+                  >
+                    {cells[k] ?? ""}
+                  </TableCell>
                 ))}
               </TableRow>
             ))}
@@ -461,11 +514,11 @@ function TableBlock({ block }: { block: GenUIBlock }) {
 function ComparisonBlock({ block }: { block: GenUIBlock }) {
   const items = block.items ?? [];
   if (!items.length) return null;
-  const rows = items.map(parsePipeRow);
+  const rows = normalizeTableMatrix(items.map(parsePipeRow));
   const headers = rows[0] ?? [];
   const dataRows = rows.slice(1);
   return (
-    <div>
+    <div className="min-w-0">
       <BlockLabel type="comparison" title={block.title} />
       {headers.length >= 2 ? (
         <div className="grid gap-2 sm:grid-cols-2">

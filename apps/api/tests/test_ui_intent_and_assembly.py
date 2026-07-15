@@ -216,3 +216,62 @@ def test_payload_from_assembly_none_when_empty():
         )
         is None
     )
+
+
+def test_job_search_assembly_splits_levels_and_matrix():
+    structured = {
+        "summary": "Strong React; cloud keywords are thin.",
+        "key_points": [
+            "Use standard headings",
+            "React | Strong",
+            "AWS | Gap",
+            "CI/CD | Gap",
+        ],
+        "faq": [{"question": "Keyword stuffing?", "answer": "No."}],
+        "sections": [
+            {
+                "heading": "Update checklist",
+                "bullets": ["Add Skills line", "Rewrite bullets", "Export PDF"],
+            },
+            {
+                "heading": "Mapping",
+                "bullets": [
+                    "Requirement | Evidence | Status",
+                    "React | 8 years | Strong",
+                    "AWS | Once | Gap",
+                ],
+            },
+        ],
+        "themes": ["keywords", "formatting"],
+    }
+    plan = build_skeleton_layout_plan(
+        resolve_ui_intent(
+            structured_content=structured,
+            workspace_packet=CAREER_PACKET,
+            goal="Make resume ATS-friendly",
+        ),
+        structured_content=structured,
+    )
+    payload = payload_from_assembly(
+        layout_plan=plan,
+        structured=structured,
+        goal="Make resume ATS-friendly",
+        workspace_name="Job Search",
+    )
+    assert payload
+    by_type = {b["type"]: b for b in payload["blocks"]}
+    # Key points should not be polluted with Strong/Gap rows
+    if "key_points" in by_type:
+        for item in by_type["key_points"].get("items") or []:
+            assert " | Strong" not in item and " | Gap" not in item
+    # Table rows should be consistent 3-col matrix, not mixed 2-col levels
+    if "table" in by_type:
+        rows = by_type["table"].get("items") or []
+        assert rows
+        col_counts = {len([c for c in r.split("|")]) for r in rows}
+        assert len(col_counts) == 1
+        assert next(iter(col_counts)) == 3
+    # Progress should capture qualitative levels when present
+    if "progress" in by_type:
+        assert any("Strong" in (i or "") or "Gap" in (i or "") for i in (by_type["progress"].get("items") or []))
+    assert plan["block_outline"][0]["type"] == "summary"
