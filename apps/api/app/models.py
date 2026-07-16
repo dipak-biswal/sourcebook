@@ -35,6 +35,9 @@ class Workspace(Base):
     name: Mapped[str] = mapped_column(String(200))
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
     tags: Mapped[list | None] = mapped_column(JSON, nullable=True)
+    # Cached LLM-derived context packet: {"fingerprint", "packet", "version"}.
+    # Recomputed when name/description/tags/ready documents change.
+    context_cache: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )

@@ -77,7 +77,7 @@ def run_agent(
     db.add(run)
     db.flush()
 
-    packet = resolve_workspace_context(db, workspace_id)
+    packet = resolve_workspace_context(db, workspace_id, user_id=user_id)
     run._workspace_context = packet  # type: ignore[attr-defined]
     system = format_main_agent_system_prompt(
         agent_system_prompt(profile.system_prompt),
@@ -302,7 +302,7 @@ def approve_agent_run(
 
     if getattr(run, "_workspace_context", None) is None:
         run._workspace_context = resolve_workspace_context(  # type: ignore[attr-defined]
-            db, run.workspace_id
+            db, run.workspace_id, user_id=run.user_id
         )
     packet = run._workspace_context  # type: ignore[attr-defined]
     tools = {

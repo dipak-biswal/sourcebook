@@ -138,7 +138,17 @@ def _plan_layout_llm(
         notes=notes,
         available_fields=present_fields,
     )
-    prompt = format_plan_layout_prompt(planner_input, layout_hints=layout_hints)
+    packet, _hints = _packet_and_hints(ctx)
+    workspace_example = None
+    if packet and isinstance(packet.get("derived"), dict):
+        candidate = packet["derived"].get("planner_example")
+        if isinstance(candidate, dict):
+            workspace_example = candidate
+    prompt = format_plan_layout_prompt(
+        planner_input,
+        layout_hints=layout_hints,
+        workspace_example=workspace_example,
+    )
     # Reference outline — not a cage. LLM chooses order, titles, width, subset.
     prompt = (
         f"{prompt}\n\n"

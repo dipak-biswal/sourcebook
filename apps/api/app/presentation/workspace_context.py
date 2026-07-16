@@ -115,6 +115,9 @@ class WorkspaceDerived:
     answer_sections: list[str] = field(default_factory=list)
     visual_affordances: list[str] = field(default_factory=list)
     tool_policy: ToolPolicy = field(default_factory=ToolPolicy)
+    # LLM profiler extras (empty on heuristic-only derivation)
+    domain_label: str = ""
+    planner_example: dict[str, Any] | None = None
 
 
 @dataclass
@@ -147,6 +150,75 @@ class WorkspaceContextPacket:
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
+
+
+def _str_field(data: dict[str, Any], key: str, default: str = "") -> str:
+    value = data.get(key)
+    return str(value).strip() if isinstance(value, str) else default
+
+
+def _str_list_field(data: dict[str, Any], key: str) -> list[str]:
+    raw = data.get(key)
+    if not isinstance(raw, list):
+        return []
+    return [str(x).strip() for x in raw if str(x).strip()]
+
+
+def packet_from_dict(data: dict[str, Any]) -> WorkspaceContextPacket:
+    """Rebuild a packet from to_dict() output (e.g. the workspace cache row)."""
+    data = data if isinstance(data, dict) else {}
+    identity_raw = data.get("identity") or {}
+    evidence_raw = data.get("evidence") or {}
+    derived_raw = data.get("derived") or {}
+    meta_raw = data.get("meta") or {}
+    policy_raw = derived_raw.get("tool_policy") or {}
+
+    policy = ToolPolicy(
+        external_context_ok=bool(policy_raw.get("external_context_ok", True)),
+        max_search_documents=int(policy_raw.get("max_search_documents") or 2),
+        max_web_search=int(policy_raw.get("max_web_search") or 1),
+    )
+    planner_example = derived_raw.get("planner_example")
+    derived = WorkspaceDerived(
+        outcome_phrase=_str_field(
+            derived_raw, "outcome_phrase", "help with tasks in this workspace"
+        ),
+        audience_phrase=_str_field(
+            derived_raw, "audience_phrase", "the workspace owner"
+        ),
+        success_criteria=_str_field(
+            derived_raw,
+            "success_criteria",
+            "a clear, evidence-grounded answer to the goal",
+        ),
+        tone=_str_field(derived_raw, "tone", "analytical") or "analytical",
+        external_context_ok=bool(derived_raw.get("external_context_ok", True)),
+        answer_sections=_str_list_field(derived_raw, "answer_sections"),
+        visual_affordances=_str_list_field(derived_raw, "visual_affordances"),
+        tool_policy=policy,
+        domain_label=_str_field(derived_raw, "domain_label"),
+        planner_example=planner_example if isinstance(planner_example, dict) else None,
+    )
+    return WorkspaceContextPacket(
+        identity=WorkspaceIdentity(
+            name=_str_field(identity_raw, "name"),
+            description=_str_field(identity_raw, "description"),
+            tags=_str_list_field(identity_raw, "tags"),
+        ),
+        evidence=WorkspaceEvidence(
+            document_count=int(evidence_raw.get("document_count") or 0),
+            documents_ready=_str_list_field(evidence_raw, "documents_ready"),
+            documents_pending=_str_list_field(evidence_raw, "documents_pending"),
+            filename_hints=_str_list_field(evidence_raw, "filename_hints"),
+        ),
+        derived=derived,
+        meta=WorkspaceContextMeta(
+            confidence=_str_field(meta_raw, "confidence", "low") or "low",
+            derivation_version=int(
+                meta_raw.get("derivation_version") or DERIVATION_VERSION
+            ),
+        ),
+    )
 
 
 def _blob(*parts: str) -> str:
@@ -355,8 +427,15 @@ def derive_workspace_context(
 def resolve_workspace_context(
     db: Session,
     workspace_id: uuid.UUID,
+    *,
+    user_id: uuid.UUID | None = None,
 ) -> WorkspaceContextPacket:
-    """Load workspace + documents and derive a context packet."""
+    """
+    Load workspace + documents and derive a context packet.
+
+    Uses the cached LLM-profiled packet when the workspace is unchanged;
+    otherwise profiles (when enabled) with the keyword heuristic as fallback.
+    """
     ws = db.get(Workspace, workspace_id)
     rows = (
         db.query(Document.filename, Document.status)
@@ -374,11 +453,21 @@ def resolve_workspace_context(
             document_rows=doc_rows,
         )
     tags = ws.tags if isinstance(ws.tags, list) else None
-    return derive_workspace_context(
+    heuristic = derive_workspace_context(
         name=ws.name or "",
         description=ws.description,
         tags=tags,
         document_rows=doc_rows,
+    )
+    # Lazy import to avoid a module cycle (profile imports these dataclasses).
+    from app.presentation.workspace_profile import resolve_profiled_packet
+
+    return resolve_profiled_packet(
+        db,
+        ws,
+        document_rows=doc_rows,
+        heuristic=heuristic,
+        user_id=user_id,
     )
 
 
@@ -409,9 +498,11 @@ def format_workspace_context_for_agent(packet: WorkspaceContextPacket) -> str:
         "suggest the user add a description for better framing)"
     )
 
+    domain_line = f"- Domain: {d.domain_label}\n" if d.domain_label else ""
     return (
         "WORKSPACE CONTEXT (derived — follow this framing):\n"
         f"- Name: {i.name or '(unnamed)'}\n"
+        f"{domain_line}"
         f"- Description: {desc}\n"
         f"- Tags: {tags_line}\n"
         f"- Outcome: {d.outcome_phrase}\n"

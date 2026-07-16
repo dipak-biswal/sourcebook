@@ -74,6 +74,10 @@ class Settings(BaseSettings):
     # extraction over the answer + evidence (full visual schema: levels,
     # matrix_rows, metrics, …). The regex extractor remains the fallback.
     visual_summary_llm_extractor: bool = True
+    # When True, workspace context (tone/outcome/affordances/planner example)
+    # is derived by an LLM profiler and cached on the workspace row; the
+    # keyword heuristic remains the fallback. One call per workspace change.
+    workspace_llm_profiler: bool = True
     rag_top_k: int = 5
     # Cosine floor: below this → no hits, no sources (off-topic questions).
     # Raise (e.g. 0.25) if off-topic still retrieves; lower if on-topic misses.

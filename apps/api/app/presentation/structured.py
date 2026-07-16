@@ -545,12 +545,26 @@ def _format_block_menu() -> str:
     return "\n".join(lines) + "\n"
 
 
-def format_plan_layout_prompt(payload: dict[str, Any], *, layout_hints: str) -> str:
+def format_plan_layout_prompt(
+    payload: dict[str, Any],
+    *,
+    layout_hints: str,
+    workspace_example: dict[str, Any] | None = None,
+) -> str:
     """Compact planner prompt — structured JSON in, layout JSON out."""
     body = json.dumps(payload, ensure_ascii=False, indent=2)
     goal = str(payload.get("user_goal") or "")
     components = list(payload.get("requested_components") or [])
-    few_shot = _planner_few_shot(goal, components)
+    if isinstance(workspace_example, dict) and workspace_example.get("block_outline"):
+        profile = str(
+            workspace_example.get("presentation_profile") or "workspace_layout"
+        )
+        few_shot = (
+            f"EXAMPLE ({profile} — ideal layout for this workspace's domain):\n"
+            f"{json.dumps(workspace_example, ensure_ascii=False)}"
+        )
+    else:
+        few_shot = _planner_few_shot(goal, components)
     planner_notes = payload.get("planner_notes")
     notes_block = ""
     if planner_notes:

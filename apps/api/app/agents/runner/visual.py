@@ -52,7 +52,7 @@ def _presentation_context_for_run(db: Session, run: AgentRun) -> PresentationCon
     goal = run.goal or ""
     user_id = run.user_id or uuid.UUID(int=0)
     packet = getattr(run, "_workspace_context", None) or resolve_workspace_context(
-        db, run.workspace_id
+        db, run.workspace_id, user_id=run.user_id
     )
     run._workspace_context = packet  # type: ignore[attr-defined]
     structured_content, _source = resolve_structured_content(
