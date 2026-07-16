@@ -62,6 +62,7 @@ def _presentation_context_for_run(db: Session, run: AgentRun) -> PresentationCon
         user_id=user_id,
         workspace_id=run.workspace_id,
         workspace_packet=packet,
+        evidence=agent_evidence,
     )
     return PresentationContext(
         workspace_id=run.workspace_id,

@@ -5,6 +5,7 @@ import {
   BookOpen,
   ChevronDown,
   ChevronRight,
+  FileText,
   HelpCircle,
   Lightbulb,
   ListOrdered,
@@ -43,8 +44,35 @@ function parsePipeRow(row: string): string[] {
   return row.split("|").map((c) => c.trim());
 }
 
+// Must mirror the backend chip slug (non-alphanumeric → dash) so block tags
+// and chip tags land on the same value.
 function slugify(value: string): string {
-  return value.trim().toLowerCase().replace(/\s+/g, "-");
+  return value
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+}
+
+function normalizeProse(value: string): string {
+  return value.trim().toLowerCase().replace(/\s+/g, " ");
+}
+
+/** True when the standalone summary paragraph just repeats a summary block. */
+function plainSummaryIsRedundant(
+  plain: string,
+  blocks: GenUIBlock[],
+): boolean {
+  const p = normalizeProse(plain);
+  if (!p) return true;
+  for (const block of blocks) {
+    if (block.type !== "summary" || !block.body) continue;
+    const b = normalizeProse(block.body);
+    if (b.startsWith(p.slice(0, 120)) || p.startsWith(b.slice(0, 120))) {
+      return true;
+    }
+  }
+  return false;
 }
 
 // Wide blocks carry more data and read better full-width; compact blocks pair up.
@@ -706,6 +734,13 @@ export function GenerativeUIView({
   savingNote?: boolean;
 }) {
   const blocks = payload.blocks ?? [];
+  const sourceFiles = [
+    ...new Set(
+      (payload.source_files ?? [])
+        .map((f) => (f ?? "").trim())
+        .filter(Boolean),
+    ),
+  ];
   const [activeTag, setActiveTag] = useState<string | null>(null);
   const chipProps = { activeTag, onSelect: setActiveTag };
 
@@ -757,11 +792,12 @@ export function GenerativeUIView({
         </div>
       </div>
 
-      {payload.plain_summary && (
-        <p className="text-body-sm leading-relaxed text-body">
-          {payload.plain_summary}
-        </p>
-      )}
+      {payload.plain_summary &&
+        !plainSummaryIsRedundant(payload.plain_summary, blocks) && (
+          <p className="text-body-sm leading-relaxed text-body">
+            {payload.plain_summary}
+          </p>
+        )}
 
       <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
         {blocks.map((b, i) => {
@@ -791,6 +827,23 @@ export function GenerativeUIView({
 
       {blocks.length === 0 && (
         <p className="text-xs text-mute">Presentation has no sections yet.</p>
+      )}
+
+      {sourceFiles.length > 0 && (
+        <div className="flex flex-wrap items-center gap-1.5 border-t border-hairline pt-3">
+          <span className="text-[10px] font-bold uppercase tracking-wide text-mute">
+            Sources
+          </span>
+          {sourceFiles.map((file, j) => (
+            <span
+              key={j}
+              className="inline-flex items-center gap-1 rounded-full border border-hairline bg-canvas-soft px-2 py-0.5 text-[10px] font-medium text-body"
+            >
+              <FileText className="h-3 w-3 shrink-0 text-mute" strokeWidth={1.5} />
+              {file}
+            </span>
+          ))}
+        </div>
       )}
     </div>
   );

@@ -569,6 +569,7 @@ export function normalizeGenerativeUI(raw: GenerativeUIPayload): GenerativeUIPay
       faqs: faqs && faqs.length ? faqs : b.faqs,
       tags: tags && tags.length ? tags : b.tags,
       source_indices: b.source_indices,
+      width: b.width,
     });
   });
 

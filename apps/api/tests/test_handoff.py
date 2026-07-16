@@ -51,10 +51,104 @@ def test_normalize_structured_content_trims_and_caps():
     assert "extra" not in out
 
 
-def test_resolve_structured_content_uses_heuristic_when_sufficient():
+def test_resolve_structured_content_uses_heuristic_when_llm_disabled(monkeypatch):
+    monkeypatch.setattr(
+        "app.presentation.handoff.settings.visual_summary_llm_extractor", False
+    )
     structured, source = resolve_structured_content(SAMPLE, goal="Summarize")
     assert source == "heuristic"
     assert structured["key_points"]
+
+
+def _mock_llm(monkeypatch, payload: dict, captured: list | None = None):
+    import json
+    from types import SimpleNamespace
+    from unittest.mock import MagicMock
+
+    class _FakeResp:
+        choices = [SimpleNamespace(message=SimpleNamespace(content=json.dumps(payload)))]
+        usage = SimpleNamespace(prompt_tokens=50, completion_tokens=20)
+
+    def fake_create(**kwargs):
+        if captured is not None:
+            captured.append(kwargs["messages"][1]["content"])
+        return _FakeResp()
+
+    fake_client = MagicMock()
+    fake_client.chat.completions.create = fake_create
+    monkeypatch.setattr("app.presentation.handoff._client", lambda: fake_client)
+    monkeypatch.setattr(
+        "app.presentation.handoff.settings.visual_summary_llm_extractor", True
+    )
+    monkeypatch.setattr(
+        "app.presentation.handoff.settings.openai_api_key", "sk-test"
+    )
+
+
+def test_resolve_structured_content_llm_primary_with_visual_fields(monkeypatch):
+    llm_payload = {
+        "summary": "React is strong; AWS depth is the main growth area.",
+        "key_points": ["Shipped RAG features", "Led frontend platform work"],
+        "levels": ["React | Strong", "AWS | Gap"],
+        "matrix_rows": [
+            "Requirement | Evidence | Status",
+            "React | Lead role on two products | Strong",
+        ],
+        "priority_message": "AWS depth is the biggest gap for cloud-heavy roles.",
+        "themes": ["frontend", "cloud"],
+    }
+    _mock_llm(monkeypatch, llm_payload)
+    structured, source = resolve_structured_content(SAMPLE, goal="Assess my readiness")
+    assert source == "llm"
+    assert structured["levels"] == ["React | Strong", "AWS | Gap"]
+    assert structured["matrix_rows"][0].startswith("Requirement")
+    assert structured["priority_message"].startswith("AWS depth")
+    # Heuristic fills fields the LLM left empty (merge, not replace).
+    assert structured["sections"] or structured["key_points"]
+
+
+def test_resolve_structured_content_merges_heuristic_gap_fill(monkeypatch):
+    step_answer = """\
+Here is the plan:
+
+### Steps
+1. **Audit your resume**:
+   - Compare against three job posts.
+2. **Rewrite the summary**:
+   - Lead with shipped outcomes.
+3. **Collect feedback**:
+   - Ask two senior peers.
+"""
+    llm_payload = {
+        "summary": "A three-step plan to sharpen the resume.",
+        "key_points": ["Audit against job posts", "Lead with outcomes"],
+        # LLM omitted ordered_actions — the heuristic found them.
+    }
+    _mock_llm(monkeypatch, llm_payload)
+    structured, source = resolve_structured_content(step_answer, goal="how to improve")
+    assert source == "llm"
+    assert structured["summary"].startswith("A three-step plan")
+    assert any(a.startswith("Audit your resume") for a in structured["ordered_actions"])
+
+
+def test_llm_extraction_prompt_includes_evidence(monkeypatch):
+    from app.presentation.evidence import AgentEvidenceBundle, DocumentEvidenceHit
+
+    captured: list[str] = []
+    _mock_llm(monkeypatch, {"summary": "Grounded overview of the workspace docs."}, captured)
+    resolve_structured_content(
+        SAMPLE,
+        goal="Summarize",
+        evidence=AgentEvidenceBundle(
+            document_hits=[
+                DocumentEvidenceHit(filename="resume.pdf", snippet="Built RAG agent at scale.")
+            ]
+        ),
+    )
+    assert captured
+    assert "resume.pdf" in captured[0]
+    assert "Built RAG agent at scale." in captured[0]
+    assert "levels" in captured[0]  # full visual schema requested
 
 
 def test_resolve_structured_content_upgrades_thin_via_llm(monkeypatch):

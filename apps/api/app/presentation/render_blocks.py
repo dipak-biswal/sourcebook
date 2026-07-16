@@ -517,11 +517,51 @@ def assemble_blocks(
 
     blocks, deduped = _dedupe_overlapping_blocks(blocks)
     dropped.extend(deduped)
+    blocks = _tag_blocks_with_themes(blocks, structured.get("themes") or [])
     return blocks, dropped
 
 
 def _norm_line(text: str) -> str:
     return re.sub(r"\s+", " ", str(text).strip().lower()).rstrip(".")
+
+
+def _block_text(block: GenUIBlock) -> str:
+    parts = [block.title or "", block.body or ""]
+    parts.extend(block.items or [])
+    parts.extend(f"{t.term} {t.definition}" for t in block.terms or [])
+    parts.extend(f"{f.question} {f.answer}" for f in block.faqs or [])
+    return " ".join(parts).lower()
+
+
+def _tag_blocks_with_themes(
+    blocks: list[GenUIBlock],
+    themes: list[Any],
+) -> list[GenUIBlock]:
+    """
+    Attach matching themes as block tags so chip filtering works on real
+    metadata instead of the frontend's substring fallback.
+    """
+    labels = [str(t).strip() for t in themes if str(t).strip()]
+    if not labels:
+        return blocks
+
+    def matches(theme: str, hay: str) -> bool:
+        words = [w for w in re.findall(r"[a-z0-9]+", theme.lower()) if len(w) >= 4]
+        if not words:
+            words = re.findall(r"[a-z0-9]+", theme.lower())
+        return any(w in hay for w in words)
+
+    out: list[GenUIBlock] = []
+    for block in blocks:
+        if block.type == "chips" or block.tags:
+            out.append(block)
+            continue
+        hay = _block_text(block)
+        matched = [t for t in labels if matches(t, hay)][:6]
+        out.append(
+            block.model_copy(update={"tags": matched}) if matched else block
+        )
+    return out
 
 
 def _dedupe_overlapping_blocks(

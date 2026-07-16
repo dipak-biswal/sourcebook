@@ -394,3 +394,26 @@ def test_callout_not_fabricated_and_faq_requires_real_answer():
     types = {b.type for b in blocks}
     assert "callout" not in types  # no real priority -> not fabricated from summary
     assert "faq" not in types  # question-only answer rejected
+
+
+def test_blocks_tagged_from_themes_for_chip_filtering():
+    structured = {
+        "summary": "React skills are strong; feedback loops need work.",
+        "key_points": [
+            "React component architecture is a strength.",
+            "Collect feedback from senior peers regularly.",
+        ],
+        "themes": ["react", "feedback"],
+    }
+    outline = [
+        {"type": "summary", "source_hint": "summary"},
+        {"type": "key_points", "source_hint": "key_points"},
+        {"type": "chips", "source_hint": "themes"},
+    ]
+    blocks, _ = assemble_blocks(outline, structured)
+    by_type = {b.type: b for b in blocks}
+    # Non-chips blocks carry the themes they mention as tags.
+    assert "react" in (by_type["summary"].tags or [])
+    assert "feedback" in (by_type["key_points"].tags or [])
+    # The chips block itself stays untagged.
+    assert not by_type["chips"].tags

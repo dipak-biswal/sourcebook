@@ -48,12 +48,17 @@ _EMPTY_STRUCTURED: dict[str, Any] = {
 }
 
 
+def _strip_md(text: str) -> str:
+    """Models leak **bold** into values despite instructions; strip it."""
+    return re.sub(r"\*\*", "", text).strip()
+
+
 def _normalize_str_list(raw: Any, *, item_limit: int = 20, item_chars: int = 400) -> list[str]:
     out: list[str] = []
     if not isinstance(raw, list):
         return out
     for item in raw:
-        text = str(item).strip()
+        text = _strip_md(str(item))
         if text and text not in out:
             out.append(text[:item_chars])
         if len(out) >= item_limit:
@@ -66,10 +71,10 @@ def normalize_structured_content(raw: Any) -> dict[str, Any]:
     if not isinstance(raw, dict):
         return dict(_EMPTY_STRUCTURED)
 
-    summary = str(raw.get("summary") or "").strip()[:600]
+    summary = _strip_md(str(raw.get("summary") or ""))[:600]
     key_points: list[str] = []
     for item in raw.get("key_points") or []:
-        text = str(item).strip()
+        text = _strip_md(str(item))
         if text and text not in key_points:
             key_points.append(text[:400])
         if len(key_points) >= 14:
@@ -79,8 +84,8 @@ def normalize_structured_content(raw: Any) -> dict[str, Any]:
     for item in raw.get("faq") or []:
         if not isinstance(item, dict):
             continue
-        question = str(item.get("question") or "").strip()[:300]
-        answer = str(item.get("answer") or "").strip()[:800]
+        question = _strip_md(str(item.get("question") or ""))[:300]
+        answer = _strip_md(str(item.get("answer") or ""))[:800]
         if question:
             faq.append({"question": question, "answer": answer})
         if len(faq) >= 10:
@@ -96,7 +101,9 @@ def normalize_structured_content(raw: Any) -> dict[str, Any]:
         entry: dict[str, Any] = {"heading": heading}
         bullets = item.get("bullets")
         if isinstance(bullets, list) and bullets:
-            entry["bullets"] = [str(b).strip()[:400] for b in bullets[:8] if str(b).strip()]
+            entry["bullets"] = [
+                _strip_md(str(b))[:400] for b in bullets[:8] if _strip_md(str(b))
+            ]
         body = str(item.get("body") or "").strip()
         if body:
             entry["body"] = body[:1200]
@@ -161,28 +168,64 @@ def _client() -> OpenAI:
     return OpenAI(api_key=settings.openai_api_key, base_url=settings.openai_base_url)
 
 
+def _format_evidence_block(evidence: Any) -> str:
+    """Compact verbatim snippets so extraction can ground visual data in docs."""
+    if evidence is None:
+        return ""
+    lines: list[str] = []
+    for hit in (getattr(evidence, "document_hits", None) or [])[:6]:
+        snippet = (getattr(hit, "snippet", "") or "").strip()
+        if snippet:
+            filename = (getattr(hit, "filename", "") or "document").strip()
+            lines.append(f"[{filename}] {snippet[:400]}")
+    for hit in (getattr(evidence, "web_hits", None) or [])[:4]:
+        snippet = (getattr(hit, "snippet", "") or "").strip()
+        if snippet:
+            title = (getattr(hit, "title", "") or "web").strip()
+            lines.append(f"[web: {title[:80]}] {snippet[:300]}")
+    if not lines:
+        return ""
+    return "EVIDENCE SNIPPETS (verbatim from workspace documents / web):\n" + "\n".join(
+        lines
+    )
+
+
 def _format_llm_extraction_prompt(
     answer: str,
     *,
     goal: str,
     workspace_block: str = "",
+    evidence_block: str = "",
 ) -> str:
     ws = ""
     if workspace_block.strip():
         ws = f"WORKSPACE CONTEXT:\n{workspace_block.strip()}\n\n"
+    ev = f"{evidence_block.strip()}\n\n" if evidence_block.strip() else ""
     return (
-        "Extract structured content from the main workspace agent answer below.\n"
-        "Use ONLY facts present in the answer — do not invent employers, metrics, or dates.\n"
-        "Prefer structure that supports the workspace outcome and tone when facts allow.\n"
+        "Extract structured facts for a visual summary from the main workspace "
+        "agent answer (and evidence snippets, when present) below.\n"
+        "Every fact must appear in the answer or evidence — never invent "
+        "employers, skills, metrics, or dates. Omit any field without real data "
+        '(use "" or []). Plain text only in values — no markdown bold, bullets, '
+        "or numbering. Pipe rows must keep a consistent column count.\n"
         "Return JSON only with this shape:\n"
         "{\n"
-        '  "summary": "2-4 sentence overview",\n'
-        '  "key_points": ["bullet", ...],\n'
-        '  "faq": [{"question": "...", "answer": "..."}],\n'
+        '  "summary": "2-4 sentence overview that answers the user goal",\n'
+        '  "key_points": ["short factual bullet", ...],\n'
+        '  "ordered_actions": ["Step label — one-line detail", ...],  // only for how-to/process answers\n'
+        '  "faq": [{"question": "...", "answer": "..."}],  // only real Q&A pairs with substantive answers\n'
+        '  "concepts": ["Term — definition", ...],  // only when the answer defines terms\n'
+        '  "levels": ["Skill or area | Strong/Growing/Gap", ...],  // qualitative only — never percentages\n'
+        '  "matrix_rows": ["Header A | Header B | Header C", "row | row | row", ...],  // only for a real comparison; first row is the header\n'
+        '  "comparisons": ["Aspect | Option A | Option B", ...],\n'
+        '  "metrics": ["Label | Value", ...],  // only numbers stated in the answer or evidence\n'
+        '  "milestones": ["Period | Title | Detail", ...],  // only when dates appear\n'
+        '  "priority_message": "the single most important gap/risk/warning, or \\"\\"",\n'
         '  "sections": [{"heading": "...", "bullets": ["..."], "body": "..."}],\n'
-        '  "themes": ["theme", ...]\n'
+        '  "themes": ["topical theme", ...]  // 2-6 document topics — never structural labels like "Next Steps" or "Overview"\n'
         "}\n\n"
         f"{ws}"
+        f"{ev}"
         f"USER GOAL:\n{(goal or '').strip()}\n\n"
         f"MAIN AGENT ANSWER:\n{(answer or '').strip()[:12000]}"
     )
@@ -196,6 +239,7 @@ def extract_structured_content_llm(
     user_id: uuid.UUID | None = None,
     workspace_id: uuid.UUID | None = None,
     workspace_packet: Any = None,
+    evidence: Any = None,
 ) -> dict[str, Any] | None:
     """LLM extraction with strict JSON schema; returns None on failure."""
     text = (answer or "").strip()
@@ -213,7 +257,10 @@ def extract_structured_content_llm(
             workspace_block = format_workspace_block_for_handoff(workspace_packet)
 
     prompt = _format_llm_extraction_prompt(
-        text, goal=goal, workspace_block=workspace_block
+        text,
+        goal=goal,
+        workspace_block=workspace_block,
+        evidence_block=_format_evidence_block(evidence),
     )
     try:
         resp = _client().chat.completions.create(
@@ -266,6 +313,20 @@ def structured_content_has_substance(structured: dict[str, Any]) -> bool:
     return ok
 
 
+def _merge_structured(
+    primary: dict[str, Any], fallback: dict[str, Any]
+) -> dict[str, Any]:
+    """Primary fields win when non-empty; fallback fills anything it missed."""
+    merged = dict(fallback)
+    for key, value in primary.items():
+        if isinstance(value, str):
+            if value.strip():
+                merged[key] = value
+        elif value:
+            merged[key] = value
+    return merged
+
+
 def resolve_structured_content(
     answer: str,
     *,
@@ -274,29 +335,48 @@ def resolve_structured_content(
     user_id: uuid.UUID | None = None,
     workspace_id: uuid.UUID | None = None,
     workspace_packet: Any = None,
+    evidence: Any = None,
 ) -> tuple[dict[str, Any], str]:
     """
-    Resolve structured handoff: heuristic first, LLM upgrade when thin.
+    Resolve structured handoff: LLM extraction first (full visual schema),
+    regex heuristic as fallback and gap-filler.
 
     Returns (structured_content, source) where source is 'heuristic' or 'llm'.
     """
     heuristic = normalize_structured_content(
         extract_structured_content(answer, goal=goal)
     )
+
+    llm_result: dict[str, Any] | None = None
+    llm_attempted = False
+    if settings.visual_summary_llm_extractor and settings.openai_api_key:
+        llm_attempted = True
+        llm_result = extract_structured_content_llm(
+            answer,
+            goal=goal,
+            db=db,
+            user_id=user_id,
+            workspace_id=workspace_id,
+            workspace_packet=workspace_packet,
+            evidence=evidence,
+        )
+        if llm_result and structured_content_has_substance(llm_result):
+            return _merge_structured(llm_result, heuristic), "llm"
+
     if structured_content_has_substance(heuristic):
         return heuristic, "heuristic"
 
-    llm_result = extract_structured_content_llm(
-        answer,
-        goal=goal,
-        db=db,
-        user_id=user_id,
-        workspace_id=workspace_id,
-        workspace_packet=workspace_packet,
-    )
-    if llm_result and structured_content_has_substance(llm_result):
-        return llm_result, "llm"
-
+    # Thin heuristic: try the LLM upgrade unless it already failed above.
+    if not llm_attempted:
+        llm_result = extract_structured_content_llm(
+            answer,
+            goal=goal,
+            db=db,
+            user_id=user_id,
+            workspace_id=workspace_id,
+            workspace_packet=workspace_packet,
+            evidence=evidence,
+        )
     if llm_result:
         return llm_result, "llm"
     return heuristic, "heuristic"
