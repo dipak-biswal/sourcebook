@@ -7,6 +7,8 @@ export type GenUIBlock = {
   faqs?: { question: string; answer: string }[] | null;
   tags?: string[] | null;
   source_indices?: number[] | null;
+  /** Layout hint honored by the grid. Backend may set it; otherwise defaulted per type. */
+  width?: "full" | "half" | null;
 };
 
 export type GenUISource = {

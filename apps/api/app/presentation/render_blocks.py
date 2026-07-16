@@ -8,6 +8,64 @@ from typing import Any
 from app.agents.gen_ui import FaqItem, GenUIBlock, KeyTerm, _normalize_block_dict
 
 
+# Wide blocks carry more data and read better full-width; compact blocks pair up.
+_FULL_WIDTH_TYPES = frozenset(
+    {"summary", "table", "comparison", "chart", "timeline", "steps", "chips"}
+)
+# Compact blocks get promoted to full width once they hold this many rows.
+_WIDTH_PROMOTE_TYPES = frozenset(
+    {"key_points", "faq", "key_terms", "progress", "metrics"}
+)
+_WIDTH_PROMOTE_THRESHOLD = 6
+
+
+def block_width(block: GenUIBlock) -> str:
+    """Default grid width for a block, from type and how much data it holds."""
+    if block.type in _FULL_WIDTH_TYPES:
+        return "full"
+    if block.type in _WIDTH_PROMOTE_TYPES:
+        count = (
+            len(block.items or [])
+            + len(block.terms or [])
+            + len(block.faqs or [])
+        )
+        if count >= _WIDTH_PROMOTE_THRESHOLD:
+            return "full"
+    return "half"
+
+
+def block_has_min_content(block: GenUIBlock) -> bool:
+    """True when a block carries enough real data to be worth rendering.
+
+    Kills degenerate blocks (a 1-row table, a single-item list, a progress
+    block with no levels) that otherwise render as thin or empty cards.
+    """
+    t = block.type
+    items = block.items or []
+    if t in ("key_points", "steps", "chips"):
+        return len(items) >= 2
+    if t in ("table", "comparison"):
+        if len(items) < 2:
+            return False
+        data_rows = [r for r in items if not _is_matrix_header(r)]
+        return len(data_rows) >= 1
+    if t == "progress":
+        return any("|" in (i or "") for i in items)
+    if t == "metrics":
+        return len(items) >= 1
+    if t == "timeline":
+        return len(items) >= 1
+    if t == "key_terms":
+        return any((term.definition or "").strip() for term in (block.terms or []))
+    if t == "faq":
+        return len(block.faqs or []) >= 1
+    if t == "summary":
+        return len((block.body or "").strip()) >= 8
+    if t in ("callout", "quote"):
+        return len((block.body or "").strip()) >= 12
+    return True
+
+
 _LEVEL_RE = re.compile(
     r"\b(strong|growing|gap|foundational|weak|expert|advanced|proficient|basic|lacking)\b",
     re.I,
@@ -413,6 +471,12 @@ def assemble_blocks(
                 }
             )
             continue
+        if not block_has_min_content(assembled):
+            dropped.append({"type": btype, "reason": "insufficient content"})
+            continue
+        explicit = entry.get("width")
+        width = explicit if explicit in ("full", "half") else block_width(assembled)
+        assembled = assembled.model_copy(update={"width": width})
         blocks.append(assembled)
         if len(blocks) >= 10:
             break

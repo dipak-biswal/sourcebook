@@ -42,6 +42,50 @@ _DEFAULT_AFFORDANCE_ORDER = (
 
 _DATE_RE = re.compile(r"\b(19|20)\d{2}\b")
 
+# Goal phrasing → the affordance that should lead the layout when it has data.
+# Lets a "compare X vs Y" or "how do I…" goal open on its most useful block
+# instead of every summary starting with a generic Overview.
+_GOAL_LEAD_PATTERNS: tuple[tuple[re.Pattern[str], str], ...] = (
+    (
+        re.compile(
+            r"\b(compare|comparison|versus|vs\.?|difference|differences|"
+            r"trade[- ]?offs?|pros and cons)\b",
+            re.I,
+        ),
+        "comparison_matrix",
+    ),
+    (
+        re.compile(
+            r"\b(how to|how do|how can|step[- ]?by[- ]?step|walkthrough|"
+            r"set up|configure|install|implement)\b",
+            re.I,
+        ),
+        "ordered_guide",
+    ),
+    (
+        re.compile(
+            r"\b(timeline|history|roadmap|milestones?|evolution|chronolog\w*|over time)\b",
+            re.I,
+        ),
+        "timeline",
+    ),
+    (
+        re.compile(
+            r"\b(risk|risks|gaps?|blockers?|urgent|priorit\w+|what.?s wrong)\b",
+            re.I,
+        ),
+        "priority_alert",
+    ),
+)
+
+
+def _goal_lead_affordance(goal: str) -> str | None:
+    text = goal or ""
+    for pattern, affordance in _GOAL_LEAD_PATTERNS:
+        if pattern.search(text):
+            return affordance
+    return None
+
 
 @dataclass
 class UiIntent:
@@ -276,8 +320,12 @@ def resolve_ui_intent(
         return (-scores.get(a, 0.0), default_idx)
 
     ordered = sorted(eligible, key=sort_key)
-    # Always lead with overview when present (scannable visual summary)
-    if "overview" in ordered:
+    # Lead with the goal-implied affordance (compare/how-to/timeline/priority)
+    # when it has data; otherwise open on the scannable Overview.
+    lead = _goal_lead_affordance(goal)
+    if lead and lead in ordered:
+        ordered = [lead] + [a for a in ordered if a != lead]
+    elif "overview" in ordered:
         ordered = ["overview"] + [a for a in ordered if a != "overview"]
     # Cap outline size for scannability
     block_order = ordered[:8]

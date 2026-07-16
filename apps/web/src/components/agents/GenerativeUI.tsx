@@ -47,6 +47,23 @@ function slugify(value: string): string {
   return value.trim().toLowerCase().replace(/\s+/g, "-");
 }
 
+// Wide blocks carry more data and read better full-width; compact blocks pair up.
+const FULL_WIDTH_TYPES = new Set([
+  "summary",
+  "table",
+  "comparison",
+  "chart",
+  "timeline",
+  "steps",
+  "chips",
+]);
+
+function isFullWidth(block: GenUIBlock): boolean {
+  if (block.width === "full") return true;
+  if (block.width === "half") return false;
+  return FULL_WIDTH_TYPES.has(block.type);
+}
+
 function parseChip(item: string): { label: string; tag: string } {
   const parts = parsePipeRow(item);
   const label = parts[0] || item;
@@ -574,9 +591,9 @@ function TermsBlock({ block }: { block: GenUIBlock }) {
 }
 
 function FaqBlock({ block }: { block: GenUIBlock }) {
+  const [openIdx, setOpenIdx] = useState<number | null>(0);
   const faqs = block.faqs ?? [];
   if (!faqs.length) return null;
-  const [openIdx, setOpenIdx] = useState<number | null>(0);
 
   return (
     <div>
@@ -695,7 +712,7 @@ export function GenerativeUIView({
   return (
     <div
       className={cn(
-        "w-full max-w-[min(100%,42rem)] space-y-4 rounded-vercel-md border border-hairline bg-canvas p-3 shadow-[var(--elevation-2)] sm:p-4",
+        "w-full max-w-[min(100%,60rem)] space-y-4 rounded-vercel-md border border-hairline bg-canvas p-3 shadow-[var(--elevation-2)] sm:p-4",
         className,
       )}
     >
@@ -746,7 +763,7 @@ export function GenerativeUIView({
         </p>
       )}
 
-      <div className="space-y-4">
+      <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
         {blocks.map((b, i) => {
           if (!blockMatchesTag(b, activeTag)) return null;
           const highlighted =
@@ -758,7 +775,8 @@ export function GenerativeUIView({
             <div
               key={`${b.type}-${i}`}
               className={cn(
-                "transition-opacity duration-200",
+                "min-w-0 self-start transition-opacity duration-200",
+                isFullWidth(b) && "md:col-span-2",
                 highlighted && "rounded-[10px] ring-1 ring-ink/15",
               )}
             >

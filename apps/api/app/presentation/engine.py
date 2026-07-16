@@ -18,7 +18,7 @@ from app.agents.gen_ui import (
 from app.config import settings
 from app.presentation.context import PresentationContext
 from app.presentation.layout import layout_components_from_goal
-from app.presentation.render_blocks import payload_from_assembly
+from app.presentation.render_blocks import block_width, payload_from_assembly
 from app.presentation.structured import (
     extract_structured_content,
     format_render_engine_prompt,
@@ -468,6 +468,12 @@ def build_presentation(
         answer=answer,
         context=grounding_context,
     )
+
+    # Ensure every block carries a grid width hint (assembly path already sets it).
+    blocks = [
+        b if b.width else b.model_copy(update={"width": block_width(b)})
+        for b in blocks
+    ]
 
     if not blocks:
         blocks = [

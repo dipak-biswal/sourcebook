@@ -143,6 +143,67 @@ def test_assemble_blocks_maps_source_hints():
     assert any(d["type"] == "progress" for d in dropped)
 
 
+def test_assembly_drops_degenerate_blocks():
+    """Thin blocks (1-row table, single-item list, level-less progress) are dropped."""
+    structured = {
+        "summary": "A short but real overview of the workspace.",
+        "key_points": ["Only one point"],
+        "matrix_rows": ["Requirement | Evidence | Status"],  # header, no data rows
+        "levels": ["No pipe here so no level"],
+        "themes": ["solo"],  # only one theme → not enough for chips
+    }
+    outline = [
+        {"type": "summary", "source_hint": "summary"},
+        {"type": "key_points", "source_hint": "key_points"},
+        {"type": "table", "source_hint": "matrix_rows"},
+        {"type": "progress", "source_hint": "levels"},
+        {"type": "chips", "source_hint": "themes"},
+    ]
+    blocks, dropped = assemble_blocks(outline, structured)
+    types = [b.type for b in blocks]
+    assert types == ["summary"]
+    dropped_types = {d["type"] for d in dropped}
+    assert {"key_points", "table", "progress", "chips"} <= dropped_types
+
+
+def test_assembled_blocks_carry_width_hint():
+    structured = {
+        "summary": "Overview of the workspace materials for the reader.",
+        "key_points": ["Point one", "Point two", "Point three"],
+        "themes": ["alpha", "beta"],
+    }
+    outline = [
+        {"type": "summary", "source_hint": "summary"},
+        {"type": "key_points", "source_hint": "key_points"},
+        {"type": "chips", "source_hint": "themes"},
+    ]
+    blocks, _ = assemble_blocks(outline, structured)
+    by_type = {b.type: b for b in blocks}
+    assert by_type["summary"].width == "full"
+    assert by_type["chips"].width == "full"
+    assert by_type["key_points"].width == "half"
+
+
+def test_goal_aware_lead_block_for_comparison():
+    structured = {
+        "summary": "React is strong; cloud is thin.",
+        "key_points": ["Quantify impact", "Add a skills line"],
+        "matrix_rows": [
+            "Requirement | Evidence | Status",
+            "React | Lead role | Strong",
+            "AWS | Once | Gap",
+        ],
+        "themes": ["frontend", "cloud"],
+    }
+    intent = resolve_ui_intent(
+        structured_content=structured,
+        workspace_packet=CAREER_PACKET,
+        goal="Compare my React vs AWS readiness",
+    )
+    plan = build_skeleton_layout_plan(intent, structured_content=structured)
+    assert plan["block_outline"][0]["type"] == "table"
+
+
 def test_plan_layout_uses_code_skeleton_without_llm():
     ctx = PresentationContext(
         workspace_id=uuid.uuid4(),

@@ -45,6 +45,8 @@ class GenUIBlock(BaseModel):
     faqs: list[FaqItem] | None = None
     # Lowercase slugs — matched by interactive chip filters in the web UI
     tags: list[str] | None = None
+    # Grid layout hint honored by the web UI (full span vs half column)
+    width: Literal["full", "half"] | None = None
     # 1-based indices into payload.sources (same numbers as [1], [2] in context)
     source_indices: list[int] = Field(default_factory=list)
 
