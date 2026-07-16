@@ -1,4 +1,12 @@
-export type TraceState = "pending" | "running" | "done";
+export type TraceState = "pending" | "running" | "done" | "error";
+
+/** LangSmith-style span timing, derived server-side from step timestamps. */
+export type TraceTiming = {
+  started_ms?: number | null;
+  ended_ms?: number | null;
+  duration_ms?: number | null;
+  error?: string | null;
+};
 
 export type TraceLlmRole =
   | "orchestrator_decision"
@@ -8,7 +16,7 @@ export type TraceLlmRole =
   | "embedded_render"
   | "embedded";
 
-export type TraceToolChild = {
+export type TraceToolChild = TraceTiming & {
   id: string;
   type: "tool";
   label: string;
@@ -37,7 +45,7 @@ export type TraceTokenUsage = {
   total_tokens?: number | null;
 };
 
-export type TraceLlmChild = {
+export type TraceLlmChild = TraceTiming & {
   id: string;
   type: "llm_response";
   label: string;
@@ -51,7 +59,7 @@ export type TraceLlmChild = {
   total_tokens?: number | null;
 };
 
-export type TraceHitlEmbedChild = {
+export type TraceHitlEmbedChild = TraceTiming & {
   id: string;
   type: "hitl_embed";
   label: string;
@@ -62,7 +70,7 @@ export type TraceHitlEmbedChild = {
   output?: unknown;
 };
 
-export type TraceHandoffChild = {
+export type TraceHandoffChild = TraceTiming & {
   id: string;
   type: "handoff";
   label: string;
@@ -70,7 +78,7 @@ export type TraceHandoffChild = {
   output?: string;
 };
 
-export type TraceFinalAnswerChild = {
+export type TraceFinalAnswerChild = TraceTiming & {
   id: string;
   type: "final_answer";
   label: string;
@@ -78,7 +86,7 @@ export type TraceFinalAnswerChild = {
   output?: string;
 };
 
-export type TraceVisualStageChild = {
+export type TraceVisualStageChild = TraceTiming & {
   id: string;
   type: "visual_stage";
   label: string;
@@ -95,7 +103,7 @@ export type TraceChild =
   | TraceFinalAnswerChild
   | TraceVisualStageChild;
 
-export type TraceGoalPhase = {
+export type TraceGoalPhase = TraceTiming & {
   id: string;
   type: "goal";
   label: string;
@@ -103,7 +111,7 @@ export type TraceGoalPhase = {
   goal: string;
 };
 
-export type TraceAgentTurnPhase = {
+export type TraceAgentTurnPhase = TraceTiming & {
   id: string;
   type: "agent_turn";
   turn: number;
@@ -114,7 +122,7 @@ export type TraceAgentTurnPhase = {
   llm_turn_id?: string;
 };
 
-export type TraceHitlPhase = {
+export type TraceHitlPhase = TraceTiming & {
   id: string;
   type: "hitl";
   label: string;
@@ -139,7 +147,7 @@ export type TraceAgentEvidence = {
   }>;
 };
 
-export type TracePresentationPhase = {
+export type TracePresentationPhase = TraceTiming & {
   id: string;
   type: "presentation";
   label: string;
@@ -157,7 +165,7 @@ export type TracePresentationPhase = {
   presentation_profile?: string | null;
 };
 
-export type TraceSynthesisPhase = {
+export type TraceSynthesisPhase = TraceTiming & {
   id: string;
   type: "synthesis";
   label: string;
@@ -189,5 +197,10 @@ export type ExecutionTrace = {
   phases: TracePhase[];
   active_phase_id: string | null;
   is_complete: boolean;
+  status?: string | null;
   token_usage?: TraceTokenSummary | null;
+  run_started_ms?: number | null;
+  run_ended_ms?: number | null;
+  total_duration_ms?: number | null;
+  error?: string | null;
 };

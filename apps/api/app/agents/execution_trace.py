@@ -3,14 +3,96 @@
 from __future__ import annotations
 
 import json
+from contextvars import ContextVar
 from dataclasses import dataclass, field
+from datetime import datetime
 from typing import Any, Literal
 
 from app.config import settings
 from app.models import AgentRun, AgentStep
 from app.usage import estimate_tokens
 
-TraceState = Literal["pending", "running", "done"]
+TraceState = Literal["pending", "running", "done", "error"]
+
+# Per-build map of step id -> (start_ms, end_ms) so node builders can attach
+# LangSmith-style latency without threading timing through every call site.
+# build_execution_trace runs to completion without awaiting, so a ContextVar is
+# safe against interleaved async builds.
+_STEP_WINDOWS: ContextVar[dict[str, tuple[int, int]]] = ContextVar(
+    "_step_windows", default={}
+)
+
+
+def _ms(dt: datetime | None) -> int | None:
+    if dt is None:
+        return None
+    try:
+        return int(dt.timestamp() * 1000)
+    except (OSError, OverflowError, ValueError):
+        return None
+
+
+def _compute_step_windows(
+    steps: list[AgentStep], run: AgentRun
+) -> dict[str, tuple[int, int]]:
+    """Contiguous [prev_ts, this_ts] slice per step, derived from created_at."""
+    windows: dict[str, tuple[int, int]] = {}
+    prev = _ms(getattr(run, "created_at", None))
+    for step in steps:
+        ts = _ms(getattr(step, "created_at", None))
+        if ts is None:
+            continue
+        start = prev if prev is not None and prev <= ts else ts
+        windows[str(step.id)] = (start, ts)
+        prev = ts
+    return windows
+
+
+def _timing_fields(start: int | None, end: int | None) -> dict[str, int]:
+    if start is None or end is None:
+        return {}
+    if end < start:
+        start, end = end, start
+    return {"started_ms": start, "ended_ms": end, "duration_ms": end - start}
+
+
+def _step_timing(step: AgentStep | None) -> dict[str, int]:
+    if step is None:
+        return {}
+    window = _STEP_WINDOWS.get().get(str(step.id))
+    if not window:
+        return {}
+    return _timing_fields(window[0], window[1])
+
+
+def _with_timing(node: dict[str, Any], timing: dict[str, int]) -> dict[str, Any]:
+    if not timing:
+        return node
+    merged = dict(node)
+    merged.update(timing)
+    return merged
+
+
+def _rollup_timing(node: dict[str, Any]) -> tuple[int | None, int | None]:
+    """Fill container timing (agent_turn/tool/visual_stage) from descendants."""
+    spans: list[tuple[int, int]] = []
+    for child in node.get("children") or []:
+        cs, ce = _rollup_timing(child)
+        if cs is not None and ce is not None:
+            spans.append((cs, ce))
+    start = node.get("started_ms")
+    end = node.get("ended_ms")
+    if spans:
+        cmin = min(s for s, _ in spans)
+        cmax = max(e for _, e in spans)
+        start = cmin if start is None else min(start, cmin)
+        end = cmax if end is None else max(end, cmax)
+    if isinstance(start, int) and isinstance(end, int):
+        node["started_ms"] = start
+        node["ended_ms"] = end
+        node["duration_ms"] = max(end - start, 0)
+        return start, end
+    return None, None
 
 TOOL_LABELS: dict[str, str] = {
     "list_documents": "List documents",
@@ -367,18 +449,21 @@ def _visual_tool_llm_child(tool_acc: _ToolAcc) -> dict[str, Any] | None:
     else:
         output_text = str(llm_output or "")
     tool_name = tool_acc.tool_name or ""
-    return _apply_tokens(
-        {
-            "id": f"{tool_acc.id}-llm",
-            "type": "llm_response",
-            "label": VISUAL_TOOL_LLM_LABELS.get(tool_name, "LLM"),
-            "llm_role": VISUAL_TOOL_LLM_ROLES.get(tool_name, "embedded"),
-            "state": "done",
-            "model": meta.get("model") or _resolve_model(step, None, None),
-            "prompt": prompt,
-            "output": output_text,
-        },
-        _tokens_from_visual_tool_meta(meta),
+    return _with_timing(
+        _apply_tokens(
+            {
+                "id": f"{tool_acc.id}-llm",
+                "type": "llm_response",
+                "label": VISUAL_TOOL_LLM_LABELS.get(tool_name, "LLM"),
+                "llm_role": VISUAL_TOOL_LLM_ROLES.get(tool_name, "embedded"),
+                "state": "done",
+                "model": meta.get("model") or _resolve_model(step, None, None),
+                "prompt": prompt,
+                "output": output_text,
+            },
+            _tokens_from_visual_tool_meta(meta),
+        ),
+        _step_timing(step),
     )
 
 
@@ -484,6 +569,14 @@ class _ToolAcc:
     result_step: AgentStep | None = None
     state: TraceState = "pending"
 
+    def _timing(self) -> dict[str, int]:
+        # Tool execution latency lives in the tool_result window (call_ts..result_ts).
+        if self.result_step is not None:
+            timing = _step_timing(self.result_step)
+            if timing:
+                return timing
+        return _step_timing(self.call_step)
+
     def to_node(self) -> dict[str, Any]:
         node: dict[str, Any] = {
             "id": self.id,
@@ -492,6 +585,7 @@ class _ToolAcc:
             "tool_name": self.tool_name,
             "state": self.state,
         }
+        node.update(self._timing())
         if self.call_step and self.call_step.input is not None:
             node["input"] = self.call_step.input
         elif self.result_step and self.result_step.input is not None:
@@ -525,6 +619,7 @@ class _ToolAcc:
             "tool_name": self.tool_name,
             "state": self.state,
         }
+        node.update(self._timing())
         if self.call_step and self.call_step.input is not None:
             node["input"] = _tool_call_input_for_trace(
                 self.tool_name,
@@ -618,17 +713,20 @@ class _TurnAcc:
         if not tokens and live and live_turn_id:
             tokens = _tokens_from_live(live, live_turn_id)
 
-        return _apply_tokens(
-            {
-                "id": f"{self.id}-llm-{suffix}",
-                "type": "llm_response",
-                "label": label,
-                "state": state,
-                "model": _resolve_model(step, live, live_turn_id),
-                "prompt": resolved_prompt,
-                "output": output,
-            },
-            tokens,
+        return _with_timing(
+            _apply_tokens(
+                {
+                    "id": f"{self.id}-llm-{suffix}",
+                    "type": "llm_response",
+                    "label": label,
+                    "state": state,
+                    "model": _resolve_model(step, live, live_turn_id),
+                    "prompt": resolved_prompt,
+                    "output": output,
+                },
+                tokens,
+            ),
+            _step_timing(step),
         )
 
     def _response_llm_state(self, live: LiveTraceContext | None) -> TraceState:
@@ -868,17 +966,20 @@ def _attach_tool_result(tools: list[_ToolAcc], step: AgentStep) -> list[_ToolAcc
 
 def _synthesis_phase(step: AgentStep) -> dict[str, Any]:
     prompt = _messages_from_step_input(step)
-    return _apply_tokens(
-        {
-            "id": str(step.id),
-            "type": "synthesis",
-            "label": "Answer synthesis",
-            "state": "done",
-            "model": _resolve_model(step, None, None),
-            "prompt": prompt,
-            "output": _step_text(step),
-        },
-        _tokens_from_step_input(step),
+    return _with_timing(
+        _apply_tokens(
+            {
+                "id": str(step.id),
+                "type": "synthesis",
+                "label": "Answer synthesis",
+                "state": "done",
+                "model": _resolve_model(step, None, None),
+                "prompt": prompt,
+                "output": _step_text(step),
+            },
+            _tokens_from_step_input(step),
+        ),
+        _step_timing(step),
     )
 
 
@@ -984,7 +1085,12 @@ def _presentation_children(
             "prompt": step_input.get("messages") or step_input.get("prompt"),
             "output": str(llm_output or ""),
         }
-        children.append(_apply_tokens(layout, _tokens_from_step_input(step)))
+        children.append(
+            _with_timing(
+                _apply_tokens(layout, _tokens_from_step_input(step)),
+                _step_timing(step),
+            )
+        )
 
         if isinstance(output, dict) and output.get("type") == "generative_ui":
             children.append(
@@ -1044,7 +1150,10 @@ def _presentation_phase(
             output.get("presentation_profile") if isinstance(output, dict) else None
         ),
     }
-    return _apply_tokens(item, _tokens_from_step_input(step))
+    return _with_timing(
+        _apply_tokens(item, _tokens_from_step_input(step)),
+        _step_timing(step),
+    )
 
 
 def _parse_steps(
@@ -1171,6 +1280,7 @@ def _parse_steps(
                         "building": False,
                         "input": step.input,
                         "output": step.output,
+                        **_step_timing(step),
                     }
                 )
             continue
@@ -1509,6 +1619,29 @@ def _active_phase_id(phases: list[dict[str, Any]]) -> str | None:
     return phases[-1]["id"] if phases else None
 
 
+def _mark_trace_error(phases: list[dict[str, Any]], message: str) -> None:
+    """Flag the last non-completed node (and its phase) as errored."""
+    if not phases:
+        return
+    target_phase = next(
+        (p for p in phases if p.get("state") != "done"),
+        phases[-1],
+    )
+    node = target_phase
+    while True:
+        nxt = None
+        for child in node.get("children") or []:
+            if child.get("state") != "done":
+                nxt = child
+        if nxt is None:
+            break
+        node = nxt
+    node["state"] = "error"
+    node["error"] = message
+    if target_phase is not node:
+        target_phase["error"] = message
+
+
 def build_execution_trace(
     run: AgentRun,
     *,
@@ -1517,6 +1650,27 @@ def build_execution_trace(
 ) -> dict[str, Any]:
     steps = sorted(run.steps or [], key=lambda s: s.step_index)
     running_tools = set(live.running_tool_names if live else [])
+    windows_token = _STEP_WINDOWS.set(_compute_step_windows(steps, run))
+    try:
+        return _build_execution_trace_inner(
+            run,
+            steps,
+            running_tools,
+            live=live,
+            workspace_name=workspace_name,
+        )
+    finally:
+        _STEP_WINDOWS.reset(windows_token)
+
+
+def _build_execution_trace_inner(
+    run: AgentRun,
+    steps: list[AgentStep],
+    running_tools: set[str],
+    *,
+    live: LiveTraceContext | None,
+    workspace_name: str | None,
+) -> dict[str, Any]:
     turns, visual_turns, tail = _parse_steps(
         steps, running_tools, workspace_name=workspace_name
     )
@@ -1597,14 +1751,53 @@ def build_execution_trace(
         token_usage = {"total_tokens": int(run.token_usage)}
     visible = _trim_phases(phases, live=live_mode)
 
-    return {
+    for phase in visible:
+        _rollup_timing(phase)
+
+    run_started_ms = _ms(getattr(run, "created_at", None))
+    ended_candidates = [
+        p["ended_ms"] for p in visible if isinstance(p.get("ended_ms"), int)
+    ]
+    run_ended_ms = (
+        max(ended_candidates)
+        if ended_candidates
+        else _ms(getattr(run, "updated_at", None))
+    )
+    if (
+        run_started_ms is not None
+        and run_ended_ms is not None
+        and run_ended_ms < run_started_ms
+    ):
+        run_ended_ms = run_started_ms
+    total_duration_ms = (
+        run_ended_ms - run_started_ms
+        if run_started_ms is not None and run_ended_ms is not None
+        else None
+    )
+
+    error_message: str | None = None
+    if run.status == "failed":
+        error_message = (run.error or "").strip() or "Run failed"
+        _mark_trace_error(visible, error_message)
+
+    trace: dict[str, Any] = {
         "goal": run.goal or "",
         "workspace_name": _agent_name(workspace_name),
         "phases": visible,
         "active_phase_id": _active_phase_id(visible),
         "is_complete": is_complete,
+        "status": run.status,
         "token_usage": token_usage or None,
     }
+    if run_started_ms is not None:
+        trace["run_started_ms"] = run_started_ms
+    if run_ended_ms is not None:
+        trace["run_ended_ms"] = run_ended_ms
+    if total_duration_ms is not None:
+        trace["total_duration_ms"] = total_duration_ms
+    if error_message:
+        trace["error"] = error_message
+    return trace
 
 
 def emit_execution_trace(
