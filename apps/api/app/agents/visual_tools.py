@@ -22,7 +22,11 @@ from app.presentation.structured import (
     extract_structured_content,
     format_plan_layout_prompt,
 )
-from app.presentation.ui_intent import build_skeleton_layout_plan, resolve_ui_intent
+from app.presentation.ui_intent import (
+    available_source_hints,
+    build_skeleton_layout_plan,
+    resolve_ui_intent,
+)
 from app.usage import estimate_tokens, log_usage
 
 VISUAL_SUMMARY_AGENT_LABEL = "Visual Summary Agent"
@@ -113,29 +117,34 @@ def _plan_layout_llm(
     db: Session | None = None,
     user_id: uuid.UUID | None = None,
     workspace_id: uuid.UUID | None = None,
+    skeleton: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     goal = (ctx.goal or "").strip()
     structured = normalize_structured_content(
         ctx.structured_content
         or extract_structured_content(ctx.final_answer or "", goal=goal)
     )
-    # Prefer skeleton types as the component list so LLM does not invent resume dashboards
-    skeleton = _plan_layout_skeleton(ctx)
+    # Skeleton provides a reference outline + component list; LLM may reorder/select.
+    if skeleton is None:
+        skeleton = _plan_layout_skeleton(ctx)
     components = list(skeleton["plan"].get("components") or layout_components_from_goal(goal))
     layout_hints = format_layout_requirements(components)
+    present_fields = sorted(available_source_hints(structured))
     planner_input = build_plan_layout_input(
         goal=goal,
         structured_content=structured,
         evidence=ctx.agent_evidence,
         components=components,
         notes=notes,
+        available_fields=present_fields,
     )
     prompt = format_plan_layout_prompt(planner_input, layout_hints=layout_hints)
-    # Anchor on skeleton — titles may improve, types should stay close
+    # Reference outline — not a cage. LLM chooses order, titles, width, subset.
     prompt = (
         f"{prompt}\n\n"
-        "SKELETON OUTLINE (prefer these types and source_hint values; "
-        "do not invent empty table/progress blocks without data):\n"
+        "REFERENCE SKELETON OUTLINE (optional starting point — you may reorder, "
+        "retitle, change width, or select a different subset of available source_hints; "
+        "do not invent empty blocks without data):\n"
         f"{json.dumps(skeleton['plan'].get('block_outline') or [], ensure_ascii=False)}\n"
     )
 
@@ -146,8 +155,9 @@ def _plan_layout_llm(
             {
                 "role": "system",
                 "content": (
-                    "You refine visual summary layouts. Output valid JSON only. "
-                    "Prefer the provided skeleton block types; do not add resume-only profiles."
+                    "You are the Visual Summary layout planner. Output valid JSON only. "
+                    "Decide which blocks to show, their order, titles, source_hint, and width. "
+                    "Use only available source_hint fields from the prompt. Do not invent facts."
                 ),
             },
             {"role": "user", "content": prompt},
@@ -213,6 +223,28 @@ def _plan_layout_llm(
     }
 
 
+def _outline_empty_or_ungrounded(
+    plan: dict[str, Any],
+    structured: dict[str, Any],
+) -> bool:
+    """True when the plan has no usable grounded outline entries."""
+    outline = plan.get("block_outline") or []
+    if not outline:
+        return True
+    present = available_source_hints(structured)
+    grounded = 0
+    for entry in outline:
+        if not isinstance(entry, dict):
+            continue
+        hint = str(entry.get("source_hint") or "").strip()
+        if hint and hint in present:
+            grounded += 1
+        elif not hint and entry.get("type"):
+            # Legacy entry without source_hint — treat as potentially usable
+            grounded += 1
+    return grounded == 0
+
+
 def _plan_with_validation(
     ctx: PresentationContext,
     *,
@@ -222,14 +254,82 @@ def _plan_with_validation(
     workspace_id: uuid.UUID | None = None,
 ) -> dict[str, Any]:
     """
-    Prefer code skeleton layout (UiIntent).
+    Layout planning with grounding validation.
 
-    LLM replan only when notes request repair or skeleton validation fails.
+    When settings.visual_summary_llm_planner is True (default): LLM is primary
+    planner; code skeleton is fallback after failed validation/repair.
+
+    When False: skeleton-first (legacy); LLM only for notes or invalid skeleton.
     """
-    first = _plan_layout_skeleton(ctx)
-    plan = first["plan"]
-    structured = first["structured_content"]
-    components = first["requested_components"]
+    skeleton_result = _plan_layout_skeleton(ctx)
+    structured = skeleton_result["structured_content"]
+    llm_primary = bool(getattr(settings, "visual_summary_llm_planner", True))
+
+    # --- Legacy skeleton-first path (flag off, no notes) ---
+    if not llm_primary and not notes.strip():
+        plan = skeleton_result["plan"]
+        ok, errors = validate_layout_plan(
+            plan,
+            goal=ctx.goal or "",
+            structured_content=structured,
+            requested_components=[],
+            final_answer=ctx.final_answer or "",
+        )
+        if ok:
+            return {
+                **skeleton_result,
+                "validation_status": "passed",
+                "validation_errors": [],
+                "replan_attempted": False,
+            }
+        # Skeleton invalid → LLM repair, then skeleton fallback if still bad
+        return _plan_llm_with_repair_and_fallback(
+            ctx,
+            skeleton_result=skeleton_result,
+            notes=format_validator_notes(errors) if errors else "",
+            db=db,
+            user_id=user_id,
+            workspace_id=workspace_id,
+        )
+
+    # --- LLM primary (or notes-driven call when flag off) ---
+    return _plan_llm_with_repair_and_fallback(
+        ctx,
+        skeleton_result=skeleton_result,
+        notes=notes.strip(),
+        db=db,
+        user_id=user_id,
+        workspace_id=workspace_id,
+    )
+
+
+def _plan_llm_with_repair_and_fallback(
+    ctx: PresentationContext,
+    *,
+    skeleton_result: dict[str, Any],
+    notes: str,
+    db: Session | None,
+    user_id: uuid.UUID | None,
+    workspace_id: uuid.UUID | None,
+) -> dict[str, Any]:
+    """Call planner LLM, optional one repair pass, then skeleton fallback."""
+    structured = skeleton_result["structured_content"]
+    replan_attempted = False
+    replan_prompt = ""
+    replan_llm_output = ""
+    merged_usage = dict(skeleton_result["usage"])
+
+    llm = _plan_layout_llm(
+        ctx,
+        notes=notes,
+        db=db,
+        user_id=user_id,
+        workspace_id=workspace_id,
+        skeleton=skeleton_result,
+    )
+    merged_usage = _merge_usage(merged_usage, llm["usage"])
+    plan = llm["plan"]
+    structured = llm["structured_content"]
     ok, errors = validate_layout_plan(
         plan,
         goal=ctx.goal or "",
@@ -237,31 +337,20 @@ def _plan_with_validation(
         requested_components=[],
         final_answer=ctx.final_answer or "",
     )
-    if ok and not notes.strip():
-        return {
-            **first,
-            "validation_status": "passed",
-            "validation_errors": [],
-            "replan_attempted": False,
-        }
+    result = {**skeleton_result, **llm, "plan": plan}
 
-    replan_attempted = False
-    replan_prompt = ""
-    replan_llm_output = ""
-    merged_usage = dict(first["usage"])
-
-    if _MAX_AUTO_REPLANS > 0 and (not ok or notes.strip()):
-        repair_notes = format_validator_notes(errors) if errors else notes
-        if notes.strip() and errors:
+    # One repair pass when validation fails
+    if not ok and _MAX_AUTO_REPLANS > 0:
+        repair_notes = format_validator_notes(errors)
+        if notes.strip():
             repair_notes = f"{notes.strip()}\n\n{repair_notes}"
-        elif notes.strip():
-            repair_notes = notes.strip()
         second = _plan_layout_llm(
             ctx,
             notes=repair_notes,
             db=db,
             user_id=user_id,
             workspace_id=workspace_id,
+            skeleton=skeleton_result,
         )
         replan_attempted = True
         replan_prompt = second["prompt"]
@@ -276,12 +365,14 @@ def _plan_with_validation(
             requested_components=[],
             final_answer=ctx.final_answer or "",
         )
-        first = {**first, **second, "plan": plan}
+        result = {**result, **second, "plan": plan}
 
-    # Last resort: skeleton if LLM still invalid
-    if not ok:
-        skeleton = _plan_layout_skeleton(ctx)
-        plan = skeleton["plan"]
+    # Fallback: invalid plan, empty outline, or fully ungrounded
+    if (
+        not ok
+        or _outline_empty_or_ungrounded(plan, structured)
+    ):
+        plan = skeleton_result["plan"]
         ok, errors = validate_layout_plan(
             plan,
             goal=ctx.goal or "",
@@ -289,15 +380,24 @@ def _plan_with_validation(
             requested_components=[],
             final_answer=ctx.final_answer or "",
         )
-        first = {**first, **skeleton, "plan": plan}
+        result = {
+            **result,
+            **skeleton_result,
+            "plan": plan,
+            # Keep LLM prompt/output for the trace when primary path ran
+            "prompt": result.get("prompt") or skeleton_result.get("prompt"),
+            "llm_output": result.get("llm_output") or skeleton_result.get("llm_output"),
+            "structured_input": result.get("structured_input")
+            or skeleton_result.get("structured_input"),
+        }
 
     status = "passed" if ok else "failed"
     return {
-        **first,
+        **result,
         "plan": plan,
         "usage": merged_usage,
         "validation_status": status,
-        "validation_errors": errors,
+        "validation_errors": errors if not ok else (errors or []),
         "replan_attempted": replan_attempted,
         "replan_prompt": replan_prompt or None,
         "replan_llm_output": replan_llm_output or None,

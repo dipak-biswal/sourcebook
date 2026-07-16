@@ -82,6 +82,82 @@ def test_validate_layout_plan_rejects_empty_outline_with_content():
     assert any("block_outline" in e for e in errors)
 
 
+def test_validate_layout_plan_rejects_ungrounded_source_hint():
+    plan = {
+        "presentation_profile": "gap_analysis",
+        "components": ["timeline"],
+        "block_outline": [
+            {
+                "type": "timeline",
+                "title": "Career",
+                "source_hint": "milestones",
+                "width": "full",
+                "purpose": "roles",
+            }
+        ],
+        "rationale": "bad",
+    }
+    ok, errors = validate_layout_plan(
+        plan,
+        goal="Summarize",
+        structured_content=STRUCTURED,
+    )
+    assert ok is False
+    assert any("milestones" in e for e in errors)
+
+
+def test_validate_layout_plan_accepts_grounded_source_hints():
+    plan = {
+        "presentation_profile": "workspace_derived",
+        "components": ["summary", "key_points"],
+        "block_outline": [
+            {
+                "type": "summary",
+                "title": "Overview",
+                "source_hint": "summary",
+                "width": "full",
+            },
+            {
+                "type": "key_points",
+                "title": "Highlights",
+                "source_hint": "key_points",
+                "width": "half",
+            },
+        ],
+        "rationale": "ok",
+    }
+    ok, errors = validate_layout_plan(
+        plan,
+        goal="Summarize",
+        structured_content=STRUCTURED,
+    )
+    assert ok is True, errors
+    assert errors == []
+
+
+def test_validate_layout_plan_drops_invalid_width_non_fatal():
+    plan = {
+        "presentation_profile": "workspace_derived",
+        "components": ["summary"],
+        "block_outline": [
+            {
+                "type": "summary",
+                "title": "Overview",
+                "source_hint": "summary",
+                "width": "triple",
+            }
+        ],
+        "rationale": "ok",
+    }
+    ok, errors = validate_layout_plan(
+        plan,
+        goal="Summarize",
+        structured_content=STRUCTURED,
+    )
+    assert ok is True, errors
+    assert "width" not in plan["block_outline"][0]
+
+
 def test_format_validator_notes_lists_errors():
     notes = format_validator_notes(["Missing table", "Empty outline"])
     assert "VALIDATION FAILED" in notes

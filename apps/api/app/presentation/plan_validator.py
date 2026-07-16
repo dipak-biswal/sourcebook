@@ -7,6 +7,7 @@ import re
 from typing import Any
 
 from app.presentation.layout import layout_components_from_goal
+from app.presentation.ui_intent import KNOWN_SOURCE_HINTS, available_source_hints
 
 ALLOWED_BLOCK_TYPES = frozenset(
     {
@@ -27,6 +28,7 @@ ALLOWED_BLOCK_TYPES = frozenset(
     }
 )
 
+_VALID_WIDTHS = frozenset({"full", "half"})
 _DATE_RE = re.compile(r"\b(19|20)\d{2}\b")
 
 
@@ -103,6 +105,19 @@ def validate_layout_plan(
     if not profile:
         errors.append("presentation_profile is required")
 
+    present_hints = available_source_hints(
+        structured_content if isinstance(structured_content, dict) else {}
+    )
+    known_hints = frozenset(KNOWN_SOURCE_HINTS)
+    # When any entry already carries source_hint (skeleton / LLM-authority plans),
+    # require every entry to be grounded. Legacy plans without source_hints still pass.
+    outline_entries = [
+        b for b in (plan.get("block_outline") or []) if isinstance(b, dict)
+    ]
+    require_source_hints = any(b.get("source_hint") for b in outline_entries) or (
+        profile == "workspace_derived" and bool(outline_entries)
+    )
+
     for block in plan.get("block_outline") or []:
         if not isinstance(block, dict):
             errors.append("block_outline entries must be objects")
@@ -113,6 +128,31 @@ def validate_layout_plan(
             continue
         if btype not in ALLOWED_BLOCK_TYPES:
             errors.append(f"Unsupported block type: {btype}")
+
+        # Width: invalid values are non-fatal — drop so assembly uses defaults.
+        width = block.get("width")
+        if width is not None and str(width).strip() and str(width).strip() not in _VALID_WIDTHS:
+            block.pop("width", None)
+
+        hint = str(block.get("source_hint") or "").strip()
+        if require_source_hints and not hint:
+            errors.append(
+                f"block_outline entry type={btype!r} is missing required source_hint"
+            )
+            continue
+        if not hint:
+            continue
+        if hint not in known_hints:
+            errors.append(
+                f"Unknown source_hint {hint!r} on block type={btype!r} "
+                f"(allowed: {', '.join(KNOWN_SOURCE_HINTS)})"
+            )
+            continue
+        if hint not in present_hints:
+            errors.append(
+                f"source_hint {hint!r} has no data in structured_content "
+                f"(block type={btype!r})"
+            )
 
     if _structured_has_content(structured_content) and not outline_types:
         errors.append(

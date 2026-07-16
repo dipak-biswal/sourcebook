@@ -1,4 +1,4 @@
-"""Plan layout prefers code skeleton; LLM only for repair notes."""
+"""Plan layout: skeleton-first when flag off; LLM notes/repair path."""
 
 import uuid
 from types import SimpleNamespace
@@ -17,7 +17,11 @@ STRUCTURED = {
 }
 
 
-def test_plan_with_validation_uses_code_skeleton_by_default():
+def test_plan_with_validation_uses_code_skeleton_when_flag_off(monkeypatch):
+    """With visual_summary_llm_planner=False, no notes → pure code skeleton."""
+    monkeypatch.setattr(
+        "app.agents.visual_tools.settings.visual_summary_llm_planner", False
+    )
     ctx = PresentationContext(
         workspace_id=uuid.uuid4(),
         user_id=uuid.uuid4(),
@@ -35,6 +39,9 @@ def test_plan_with_validation_uses_code_skeleton_by_default():
 
 
 def test_plan_with_validation_can_call_llm_when_notes_provided(monkeypatch):
+    monkeypatch.setattr(
+        "app.agents.visual_tools.settings.visual_summary_llm_planner", False
+    )
     ctx = PresentationContext(
         workspace_id=uuid.uuid4(),
         user_id=uuid.uuid4(),
@@ -84,6 +91,8 @@ def test_plan_with_validation_can_call_llm_when_notes_provided(monkeypatch):
     monkeypatch.setattr("app.agents.visual_tools._client", lambda: fake_client)
 
     result = _plan_with_validation(ctx, notes="Prefer clearer titles")
-    assert result["replan_attempted"] is True
+    # Primary LLM succeeds → replan_attempted is only True for a repair pass
+    assert result["replan_attempted"] is False
     assert len(calls) == 1
     assert result["validation_status"] == "passed"
+    assert result["plan"]["block_outline"][0]["title"] == "Role fit"

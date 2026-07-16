@@ -204,7 +204,10 @@ def test_goal_aware_lead_block_for_comparison():
     assert plan["block_outline"][0]["type"] == "table"
 
 
-def test_plan_layout_uses_code_skeleton_without_llm():
+def test_plan_layout_uses_code_skeleton_without_llm(monkeypatch):
+    monkeypatch.setattr(
+        "app.agents.visual_tools.settings.visual_summary_llm_planner", False
+    )
     ctx = PresentationContext(
         workspace_id=uuid.uuid4(),
         user_id=uuid.uuid4(),

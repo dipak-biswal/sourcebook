@@ -18,6 +18,27 @@ STRUCTURED_CONTENT_KEYS = frozenset(
     {"summary", "key_points", "faq", "sections", "themes"}
 )
 
+# Optional fields used by assemble_block / available_source_hints — preserved when present.
+_OPTIONAL_LIST_FIELDS = (
+    "matrix_rows",
+    "comparisons",
+    "levels",
+    "concepts",
+    "terms",
+    "ordered_actions",
+    "learning_path",
+    "design_process",
+    "steps",
+    "update_checklist",
+    "milestones",
+    "timeline",
+    "metrics",
+    "gaps",
+    "risks",
+    "misconceptions",
+)
+_OPTIONAL_STR_FIELDS = ("priority_message",)
+
 _EMPTY_STRUCTURED: dict[str, Any] = {
     "summary": "",
     "key_points": [],
@@ -27,8 +48,21 @@ _EMPTY_STRUCTURED: dict[str, Any] = {
 }
 
 
+def _normalize_str_list(raw: Any, *, item_limit: int = 20, item_chars: int = 400) -> list[str]:
+    out: list[str] = []
+    if not isinstance(raw, list):
+        return out
+    for item in raw:
+        text = str(item).strip()
+        if text and text not in out:
+            out.append(text[:item_chars])
+        if len(out) >= item_limit:
+            break
+    return out
+
+
 def normalize_structured_content(raw: Any) -> dict[str, Any]:
-    """Coerce planner/render input to the stable handoff schema."""
+    """Coerce planner/render input to the stable handoff schema (+ optional fields)."""
     if not isinstance(raw, dict):
         return dict(_EMPTY_STRUCTURED)
 
@@ -78,13 +112,25 @@ def normalize_structured_content(raw: Any) -> dict[str, Any]:
         if len(themes) >= 6:
             break
 
-    return {
+    out: dict[str, Any] = {
         "summary": summary,
         "key_points": key_points,
         "faq": faq,
         "sections": sections,
         "themes": themes,
     }
+
+    # Preserve extended fields so planner grounding + assembly can use them.
+    for key in _OPTIONAL_LIST_FIELDS:
+        items = _normalize_str_list(raw.get(key))
+        if items:
+            out[key] = items
+    for key in _OPTIONAL_STR_FIELDS:
+        text = str(raw.get(key) or "").strip()
+        if text:
+            out[key] = text[:800]
+
+    return out
 
 
 def validate_handoff(structured: dict[str, Any] | None) -> tuple[bool, list[str]]:

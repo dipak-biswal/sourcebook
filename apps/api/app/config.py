@@ -67,6 +67,9 @@ class Settings(BaseSettings):
     embedding_dimensions: int = 1536
     chat_model: str = "gpt-4o-mini"
     visual_summary_model: str = "gpt-4o-mini"
+    # When True, the layout planner LLM decides block selection/order/width;
+    # code skeleton is fallback. Set False to force skeleton-first instantly.
+    visual_summary_llm_planner: bool = True
     rag_top_k: int = 5
     # Cosine floor: below this → no hits, no sources (off-topic questions).
     # Raise (e.g. 0.25) if off-topic still retrieves; lower if on-topic misses.

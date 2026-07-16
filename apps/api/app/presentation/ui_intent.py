@@ -206,6 +206,67 @@ def affordance_has_data(affordance: str, structured: dict[str, Any]) -> bool:
     return False
 
 
+# source_hint → affordance used for data presence (mirrors assemble_block branches)
+_SOURCE_HINT_AFFORDANCE: dict[str, str] = {
+    "summary": "overview",
+    "key_points": "highlights",
+    "concepts": "concept_glossary",
+    "ordered_actions": "ordered_guide",
+    "matrix_rows": "comparison_matrix",
+    "comparisons": "comparison_matrix",
+    "levels": "qualitative_levels",
+    "faq": "self_check",
+    "priority_message": "priority_alert",
+    "themes": "topic_filter",
+    "milestones": "timeline",
+    "metrics": "metrics",
+}
+
+# Canonical source_hints the planner may use (order is prompt display order).
+KNOWN_SOURCE_HINTS: tuple[str, ...] = (
+    "summary",
+    "key_points",
+    "concepts",
+    "ordered_actions",
+    "matrix_rows",
+    "comparisons",
+    "levels",
+    "faq",
+    "priority_message",
+    "themes",
+    "milestones",
+    "metrics",
+)
+
+
+def available_source_hints(structured: dict[str, Any]) -> set[str]:
+    """
+    Return source_hint values that currently have fillable data.
+
+    Used as the planner whitelist and by validate_layout_plan grounding checks.
+    """
+    structured = structured if isinstance(structured, dict) else {}
+    present: set[str] = set()
+    for hint in KNOWN_SOURCE_HINTS:
+        if hint == "comparisons":
+            # Prefer real comparisons list; pipe rows also feed comparison blocks.
+            if structured_field_present(structured, "comparisons") or _pipe_rows_present(
+                structured
+            ):
+                present.add(hint)
+            continue
+        if hint == "matrix_rows":
+            if structured_field_present(structured, "matrix_rows") or _pipe_rows_present(
+                structured
+            ):
+                present.add(hint)
+            continue
+        aff = _SOURCE_HINT_AFFORDANCE.get(hint)
+        if aff and affordance_has_data(aff, structured):
+            present.add(hint)
+    return present
+
+
 def json_dumps_safe(obj: Any) -> str:
     try:
         import json

@@ -7,6 +7,7 @@ import re
 from typing import Any
 
 from app.presentation.evidence import AgentEvidenceBundle
+from app.presentation.ui_intent import available_source_hints
 
 _MAX_SUMMARY_CHARS = 600
 _MAX_SECTION_BODY = 1200
@@ -310,12 +311,16 @@ def build_plan_layout_input(
     evidence: AgentEvidenceBundle,
     components: list[str],
     notes: str = "",
+    available_fields: list[str] | None = None,
 ) -> dict[str, Any]:
     """Structured payload passed to the layout planner LLM."""
+    if available_fields is None:
+        available_fields = sorted(available_source_hints(structured_content or {}))
     return {
         "user_goal": (goal or "").strip(),
         "requested_components": components,
         "structured_content": structured_content,
+        "available_source_hints": list(available_fields),
         "evidence_summary": summarize_agent_evidence(evidence),
         "planner_notes": (notes or "").strip() or None,
     }
@@ -325,27 +330,64 @@ _PLANNER_FEW_SHOTS: dict[str, str] = {
     "resume_dashboard": (
         'EXAMPLE (resume_dashboard):\n'
         '{"presentation_profile":"resume_dashboard","components":["table","progress","key_points"],'
-        '"block_outline":[{"type":"summary","title":"Overview","purpose":"Role fit summary"},'
-        '{"type":"table","title":"Skills matrix","purpose":"Skills vs role requirements"},'
-        '{"type":"progress","title":"Skill levels","purpose":"Qualitative skill strength"}],'
+        '"block_outline":['
+        '{"type":"summary","title":"Overview","source_hint":"summary","width":"full","purpose":"Role fit summary"},'
+        '{"type":"table","title":"Skills matrix","source_hint":"matrix_rows","width":"full","purpose":"Skills vs role requirements"},'
+        '{"type":"progress","title":"Skill levels","source_hint":"levels","width":"half","purpose":"Qualitative skill strength"}'
+        '],'
         '"rationale":"Table and progress for resume scan; key_points for highlights."}'
     ),
     "gap_analysis": (
         'EXAMPLE (gap_analysis):\n'
         '{"presentation_profile":"gap_analysis","components":["callout","table","faq"],'
-        '"block_outline":[{"type":"callout","title":"Main gap","purpose":"Primary role gap"},'
-        '{"type":"table","title":"Requirements vs evidence","purpose":"Gap comparison rows"},'
-        '{"type":"faq","title":"FAQ","purpose":"Common questions from answer"}],'
+        '"block_outline":['
+        '{"type":"callout","title":"Main gap","source_hint":"priority_message","width":"half","purpose":"Primary role gap"},'
+        '{"type":"table","title":"Requirements vs evidence","source_hint":"matrix_rows","width":"full","purpose":"Gap comparison rows"},'
+        '{"type":"faq","title":"FAQ","source_hint":"faq","width":"half","purpose":"Common questions from answer"}'
+        '],'
         '"rationale":"Callout surfaces the main gap; table compares requirements."}'
     ),
     "faq_guide": (
         'EXAMPLE (faq_guide):\n'
         '{"presentation_profile":"faq_guide","components":["summary","faq","key_points"],'
-        '"block_outline":[{"type":"summary","title":"Overview","purpose":"Short overview"},'
-        '{"type":"faq","title":"FAQ","purpose":"Question and answer pairs"},'
-        '{"type":"key_points","title":"Highlights","purpose":"Top bullets"}],'
+        '"block_outline":['
+        '{"type":"summary","title":"Overview","source_hint":"summary","width":"full","purpose":"Short overview"},'
+        '{"type":"faq","title":"FAQ","source_hint":"faq","width":"half","purpose":"Question and answer pairs"},'
+        '{"type":"key_points","title":"Highlights","source_hint":"key_points","width":"half","purpose":"Top bullets"}'
+        '],'
         '"rationale":"FAQ-first layout when the answer is Q&A heavy."}'
     ),
+}
+
+# One-line purpose for each planner block type (menu for the LLM).
+_BLOCK_MENU: dict[str, str] = {
+    "summary": "short prose overview",
+    "key_points": "bullet highlights",
+    "key_terms": "term + definition glossary",
+    "steps": "ordered how-to / process",
+    "table": "multi-column comparison matrix",
+    "comparison": "side-by-side tradeoffs",
+    "progress": "qualitative levels (Strong/Growing/Gap)",
+    "faq": "Q&A pairs",
+    "callout": "priority alert / gap / risk",
+    "chips": "theme filters (≥2 themes)",
+    "timeline": "dated milestones",
+    "metrics": "label | value stats",
+}
+
+_SOURCE_HINT_BLOCK_TYPE: dict[str, str] = {
+    "summary": "summary",
+    "key_points": "key_points",
+    "concepts": "key_terms",
+    "ordered_actions": "steps",
+    "matrix_rows": "table",
+    "comparisons": "comparison",
+    "levels": "progress",
+    "faq": "faq",
+    "priority_message": "callout",
+    "themes": "chips",
+    "milestones": "timeline",
+    "metrics": "metrics",
 }
 
 
@@ -362,6 +404,32 @@ def _planner_few_shot(goal: str, components: list[str]) -> str:
     return _PLANNER_FEW_SHOTS["faq_guide"]
 
 
+def _format_available_fields_block(available: list[str]) -> str:
+    """Prompt section listing only present source_hints."""
+    if not available:
+        return (
+            "AVAILABLE SOURCE FIELDS (use only these source_hint values; each maps to real data):\n"
+            "  (none — structured content is thin; prefer a minimal summary/key_points plan if any data exists)\n"
+        )
+    lines = [
+        "AVAILABLE SOURCE FIELDS (use only these source_hint values; each maps to real data):"
+    ]
+    for hint in available:
+        btype = _SOURCE_HINT_BLOCK_TYPE.get(hint, hint)
+        purpose = _BLOCK_MENU.get(btype, "")
+        suffix = f" → {btype}" + (f" ({purpose})" if purpose else "")
+        lines.append(f"  - {hint}{suffix}  (present)")
+    lines.append("  # everything else is EMPTY — do not plan a block for it.")
+    return "\n".join(lines) + "\n"
+
+
+def _format_block_menu() -> str:
+    lines = ["BLOCK MENU (type purpose — pick types that match an available source_hint):"]
+    for btype, purpose in _BLOCK_MENU.items():
+        lines.append(f"  - {btype}: {purpose}")
+    return "\n".join(lines) + "\n"
+
+
 def format_plan_layout_prompt(payload: dict[str, Any], *, layout_hints: str) -> str:
     """Compact planner prompt — structured JSON in, layout JSON out."""
     body = json.dumps(payload, ensure_ascii=False, indent=2)
@@ -372,20 +440,39 @@ def format_plan_layout_prompt(payload: dict[str, Any], *, layout_hints: str) -> 
     notes_block = ""
     if planner_notes:
         notes_block = f"\nPLANNER NOTES (address these):\n{planner_notes}\n"
+    available = list(payload.get("available_source_hints") or [])
+    if not available and isinstance(payload.get("structured_content"), dict):
+        available = sorted(available_source_hints(payload["structured_content"]))
+    available_block = _format_available_fields_block(available)
+    menu_block = _format_block_menu()
     return (
         "You are the Visual Summary layout planner.\n"
         "Input is STRUCTURED CONTENT extracted from the main workspace agent's answer.\n"
-        "Do not invent facts. Plan UI blocks that present the structured content.\n\n"
+        "You decide which blocks to show, their order, titles, and width.\n"
+        "Do not invent facts. Omit blocks when the source field is empty.\n\n"
         f"{few_shot}\n\n"
+        f"{available_block}\n"
+        f"{menu_block}\n"
         f"STRUCTURED INPUT:\n{body}\n"
         f"{notes_block}\n"
         f"{layout_hints}\n\n"
-        "Return JSON only:\n"
+        "RULES:\n"
+        "- Lead with the block that best answers the user's goal.\n"
+        '- Choose width per block: "full" for wide data '
+        "(table/comparison/timeline/steps/chips/summary),\n"
+        '  "half" for compact blocks that should sit side-by-side '
+        "(key_points/faq/key_terms/callout/metrics/progress).\n"
+        "- Group related blocks next to each other. Prefer 4-7 blocks; "
+        "omit anything without data.\n"
+        "- Every block_outline entry MUST include type, title, source_hint, and width.\n"
+        "- Use only source_hint values listed under AVAILABLE SOURCE FIELDS.\n\n"
+        "OUTPUT (JSON only):\n"
         "{\n"
-        '  "presentation_profile": "short_snake_case e.g. resume_dashboard",\n'
+        '  "presentation_profile": "short_snake_case e.g. gap_analysis",\n'
         '  "components": ["table", "progress", ...],\n'
         '  "block_outline": [\n'
-        '    {"type": "table", "title": "...", "purpose": "what facts this block shows"}\n'
+        '    {"type": "table", "title": "...", "source_hint": "matrix_rows", '
+        '"width": "full", "purpose": "what facts this block shows"}\n'
         "  ],\n"
         '  "rationale": "1-3 sentences on layout choices"\n'
         "}\n"
