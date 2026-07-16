@@ -184,6 +184,9 @@ def _first_summary_paragraph(text: str) -> str:
             continue
         if _looks_like_padding(cleaned):
             continue
+        # A paragraph ending in a colon is a lead-in to a list, not a summary.
+        if cleaned.endswith(":"):
+            continue
         return cleaned[:_MAX_SUMMARY_CHARS]
     return ""
 

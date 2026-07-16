@@ -336,3 +336,58 @@ def test_job_search_assembly_splits_levels_and_matrix():
     if "progress" in by_type:
         assert any("Strong" in (i or "") or "Gap" in (i or "") for i in (by_type["progress"].get("items") or []))
     assert plan["block_outline"][0]["type"] == "summary"
+
+
+def test_steps_dedupe_labels_and_key_points_overlap():
+    structured = {
+        "summary": "Improve your resume with these steps:",
+        "key_points": [
+            "Identify key skills for the role.",
+            "Quantify your impact with metrics.",
+        ],
+        "ordered_actions": [
+            "Analyze Job Descriptions:",  # label marker, should be dropped
+            "Identify key skills for the role.",
+            "Quantify your impact with metrics.",
+            "Set a timeline for each step.",
+        ],
+        "themes": [],
+    }
+    outline = [
+        {"type": "steps", "source_hint": "ordered_actions"},
+        {"type": "key_points", "source_hint": "key_points"},
+        {"type": "summary", "source_hint": "summary"},
+    ]
+    blocks, dropped = assemble_blocks(outline, structured)
+    by_type = {b.type: b for b in blocks}
+    # Label marker removed from steps
+    assert "Analyze Job Descriptions:" not in (by_type["steps"].items or [])
+    # key_points fully overlaps steps -> dropped as duplicate
+    assert "key_points" not in by_type
+    assert any(d.get("reason") == "duplicates steps" for d in dropped)
+    # Colon lead-in is not used as the summary body
+    assert not (by_type["summary"].body or "").endswith(
+        "Improve your resume with these steps:"
+    )
+
+
+def test_callout_not_fabricated_and_faq_requires_real_answer():
+    structured = {
+        "summary": "A normal overview sentence about the workspace.",
+        "priority_message": "",
+        "gaps": [],
+        "faq": [
+            {
+                "question": "Is my resume tailored?",
+                "answer": "Have I quantified impact? - Is it error-free?",  # questions only
+            }
+        ],
+    }
+    outline = [
+        {"type": "callout", "source_hint": "priority_message"},
+        {"type": "faq", "source_hint": "faq"},
+    ]
+    blocks, _ = assemble_blocks(outline, structured)
+    types = {b.type for b in blocks}
+    assert "callout" not in types  # no real priority -> not fabricated from summary
+    assert "faq" not in types  # question-only answer rejected

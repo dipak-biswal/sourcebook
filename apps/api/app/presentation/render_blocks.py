@@ -13,9 +13,8 @@ _FULL_WIDTH_TYPES = frozenset(
     {"summary", "table", "comparison", "chart", "timeline", "steps", "chips"}
 )
 # Compact blocks get promoted to full width once they hold this many rows.
-_WIDTH_PROMOTE_TYPES = frozenset(
-    {"key_points", "faq", "key_terms", "progress", "metrics"}
-)
+# key_points/faq stay half so they pair with a neighbor instead of stacking.
+_WIDTH_PROMOTE_TYPES = frozenset({"key_terms", "progress", "metrics"})
 _WIDTH_PROMOTE_THRESHOLD = 6
 
 
@@ -189,11 +188,31 @@ def _prose_key_points(structured: dict[str, Any]) -> list[str]:
     return out
 
 
+def _clean_steps(items: list[str]) -> list[str]:
+    """Drop label-only "Title:" markers and de-dupe so steps read as actions."""
+    out: list[str] = []
+    seen: set[str] = set()
+    for item in items:
+        text = str(item).strip()
+        if not text:
+            continue
+        # e.g. "Analyze Job Descriptions:" is a section marker, not a step
+        if text.endswith(":") and len(text.split()) <= 6:
+            continue
+        key = text.lower().rstrip(".")
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append(text)
+    return out
+
+
 def _steps_from_structured(structured: dict[str, Any]) -> list[str]:
     for key in ("ordered_actions", "learning_path", "design_process", "steps", "update_checklist"):
         items = _str_list(structured.get(key))
-        if items:
-            return items
+        cleaned = _clean_steps(items)
+        if cleaned:
+            return cleaned
     steps: list[str] = []
     for sec in structured.get("sections") or []:
         if not isinstance(sec, dict):
@@ -210,7 +229,7 @@ def _steps_from_structured(structured: dict[str, Any]) -> list[str]:
             m = re.match(r"^\s*(?:\d+[.)]|[-•*])\s+(.+)$", line)
             if m:
                 steps.append(m.group(1).strip()[:400])
-    return _str_list(steps, limit=12)
+    return _clean_steps(_str_list(steps, limit=12))
 
 
 def _terms_from_structured(structured: dict[str, Any]) -> list[KeyTerm]:
@@ -253,19 +272,30 @@ def _terms_from_structured(structured: dict[str, Any]) -> list[KeyTerm]:
     return terms
 
 
+def _is_real_faq_answer(answer: str) -> bool:
+    """False when an 'answer' is empty or itself just a list of questions."""
+    text = (answer or "").strip()
+    if not text:
+        return False
+    parts = [p.strip() for p in re.split(r"\s+-\s+|(?<=[?.!])\s+", text) if p.strip()]
+    if parts and all(p.endswith("?") for p in parts):
+        return False
+    return True
+
+
 def _faq_from_structured(structured: dict[str, Any]) -> list[FaqItem]:
     faqs: list[FaqItem] = []
     for item in structured.get("faq") or []:
         if isinstance(item, dict):
             q = str(item.get("question") or "").strip()
             a = str(item.get("answer") or "").strip()
-            if q:
+            if q and _is_real_faq_answer(a):
                 faqs.append(FaqItem(question=q[:300], answer=a[:800]))
     for item in structured.get("misconceptions") or []:
         if isinstance(item, dict):
             q = str(item.get("question") or item.get("myth") or "").strip()
             a = str(item.get("answer") or item.get("correction") or "").strip()
-            if q:
+            if q and _is_real_faq_answer(a):
                 faqs.append(FaqItem(question=q[:300], answer=a[:800]))
     return faqs[:10]
 
@@ -290,11 +320,7 @@ def _callout_body(structured: dict[str, Any]) -> tuple[str, str]:
                 body = str(first).strip()
             if body:
                 return "Priority", body[:600]
-    summary = str(structured.get("summary") or "").strip()
-    if summary:
-        # First sentence as callout when no explicit priority module
-        first = re.split(r"(?<=[.!?])\s+", summary, maxsplit=1)[0].strip()
-        return "Key takeaway", first[:600]
+    # No real priority/gap/risk — do not fabricate a callout from the summary.
     return "Priority", ""
 
 
@@ -335,6 +361,9 @@ def assemble_block(
 
     if btype == "summary" or hint == "summary":
         body = str(structured.get("summary") or "").strip()
+        # A colon-terminated lead-in ("…consider the following:") is not a summary.
+        if body.endswith(":"):
+            body = ""
         if not body and structured.get("key_points"):
             body = " ".join(_str_list(structured.get("key_points"), limit=3))
         if body:
@@ -480,7 +509,40 @@ def assemble_blocks(
         blocks.append(assembled)
         if len(blocks) >= 10:
             break
+
+    blocks, deduped = _dedupe_overlapping_blocks(blocks)
+    dropped.extend(deduped)
     return blocks, dropped
+
+
+def _norm_line(text: str) -> str:
+    return re.sub(r"\s+", " ", str(text).strip().lower()).rstrip(".")
+
+
+def _dedupe_overlapping_blocks(
+    blocks: list[GenUIBlock],
+) -> tuple[list[GenUIBlock], list[dict[str, str]]]:
+    """When steps already cover the key points, don't repeat them as a list."""
+    step_lines = {
+        _norm_line(i)
+        for b in blocks
+        if b.type == "steps"
+        for i in (b.items or [])
+    }
+    if not step_lines:
+        return blocks, []
+
+    out: list[GenUIBlock] = []
+    dropped: list[dict[str, str]] = []
+    for block in blocks:
+        if block.type == "key_points" and block.items:
+            unique = [i for i in block.items if _norm_line(i) not in step_lines]
+            if len(unique) < 2:
+                dropped.append({"type": "key_points", "reason": "duplicates steps"})
+                continue
+            block = block.model_copy(update={"items": unique})
+        out.append(block)
+    return out, dropped
 
 
 def payload_from_assembly(
