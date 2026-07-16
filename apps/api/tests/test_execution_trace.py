@@ -690,3 +690,62 @@ def test_emit_execution_trace_uses_payload_dict():
     assert events[0][0] == "trace"
     assert "execution_trace" in events[0][1]
     assert events[0][1]["execution_trace"]["goal"] == "Hello"
+
+def _walk_nodes(nodes):
+    for node in nodes:
+        yield node
+        yield from _walk_nodes(node.get("children") or [])
+
+
+def test_tool_error_surfaces_in_trace_while_running():
+    """A tool that returns an error dict marks its node errored, even mid-run."""
+    run = _run_with_steps(
+        "Build a visual summary",
+        [
+            {"type": "tool_call", "tool_name": "render_ui", "input": {"layout_plan_json": "{}"}},
+            {
+                "type": "tool_result",
+                "tool_name": "render_ui",
+                "output": {
+                    "error": "Layout plan failed validation",
+                    "validation_errors": ["block_outline is empty", "timeline needs dates"],
+                },
+            },
+        ],
+    )
+    run.status = "running"
+    trace = build_execution_trace(run, workspace_name="Docs")
+
+    error_nodes = [n for n in _walk_nodes(trace["phases"]) if n.get("state") == "error"]
+    assert len(error_nodes) == 1
+    tool_node = error_nodes[0]
+    assert tool_node["tool_name"] == "render_ui"
+    assert "failed validation" in tool_node["error"]
+    assert "block_outline is empty" in tool_node["error"]
+    # Trace-level error + auto-focus even though the run is still "running"
+    assert trace["error"] and "failed validation" in trace["error"]
+    assert trace["active_phase_id"] == tool_node["id"]
+
+
+def test_visual_summary_render_error_surfaces_on_stage():
+    """render_ui failing inside the Visual Summary Agent marks its stage errored."""
+    run = _run_with_steps(
+        "Summarize with a visual",
+        [
+            {"type": "final", "output": "Main agent answer with enough detail for layout."},
+            {"type": "agent_handoff", "output": {"status": "handoff", "agent": "Visual Summary Agent"}},
+            {"type": "tool_call", "tool_name": "render_ui", "input": {"layout_plan_json": "{}"}},
+            {
+                "type": "tool_result",
+                "tool_name": "render_ui",
+                "output": {"error": "Failed to generate presentation: boom"},
+            },
+        ],
+    )
+    run.status = "running"
+    trace = build_execution_trace(run, workspace_name="Docs")
+
+    error_nodes = [n for n in _walk_nodes(trace["phases"]) if n.get("state") == "error"]
+    assert error_nodes, "expected an errored node in the visual summary trace"
+    assert any("Failed to generate presentation" in (n.get("error") or "") for n in error_nodes)
+    assert trace["error"] and "Failed to generate presentation" in trace["error"]

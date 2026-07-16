@@ -156,6 +156,42 @@ def _step_output_status(step: AgentStep | dict[str, Any]) -> str | None:
     return str(status) if status is not None else None
 
 
+def _error_from_payload(payload: Any) -> str | None:
+    """Pull a human error message out of a tool result/output dict."""
+    if not isinstance(payload, dict):
+        return None
+    err = payload.get("error")
+    message = str(err).strip() if err else ""
+    if not message and _step_output_status(payload) in (
+        "error",
+        "failed",
+        "validation_failed",
+    ):
+        message = str(payload.get("message") or "").strip() or "Step failed"
+    if not message:
+        return None
+    validation = payload.get("validation_errors")
+    if isinstance(validation, list) and validation:
+        extras = "; ".join(str(v).strip() for v in validation[:5] if str(v).strip())
+        if extras:
+            message = f"{message} ({extras})"
+    return message[:500]
+
+
+def _tool_error_message(tool: _ToolAcc) -> str | None:
+    step = tool.result_step
+    if step is None:
+        return None
+    return _error_from_payload(step.output) or _error_from_payload(step.input)
+
+
+def _set_tool_error(node: dict[str, Any], tool: _ToolAcc) -> None:
+    message = _tool_error_message(tool)
+    if message:
+        node["state"] = "error"
+        node["error"] = message
+
+
 def _normalize_token_counts(
     tokens: dict[str, int],
     *,
@@ -586,6 +622,7 @@ class _ToolAcc:
             "state": self.state,
         }
         node.update(self._timing())
+        _set_tool_error(node, self)
         if self.call_step and self.call_step.input is not None:
             node["input"] = self.call_step.input
         elif self.result_step and self.result_step.input is not None:
@@ -620,6 +657,7 @@ class _ToolAcc:
             "state": self.state,
         }
         node.update(self._timing())
+        _set_tool_error(node, self)
         if self.call_step and self.call_step.input is not None:
             node["input"] = _tool_call_input_for_trace(
                 self.tool_name,
@@ -762,14 +800,18 @@ class _TurnAcc:
             embedded["id"] = f"{tool.id}-llm-call"
             embedded["label"] = "LLM call"
             stage_children.append(embedded)
-        return {
+        stage_error = _tool_error_message(tool)
+        stage_node: dict[str, Any] = {
             "id": f"{self.id}-stage-{stage_key}",
             "type": "visual_stage",
             "label": label,
             "stage": stage_key,
-            "state": tool.state,
+            "state": "error" if stage_error else tool.state,
             "children": stage_children,
         }
+        if stage_error:
+            stage_node["error"] = stage_error
+        return stage_node
 
     def _visual_summary_children(self, live: LiveTraceContext | None) -> list[dict[str, Any]]:
         nodes: list[dict[str, Any]] = []
@@ -1608,7 +1650,31 @@ def _sum_trace_tokens(phases: list[dict[str, Any]]) -> dict[str, int]:
     return summary
 
 
+def _first_error_id(nodes: list[dict[str, Any]]) -> str | None:
+    for node in nodes:
+        if node.get("state") == "error":
+            return str(node.get("id"))
+        hit = _first_error_id(node.get("children") or [])
+        if hit:
+            return hit
+    return None
+
+
+def _first_error_message(nodes: list[dict[str, Any]]) -> str | None:
+    for node in nodes:
+        if node.get("state") == "error" and node.get("error"):
+            return str(node.get("error"))
+        hit = _first_error_message(node.get("children") or [])
+        if hit:
+            return hit
+    return None
+
+
 def _active_phase_id(phases: list[dict[str, Any]]) -> str | None:
+    # Surface an errored step first so the UI focuses the failure.
+    error_id = _first_error_id(phases)
+    if error_id:
+        return error_id
     for phase in phases:
         if not _phase_done(phase):
             return str(phase.get("id"))
@@ -1779,6 +1845,10 @@ def _build_execution_trace_inner(
     if run.status == "failed":
         error_message = (run.error or "").strip() or "Run failed"
         _mark_trace_error(visible, error_message)
+    else:
+        # A tool may have errored while the run is still looping/retrying —
+        # surface it so the trace shows the failure instead of "loading".
+        error_message = _first_error_message(visible)
 
     trace: dict[str, Any] = {
         "goal": run.goal or "",

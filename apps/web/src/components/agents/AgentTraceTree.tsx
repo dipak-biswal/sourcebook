@@ -762,11 +762,18 @@ export function AgentTraceTree({
                 {run?.status === "waiting_approval" ? "awaiting you" : "running"}
               </Badge>
             )}
-            {trace?.status === "failed" && (
+            {trace?.status === "failed" ? (
               <Badge variant="danger" className="gap-1 text-[10px]">
                 <AlertTriangle className="h-2.5 w-2.5" />
                 failed
               </Badge>
+            ) : (
+              trace?.error && (
+                <Badge variant="danger" className="gap-1 text-[10px]">
+                  <AlertTriangle className="h-2.5 w-2.5" />
+                  step error
+                </Badge>
+              )
             )}
           </div>
           <div className="flex items-center gap-3">
@@ -820,6 +827,13 @@ export function AgentTraceTree({
           />
         </div>
       </div>
+
+      {trace?.error && (
+        <div className="flex items-start gap-2 border-b border-danger-border/40 bg-danger-soft/50 px-4 py-2 text-[11px] text-danger-text">
+          <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+          <span className="min-w-0 break-words">{trace.error}</span>
+        </div>
+      )}
 
       {phases.length === 0 ? (
         <p className="p-4 text-xs text-mute">Waiting for execution trace…</p>
