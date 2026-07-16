@@ -313,6 +313,11 @@ def build_visual_tools(
 ):
     """Return Visual Summary Agent tools bound to this run's handoff context."""
 
+    # Cache the plan_layout result so render_ui can recover when the model
+    # hands back malformed/truncated layout_plan_json — LLMs routinely
+    # mis-serialize a multi-KB plan into tool-call arguments.
+    plan_cache: dict[str, Any] = {}
+
     @tool
     def plan_layout(notes: str = "") -> dict[str, Any]:
         """
@@ -346,20 +351,44 @@ def build_visual_tools(
             payload["replan_prompt"] = result["replan_prompt"]
         if result.get("replan_llm_output"):
             payload["replan_llm_output"] = result["replan_llm_output"]
+        if isinstance(result.get("plan"), dict) and result["plan"]:
+            plan_cache["plan"] = result["plan"]
         return payload
 
     @tool
-    def render_ui(layout_plan_json: str) -> dict[str, Any]:
+    def render_ui(layout_plan_json: str = "") -> dict[str, Any]:
         """
-        Build generative UI blocks from an approved layout plan (JSON string from plan_layout).
-        """
-        try:
-            plan = json.loads(layout_plan_json)
-        except json.JSONDecodeError as e:
-            return {"error": f"Invalid layout_plan_json: {e}"}
+        Build generative UI blocks from the approved layout plan.
 
-        if not isinstance(plan, dict):
-            return {"error": "layout_plan must be a JSON object"}
+        Pass "{}" to render the plan produced by plan_layout — you do not need
+        to echo the full plan back. If you do pass layout_plan_json and it is
+        valid, it is used; otherwise the approved plan is used automatically.
+        """
+        plan: dict[str, Any] | None = None
+        raw = (layout_plan_json or "").strip()
+        parse_error: str | None = None
+        if raw and raw not in ("{}", "null"):
+            try:
+                parsed = json.loads(raw)
+            except json.JSONDecodeError as e:
+                parse_error = f"Invalid layout_plan_json: {e}"
+            else:
+                if isinstance(parsed, dict) and parsed:
+                    plan = parsed
+                else:
+                    parse_error = "layout_plan must be a JSON object"
+
+        # Recover from a missing/malformed arg using the cached plan_layout result.
+        if plan is None:
+            cached = plan_cache.get("plan")
+            if isinstance(cached, dict) and cached:
+                plan = cached
+
+        if plan is None:
+            return {
+                "error": parse_error
+                or "layout_plan is required — call plan_layout before render_ui"
+            }
 
         structured = normalize_structured_content(
             ctx.structured_content
