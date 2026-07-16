@@ -248,6 +248,12 @@ def available_source_hints(structured: dict[str, Any]) -> set[str]:
     structured = structured if isinstance(structured, dict) else {}
     present: set[str] = set()
     for hint in KNOWN_SOURCE_HINTS:
+        if hint == "priority_message":
+            # The callout assembler refuses to fabricate from the summary, so
+            # only advertise this hint when real priority/gap/risk data exists.
+            if structured_field_present(structured, "priority_message", "gaps", "risks"):
+                present.add(hint)
+            continue
         if hint == "comparisons":
             # Prefer real comparisons list; pipe rows also feed comparison blocks.
             if structured_field_present(structured, "comparisons") or _pipe_rows_present(

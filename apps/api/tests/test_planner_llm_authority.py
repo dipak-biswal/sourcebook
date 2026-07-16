@@ -23,6 +23,7 @@ STRUCTURED = {
         "AWS | Mentioned once | Gap",
     ],
     "levels": ["React | Strong", "AWS | Gap"],
+    "gaps": ["AWS depth is the main gap for cloud-heavy roles."],
 }
 
 

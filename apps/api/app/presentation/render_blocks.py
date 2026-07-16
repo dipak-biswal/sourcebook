@@ -274,10 +274,15 @@ def _terms_from_structured(structured: dict[str, Any]) -> list[KeyTerm]:
 
 def _is_real_faq_answer(answer: str) -> bool:
     """False when an 'answer' is empty or itself just a list of questions."""
-    text = (answer or "").strip()
+    # Strip bold markers first so "**Have I…?**" still counts as a question.
+    text = re.sub(r"\*\*", "", answer or "").strip()
     if not text:
         return False
-    parts = [p.strip() for p in re.split(r"\s+-\s+|(?<=[?.!])\s+", text) if p.strip()]
+    parts = [
+        p.strip().lstrip("-•* ").strip()
+        for p in re.split(r"\s+-\s+|(?<=[?.!])\s+", text)
+    ]
+    parts = [p for p in parts if p]
     if parts and all(p.endswith("?") for p in parts):
         return False
     return True
@@ -523,20 +528,28 @@ def _dedupe_overlapping_blocks(
     blocks: list[GenUIBlock],
 ) -> tuple[list[GenUIBlock], list[dict[str, str]]]:
     """When steps already cover the key points, don't repeat them as a list."""
-    step_lines = {
+    step_lines = [
         _norm_line(i)
         for b in blocks
         if b.type == "steps"
         for i in (b.items or [])
-    }
+    ]
     if not step_lines:
         return blocks, []
+
+    def covered_by_steps(item: str) -> bool:
+        line = _norm_line(item)
+        if line in step_lines:
+            return True
+        # "Label — detail" steps embed the source bullet; treat containment
+        # of a substantial bullet as a duplicate too.
+        return len(line) >= 20 and any(line in s for s in step_lines)
 
     out: list[GenUIBlock] = []
     dropped: list[dict[str, str]] = []
     for block in blocks:
         if block.type == "key_points" and block.items:
-            unique = [i for i in block.items if _norm_line(i) not in step_lines]
+            unique = [i for i in block.items if not covered_by_steps(i)]
             if len(unique) < 2:
                 dropped.append({"type": "key_points", "reason": "duplicates steps"})
                 continue

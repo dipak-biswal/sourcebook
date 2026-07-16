@@ -36,6 +36,31 @@ def _normalize_heading(raw: str) -> str:
     return re.sub(r"\s+", " ", (raw or "").strip().strip(":"))
 
 
+def _clean_inline_md(text: str) -> str:
+    """Strip bold markers and leading bullet/number prefixes from one line."""
+    cleaned = re.sub(r"\*\*", "", text or "").strip()
+    cleaned = re.sub(r"^(?:[-•*]|\d+[.)])\s+", "", cleaned)
+    return cleaned.strip()
+
+
+# Section headings that describe answer structure, not document topics.
+# These must not leak into themes/chips ("Steps / Checklist", "Next Steps"…).
+_STRUCTURAL_HEADING_WORDS = frozenset(
+    {
+        "overview", "summary", "introduction", "background", "conclusion",
+        "next", "step", "steps", "checklist", "faq", "faqs", "self", "check",
+        "key", "points", "point", "highlights", "takeaways", "recommendations",
+        "recommendation", "action", "actions", "items", "resources",
+        "references", "sources", "guide", "tips", "notes",
+    }
+)
+
+
+def _is_structural_heading(title: str) -> bool:
+    words = re.findall(r"[a-z]+", (title or "").lower())
+    return bool(words) and all(w in _STRUCTURAL_HEADING_WORDS for w in words)
+
+
 def _is_faq_heading(title: str) -> bool:
     return bool(re.search(r"\bfaq\b|frequently asked", title, re.I))
 
@@ -146,20 +171,81 @@ def _extract_faq(block: str) -> list[dict[str, str]]:
     # Paragraph pairs: bold question line followed by answer paragraph
     chunks = re.split(r"\n\s*\n", block)
     for chunk in chunks:
-        chunk_lines = [ln.strip() for ln in chunk.splitlines() if ln.strip()]
+        chunk_lines = [
+            _clean_inline_md(ln) for ln in chunk.splitlines() if ln.strip()
+        ]
+        chunk_lines = [ln for ln in chunk_lines if ln]
         if len(chunk_lines) < 2:
             continue
-        head = chunk_lines[0].strip("*").strip()
+        head = chunk_lines[0]
+        rest = chunk_lines[1:]
         if head.endswith("?"):
+            # A question followed only by more questions is a self-check
+            # checklist, not a Q&A pair — don't fabricate an answer from it.
+            if all(ln.endswith("?") for ln in rest):
+                continue
             faq.append(
                 {
                     "question": head[:300],
-                    "answer": " ".join(chunk_lines[1:])[:800],
+                    "answer": " ".join(rest)[:800],
                 }
             )
         if len(faq) >= _MAX_FAQ:
             break
     return faq
+
+
+_MAX_STEPS = 12
+_STEP_SECTION_HEADING = re.compile(
+    r"step|checklist|process|guide|how|plan|workflow", re.I
+)
+
+
+def _extract_numbered_steps(body: str) -> list[str]:
+    """
+    Turn a numbered list into ordered steps, keeping item structure.
+
+    "1. **Tailor Your Resume**:\n   - Review the job description." becomes
+    "Tailor Your Resume — Review the job description." instead of a flat
+    mix of labels and sub-bullets.
+    """
+    steps: list[tuple[str, list[str]]] = []
+    for raw in body.splitlines():
+        line = raw.strip()
+        if not line:
+            continue
+        numbered = re.match(r"^\d+[.)]\s+(.+)$", line)
+        if numbered:
+            steps.append((numbered.group(1).strip(), []))
+            continue
+        bullet = re.match(r"^[-•*]\s+(.+)$", line)
+        if bullet and steps:
+            steps[-1][1].append(bullet.group(1).strip())
+    if len(steps) < 3:
+        return []
+    out: list[str] = []
+    for label_raw, details in steps[:_MAX_STEPS]:
+        label = _clean_inline_md(label_raw).rstrip(":").strip()
+        if not label:
+            continue
+        detail = _clean_inline_md(details[0]) if details else ""
+        if detail and len(label) <= 80:
+            out.append(f"{label} — {detail}"[:240])
+        else:
+            out.append(label[:240])
+    return out
+
+
+def _extract_ordered_actions(
+    text: str, sections_raw: list[tuple[str, str]]
+) -> list[str]:
+    """Prefer numbered steps from a step-like section, then the whole answer."""
+    for title, body in sections_raw:
+        if _STEP_SECTION_HEADING.search(title):
+            steps = _extract_numbered_steps(body)
+            if steps:
+                return steps
+    return _extract_numbered_steps(text)
 
 
 def _looks_like_padding(text: str) -> bool:
@@ -204,6 +290,7 @@ def extract_structured_content(answer: str, *, goal: str = "") -> dict[str, Any]
             "summary": "",
             "key_points": [],
             "faq": [],
+            "ordered_actions": [],
             "sections": [],
             "themes": [],
         }
@@ -227,8 +314,12 @@ def extract_structured_content(answer: str, *, goal: str = "") -> dict[str, Any]
             key_points.extend(_extract_bullets(body))
             continue
         if _is_faq_heading(title):
-            faq.extend(_extract_faq(body))
-            continue
+            extracted = _extract_faq(body)
+            if extracted:
+                faq.extend(extracted)
+                continue
+            # No real Q&A pairs (e.g. a self-check question list):
+            # fall through and keep it as a plain section instead.
         if _looks_like_padding(body):
             bullets = _extract_bullets(body, limit=4)
             if bullets:
@@ -238,11 +329,15 @@ def extract_structured_content(answer: str, *, goal: str = "") -> dict[str, Any]
         entry: dict[str, Any] = {"heading": title[:120]}
         if bullets:
             entry["bullets"] = bullets
-            if title.lower() not in {t.lower() for t in themes}:
+            if not _is_structural_heading(title) and title.lower() not in {
+                t.lower() for t in themes
+            }:
                 themes.append(title[:60])
         else:
             entry["body"] = body[:_MAX_SECTION_BODY]
         sections.append(entry)
+
+    ordered_actions = _extract_ordered_actions(text, sections_raw)
 
     if not key_points:
         key_points = _extract_bullets(text)
@@ -265,13 +360,33 @@ def extract_structured_content(answer: str, *, goal: str = "") -> dict[str, Any]
     key_points = _clean_key_point_bullets(deduped_kp[:_MAX_BULLETS])
     faq = _promote_question_sections_to_faq(sections, faq)
 
+    if not summary:
+        # An "Overview"/"Summary" section body is the real summary when the
+        # preamble was only a colon lead-in ("Here's a guide…:").
+        for entry in sections:
+            heading = str(entry.get("heading") or "")
+            body = str(entry.get("body") or "").strip()
+            if body and re.search(
+                r"^(overview|summary|introduction|tl;?dr|about)\b", heading, re.I
+            ):
+                summary = body[:_MAX_SUMMARY_CHARS]
+                break
+    if not summary:
+        for entry in sections:
+            body = str(entry.get("body") or "").strip()
+            if body and not _looks_like_padding(body):
+                summary = body[:_MAX_SUMMARY_CHARS]
+                break
     if not summary and key_points:
-        summary = key_points[0][:_MAX_SUMMARY_CHARS]
+        # Never surface a single bullet as "the summary" — it reads as a
+        # non-sequitur ("Review the job description carefully.").
+        summary = " ".join(key_points[:3])[:_MAX_SUMMARY_CHARS]
 
     return {
         "summary": summary,
         "key_points": key_points,
         "faq": faq[:_MAX_FAQ],
+        "ordered_actions": ordered_actions,
         "sections": sections[:8],
         "themes": themes[:6],
     }

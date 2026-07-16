@@ -56,6 +56,69 @@ Overview of the workspace documents.
     assert any("stack" in q.lower() for q in questions)
 
 
+STEP_GUIDE_ANSWER = """\
+Improving your resume is a critical step. Here's a step-by-step guide:
+
+### Overview
+Your resume should showcase skills and achievements relevant to target roles.
+
+### Steps / Checklist
+
+1. **Tailor Your Resume for Each Application**:
+   - Review the job description carefully.
+   - Highlight keywords and required skills.
+
+2. **Quantify Achievements**:
+   - Use metrics to demonstrate your impact.
+
+3. **Seek Feedback**:
+   - Share your resume with peers or mentors.
+
+### FAQ / Self-Check
+- **Is my resume tailored for the specific job?**
+- **Have I quantified my achievements?**
+- **Is the format clean and professional?**
+
+### Next Steps
+- Pick a job description and analyze it for keywords.
+- Revise your resume using the checklist above.
+"""
+
+
+def test_step_guide_answer_extraction():
+    structured = extract_structured_content(
+        STEP_GUIDE_ANSWER, goal="how would i improve my resume step by step?"
+    )
+    # Overview section body becomes the summary (preamble is a colon lead-in).
+    assert structured["summary"].startswith("Your resume should showcase")
+    # Numbered bold labels become structured steps, not flattened sub-bullets.
+    actions = structured["ordered_actions"]
+    assert len(actions) == 3
+    assert actions[0].startswith("Tailor Your Resume for Each Application — Review")
+    assert actions[2].startswith("Seek Feedback — Share")
+    # A self-check question list must not become a fake Q&A pair.
+    assert structured["faq"] == []
+    # Structural headings never leak into themes/chips.
+    assert "Steps / Checklist" not in structured["themes"]
+    assert "Next Steps" not in structured["themes"]
+
+
+def test_faq_answer_not_fabricated_from_question_list():
+    block = """\
+### FAQ
+- **Is my resume tailored for the job?**
+- **Have I quantified my achievements?**
+
+### Real FAQ
+**What stack should I lead with?**
+Lead with shipped LLM features and React.
+"""
+    structured = extract_structured_content(block, goal="faq")
+    answers = [item["answer"] for item in structured["faq"]]
+    assert all("Have I quantified" not in a for a in answers)
+    assert any("shipped LLM features" in a for a in answers)
+
+
 def test_plan_layout_prompt_uses_structured_input_not_raw_answer(monkeypatch):
     long_tail = "extra detail " * 500
     ctx = PresentationContext(

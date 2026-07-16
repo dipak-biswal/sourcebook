@@ -18,13 +18,16 @@ Honest snapshot of the product as of the current codebase.
 | **Workspace management** | Create, edit (name, **description**, **tags**), delete; workspace selector; Settings UI |
 | **Documents & ingest** | Upload, list, delete; multi-format parse → chunk → embed; status lifecycle; Redis + **RQ** worker (or sync fallback) |
 | **RAG chat** | Top-k retrieval → LLM answer with **SSE streaming**; citations (filename, score, snippet); denial when retrieval is empty/off-topic |
+| **Retrieval quality** | **pgvector HNSW** embeddings (Alembic migrations) → **hybrid retrieval** (vector + full-text, RRF fusion) → **LLM reranking** of the fused pool |
+| **Workspace-derived context** | `WorkspaceContextPacket` from name/description/tags/docs; injected into main agent prompt, handoff, and visual planner; derived-context **preview in Settings** with tag chips; de-biased generic prompts |
 | **Conversations** | Create, list, delete; message history with citations; chat suggestions endpoint |
 | **Chat ↔ Agent mode** | Same Chat page: RAG by default, or tool-using agent + HITL |
 | **Main workspace agent** | Tools: `get_current_date`, `list_documents`, `search_documents`, `web_search`, `create_note` (HITL) |
 | **Tool execution** | Date-first tool policy; **parallel read tools** (thread pool, max 4); write tools pause for approval |
 | **HITL + resume** | `create_note` and **visual summary offer** pause for Approve / Reject; approve executes then **resumes** the loop with SSE |
 | **Visual Summary (Phase A + B)** | After main agent answer → user can approve presentation → structured **handoff** → `plan_layout` (validate + optional replan) → `render_ui` → `presentation_spec` |
-| **Handoff (spine)** | Extract `summary`, `key_points`, `faq`, `sections`, `themes` (heuristic + LLM); fail if too thin |
+| **Visual Summary assembly** | **Code-first block assembly** (UiIntent skeleton) with **planner-LLM authority** over block selection/order/titles/width (grounded `source_hint` validation, code-skeleton fallback, `visual_summary_llm_planner` flag); dedupe + junk-block filtering |
+| **Handoff (spine + v2 modules)** | Extract `summary`, `key_points`, `faq`, `sections`, `themes` (heuristic + LLM); fail if too thin; optional modules (`concepts`, `levels`, `matrix_rows`, `metrics`, `timeline`, …) + `presentation_hints` |
 | **Generative UI** | Block library: summary, key points, key terms, FAQ, steps, callout, table, progress, chart, chips, timeline, comparison, metrics, quote; normalize on API + web |
 | **Agent streaming & trace** | Live SSE (`llm_start` / `llm_end` / steps / status / done); LangSmith-style **trace tree** (main agent + Visual Summary subtree) |
 | **Run panel UX** | Answer / **Visual summary** / Trace tabs; stay on Trace while running; Visual summary opt-in (no auto-switch) |
@@ -32,25 +35,24 @@ Honest snapshot of the product as of the current codebase.
 | **Usage & rate limits** | Token usage events + Usage page; per-user limits on chat / ingest / agent starts (Redis + in-memory fallback) |
 | **Dashboard & settings** | Home stats/quick actions; profile, password, workspaces |
 | **Product UI polish** | Light/dark theme; toasts, confirms, empty states, skeletons; onboarding checklist hooks |
-| **Ops** | Structured logging + `X-Request-ID`; health endpoints; `DEV_MODE` panel; Swagger at `/docs` |
+| **Document storage** | S3-compatible object storage (**R2/B2**) behind a storage interface; local filesystem fallback |
+| **Ops** | Structured logging + `X-Request-ID`; health endpoints; `DEV_MODE` panel; Swagger at `/docs`; production safety guards |
+| **Deployment** | Live: web on **Vercel**, API on **Render**, Redis on **Upstash** (docker-compose is local-only) |
 | **Tests** | Backend unit tests for agents, presentation, handoff, plan validator, gen UI, web search, tools, workspace delete, etc. |
 
-### Planned (documented, not built yet)
+### Pending (documented, not built yet)
 
-Roadmap specs live under [`docs/`](docs/). Highlights:
+Roadmap specs live under [`docs/`](docs/). What's actually left:
 
 | Area | Notes |
 |------|--------|
-| **Workspace-derived context** | `WorkspaceContextPacket` from name/description/tags/docs — inject into main agent, handoff, and visual planner ([`docs/workspace_derived_prompts.md`](docs/workspace_derived_prompts.md)) |
-| **De-bias prompts** | Remove resume/ATS few-shots and resume-shaped system copy; generic templates + packet only |
-| **Handoff v2** | Optional modules (`concepts`, `levels`, `matrix_rows`, …) + `presentation_hints` |
-| **Visual UI reliability** | Affordance ∩ data intent, code skeleton outline, **code-first block assembly** (LLM render as fallback) ([`docs/visual_summary_ui_plan.md`](docs/visual_summary_ui_plan.md)) |
-| **Workspace UX** | Description template, tag chips, derived context preview API |
-| **Execution extras** | Cached workspace derivation, optional early handoff, parallel block assembly ([`docs/agent_execution_model.md`](docs/agent_execution_model.md)) |
+| **Workspace derivation cache** | Packet is re-derived per run; add LRU/TTL cache (Phase 6 of [`docs/workspace_derived_prompts.md`](docs/workspace_derived_prompts.md)) |
+| **Execution Phase D** | After approve, call `plan_layout` → `render_ui` directly in code (drop orchestrator LLM turn) ([`docs/agent_execution_model.md`](docs/agent_execution_model.md)) |
+| **Execution extras** | Optional early handoff, parallel block assembly |
+| **Emphasis / hero block** | `emphasis` plumbing exists; full hero-layout treatment is phase 2 of [`docs/visual_summary_planner_authority.md`](docs/visual_summary_planner_authority.md) |
+| **Pipeline explorer** | Not started |
 
-**Product promise today:** users can upload docs, chat with citations, run agents with live traces, approve notes, and generate a **Visual summary** from a substantive agent answer.
-
-**Next leap (docs):** make that pipeline **workspace-aware** and **layout-reliable**, without hardcoded “resume vs learning” modes.
+**Product promise today:** users can upload docs, chat with citations, run **workspace-aware** agents with live traces, approve notes, and generate a **Visual summary** — layout planned by the LLM, grounded and validated in code — from a substantive agent answer.
 
 ---
 
@@ -61,10 +63,10 @@ Roadmap specs live under [`docs/`](docs/). Highlights:
 | **Auth** | Register / login (JWT), bcrypt password hashes; dev panel for local testing |
 | **Tenancy** | Workspaces + membership (owner/member); documents, chunks, conversations, agent runs, notes, usage all scoped by `workspace_id` |
 | **Workspace management** | Create, rename, edit description/tags, delete; workspace selector in UI |
-| **Documents** | Upload, list, delete; local file storage + Postgres metadata; status lifecycle (uploaded → queued → processing → ready/failed) |
+| **Documents** | Upload, list, delete; S3-compatible storage (R2/B2) or local files + Postgres metadata; status lifecycle (uploaded → queued → processing → ready/failed) |
 | **Ingest pipeline** | PDF, DOCX, txt/md, RST, CSV/TSV, HTML/XML, JSON/JSONL, YAML/TOML, INI/CFG, CSS, JS/TS, PY, SH, LOG → parse → chunk → embed |
 | **Background jobs** | Redis + **RQ** worker for heavy ingest (API stays responsive); configurable queue on/off |
-| **RAG chat** | Retrieve top-k chunks → LLM answer with **SSE streaming**; sources (filename, score, snippet) |
+| **RAG chat** | Hybrid retrieval (pgvector + full-text RRF) → LLM rerank → top-k chunks → LLM answer with **SSE streaming**; sources (filename, score, snippet) |
 | **Chat ↔ Agent mode** | Same Chat page toggle: RAG by default, or tool-using agent + HITL |
 | **Denial** | Off-topic / empty retrieval → no fake sources (configurable `rag_min_score`) |
 | **Conversations** | Create, list, delete conversations; per-conversation message history with citations |
@@ -152,8 +154,10 @@ Main agent and Visual Summary are **sequential phases of one `AgentRun`**, not t
 | API | Python 3.12+, FastAPI, SQLAlchemy, Pydantic, Uvicorn |
 | Package mgmt | `uv` |
 | Web | React, Vite, TypeScript, Tailwind-style tokens |
-| DB | PostgreSQL 16 |
+| DB | PostgreSQL 16 + **pgvector** (HNSW); Alembic migrations |
 | Queue / cache | Redis 7 + RQ |
+| File storage | S3-compatible (Cloudflare R2 / Backblaze B2) behind a storage interface; local fallback |
+| Hosting | Vercel (web) · Render (API) · Upstash (Redis) |
 | LLM | OpenAI-compatible (`text-embedding-3-small`, `gpt-4o-mini` by default) |
 | Agents | Tool loop + HITL for writes and visual summary; presentation package for handoff/layout/render |
 
@@ -363,10 +367,13 @@ Tune via `RATE_LIMIT_*` env vars; set `RATE_LIMIT_ENABLED=false` for heavy local
 | Main agent tools + HITL + SSE traces | **Done** |
 | Visual Summary Phase A + B (handoff, plan, validate, render) | **Done** |
 | Generative UI blocks + web normalize/render | **Done** |
-| Workspace-derived prompts / packet | **Planned** — [`docs/workspace_derived_prompts.md`](docs/workspace_derived_prompts.md) |
-| Use-case UI assembly (code-first, no vertical hardcoding) | **Planned** — [`docs/visual_summary_ui_plan.md`](docs/visual_summary_ui_plan.md) |
-| Deployed live demo | **Not done** |
-| Hybrid retrieval / pipeline explorer | **Not done** |
+| Workspace-derived prompts / packet | **Done** — packet + injection + Settings preview ([`docs/workspace_derived_prompts.md`](docs/workspace_derived_prompts.md)) |
+| Use-case UI assembly (code-first, no vertical hardcoding) | **Done** — UiIntent assembly + planner-LLM authority ([`docs/visual_summary_ui_plan.md`](docs/visual_summary_ui_plan.md)) |
+| Hybrid retrieval (pgvector + full-text RRF) + LLM rerank | **Done** |
+| Deployed live demo | **Done** — Vercel (web) + Render (API) + Upstash (Redis) |
+| Workspace derivation cache | **Planned** |
+| Execution Phase D (code-direct visual pipeline) | **Planned** |
+| Pipeline explorer | **Not done** |
 
 Canonical product vision and pipeline detail: [`docs/visual_summary.md`](docs/visual_summary.md).
 
