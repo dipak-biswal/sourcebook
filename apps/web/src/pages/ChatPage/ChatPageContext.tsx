@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type ReactNode, type FormEvent } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { useQueryClient } from "@tanstack/react-query";
 import { api } from "@/api";
 import { useDocumentTitle } from "@/hooks/useDocumentTitle";
@@ -24,6 +24,7 @@ function readMode(): ChatMode {
 
 export function ChatPageProvider({ children }: { children: ReactNode }) {
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
   const queryClient = useQueryClient();
   const bottomRef = useRef<HTMLDivElement>(null);
   useDocumentTitle("Chat");
@@ -43,6 +44,14 @@ export function ChatPageProvider({ children }: { children: ReactNode }) {
   };
 
   const sessions = useChatSessions();
+  useEffect(() => {
+    const conversationId = searchParams.get("conversation");
+    if (!conversationId) return;
+    setSearchParams({}, { replace: true });
+    sessions.setConversationId(conversationId);
+    setModePersist("chat");
+  }, [searchParams, setSearchParams, sessions.setConversationId]);
+
   const chatMessages = useChatMessages(
     sessions.workspaceId,
     sessions.conversationId,

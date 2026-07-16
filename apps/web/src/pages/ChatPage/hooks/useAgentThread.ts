@@ -285,13 +285,119 @@ export function useAgentThread(
     }
     try {
       if (presentationPending) {
-        const run = await api.approveAgentRun(runId, approve);
-        applyRunToThread(asstId, run);
-        void queryClient.invalidateQueries({ queryKey: ["agentRuns", workspaceId] });
-        if (approve) {
-          success("Visual summary ready", "Open the agent trace panel.");
-        } else {
+        if (!approve) {
+          const run = await api.approveAgentRun(runId, false);
+          applyRunToThread(asstId, run);
+          void queryClient.invalidateQueries({ queryKey: ["agentRuns", workspaceId] });
           success("Keeping text answer");
+          return;
+        }
+        const seedSteps = threadItem?.run?.steps ?? [];
+        setAgentThread((prev) =>
+          prev.map((item) =>
+            item.id === asstId
+              ? {
+                  ...item,
+                  pending: true,
+                  content: "Building visual summary…",
+                  liveSteps: seedSteps,
+                  liveTrace: seedSteps.map((step) => ({
+                    kind: "step" as const,
+                    step,
+                  })),
+                }
+              : item,
+          ),
+        );
+        const run = await api.approveAgentRunStream(
+          runId,
+          true,
+          makeAgentStreamHandlers(
+            {
+              onTrace: (trace) => {
+                patchExecutionTrace(asstId, trace);
+              },
+              onLlmStart: (event) => {
+                appendTrace(asstId, { kind: "llm", event });
+                setAgentThread((prev) =>
+                  prev.map((item) => {
+                    if (item.id !== asstId) return item;
+                    return {
+                      ...item,
+                      liveLlmEvents: [
+                        ...(item.liveLlmEvents ?? []).filter((e) => e.status === "done"),
+                        event,
+                      ],
+                    };
+                  }),
+                );
+              },
+              onLlmEnd: (p) => {
+                const patch = makeLlmEndPatch(p);
+                patchLlmInTrace(asstId, patch);
+                setAgentThread((prev) =>
+                  prev.map((item) => {
+                    if (item.id !== asstId) return item;
+                    return {
+                      ...item,
+                      liveTokenUsage:
+                        p.token_usage_so_far ?? item.liveTokenUsage ?? null,
+                      liveLlmEvents: (item.liveLlmEvents ?? []).map((e) =>
+                        e.status === "running"
+                          ? { ...e, ...patch, status: "done" as const }
+                          : e,
+                      ),
+                    };
+                  }),
+                );
+              },
+              onStep: (step) => {
+                setAgentThread((prev) =>
+                  prev.map((item) => {
+                    if (item.id !== asstId) return item;
+                    return {
+                      ...item,
+                      liveSteps: upsertSteps(item.liveSteps ?? [], step),
+                      liveTrace: upsertTraceStep(item.liveTrace ?? [], step),
+                    };
+                  }),
+                );
+              },
+              onTokenUsage: (usage) => {
+                patchLive(asstId, { liveTokenUsage: usage });
+              },
+              onStatus: (p) => {
+                if (p.presentation_spec) {
+                  setAgentThread((prev) =>
+                    prev.map((item) => {
+                      if (item.id !== asstId || !item.run) return item;
+                      return {
+                        ...item,
+                        run: {
+                          ...item.run,
+                          presentation_spec: p.presentation_spec ?? null,
+                        },
+                      };
+                    }),
+                  );
+                }
+              },
+            },
+            (final) => {
+              applyRunToThread(asstId, final);
+              setAgentRunId(final.id);
+              void queryClient.invalidateQueries({
+                queryKey: ["agentRuns", workspaceId],
+              });
+              success("Visual summary ready", "Scroll down to view it.");
+            },
+            false,
+          ),
+        );
+        if (run) {
+          applyRunToThread(asstId, run);
+          setAgentRunId(run.id);
+          void queryClient.invalidateQueries({ queryKey: ["agentRuns", workspaceId] });
         }
         return;
       }

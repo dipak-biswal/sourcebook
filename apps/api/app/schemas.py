@@ -147,9 +147,39 @@ class WorkspaceUpdateRequest(BaseModel):
     tags: list[str] | None = None
 
 
+class NoteCreateRequest(BaseModel):
+    workspace_id: uuid.UUID
+    title: str = Field(min_length=1, max_length=500)
+    body: str = Field(default="", max_length=100_000)
+
+
 class NoteUpdateRequest(BaseModel):
     title: str | None = None
     body: str | None = None
+
+
+class WorkspaceContextPreviewRequest(BaseModel):
+    name: str | None = Field(default=None, max_length=200)
+    description: str | None = Field(default=None, max_length=4000)
+    tags: list[str] | None = None
+
+
+class WorkspaceContextPreviewResponse(BaseModel):
+    confidence: str
+    derivation_version: int
+    outcome_phrase: str
+    audience_phrase: str
+    success_criteria: str
+    tone: str
+    answer_sections: list[str]
+    visual_affordances: list[str]
+    external_context_ok: bool
+    max_search_documents: int
+    max_web_search: int
+    documents_ready: list[str]
+    documents_pending: list[str]
+    filename_hints: list[str]
+    agent_prompt_excerpt: str
 
 
 class ChatSuggestionsRequest(BaseModel):

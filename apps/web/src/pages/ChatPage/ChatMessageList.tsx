@@ -1,5 +1,8 @@
-import { useNavigate } from "react-router-dom";
-import { AlertCircle, Bot, Loader2 } from "lucide-react";
+import { useMemo } from "react";
+import { Link, useNavigate } from "react-router-dom";
+import { AlertCircle, Bot, ExternalLink, Loader2, Sparkles } from "lucide-react";
+import { GenerativeUIView } from "@/components/agents/GenerativeUI";
+import { extractGenerativeUIFromRun } from "@/components/agents/generative-ui";
 import { TypingIndicator } from "@/components/chat/TypingIndicator";
 import { AgentTraceTree } from "@/components/agents/AgentTraceTree";
 
@@ -130,11 +133,30 @@ function AgentMessageItem({
 }: {
   item: AgentThreadItem;
 }) {
-  const { approving, onApproveAgent } = useChatPage();
+  const { approving, onApproveAgent, onSaveLearningNote, savingNote } = useChatPage();
   const isUser = item.role === "user";
   const showTrace =
     !isUser &&
     (item.pending || item.run || item.liveExecutionTrace);
+  const gen = useMemo(
+    () =>
+      extractGenerativeUIFromRun(
+        item.run
+          ? {
+              presentation_spec: item.run.presentation_spec,
+              final_answer: item.run.final_answer,
+              steps: item.liveSteps?.length ? item.liveSteps : item.run.steps,
+            }
+          : null,
+      ),
+    [
+      item.run?.id,
+      item.run?.presentation_spec,
+      item.run?.final_answer,
+      item.liveSteps,
+      item.run?.steps,
+    ],
+  );
 
   return (
     <div
@@ -184,6 +206,31 @@ function AgentMessageItem({
                 ? () => onApproveAgent(item.id, item.run!.id, false)
                 : undefined
             }
+          />
+        </div>
+      )}
+
+      {gen && !item.pending && (
+        <div className="mt-3 w-full max-w-[min(100%,40rem)] space-y-2">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div className="flex items-center gap-1.5 text-xs font-medium text-ink">
+              <Sparkles className="h-3.5 w-3.5 text-violet-500" strokeWidth={1.5} />
+              Visual summary
+            </div>
+            {item.run && (
+              <Link
+                to={`/agents?run=${item.run.id}`}
+                className="inline-flex items-center gap-1 text-[11px] font-medium text-mute hover:text-ink"
+              >
+                Open in Agents
+                <ExternalLink className="h-3 w-3" strokeWidth={1.5} />
+              </Link>
+            )}
+          </div>
+          <GenerativeUIView
+            payload={gen}
+            onSaveAsNote={onSaveLearningNote}
+            savingNote={savingNote}
           />
         </div>
       )}

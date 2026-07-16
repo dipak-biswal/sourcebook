@@ -12,7 +12,15 @@ import { Button } from "@/components/ui/button";
 import { FieldError } from "@/components/ui/field-error";
 import { Input } from "@/components/ui/input";
 import { validateWorkspaceName } from "@/lib/validation";
+import { cn } from "@/lib/utils";
 import { useSettingsPage } from "./settings-page-context";
+import { WorkspaceContextPreviewPanel } from "./WorkspaceContextPreview";
+import {
+  parseTagInput,
+  SUGGESTED_WORKSPACE_TAGS,
+  toggleTagInInput,
+  WORKSPACE_DESCRIPTION_TEMPLATE,
+} from "./workspace-tags";
 
 export function SettingsWorkspaces() {
   const {
@@ -134,14 +142,44 @@ export function SettingsWorkspaces() {
                   <textarea
                     value={editDescription}
                     onChange={(e) => onEditDescriptionChange(e.target.value)}
-                    className="min-h-[4rem] w-full rounded-[6px] border border-hairline bg-canvas px-2.5 py-2 text-xs text-body"
-                    placeholder="What is this workspace for? (optional)"
+                    className="min-h-[6rem] w-full rounded-[6px] border border-hairline bg-canvas px-2.5 py-2 text-xs text-body"
+                    placeholder={WORKSPACE_DESCRIPTION_TEMPLATE}
                   />
-                  <Input
-                    value={editTags}
-                    onChange={(e) => onEditTagsChange(e.target.value)}
-                    className="h-7 text-xs"
-                    placeholder="Tags, comma-separated (optional)"
+                  <div>
+                    <Input
+                      value={editTags}
+                      onChange={(e) => onEditTagsChange(e.target.value)}
+                      className="h-7 text-xs"
+                      placeholder="Tags, comma-separated (optional)"
+                    />
+                    <div className="mt-1.5 flex flex-wrap gap-1">
+                      {SUGGESTED_WORKSPACE_TAGS.map((tag) => {
+                        const active = parseTagInput(editTags).includes(tag);
+                        return (
+                          <button
+                            key={tag}
+                            type="button"
+                            onClick={() =>
+                              onEditTagsChange(toggleTagInInput(editTags, tag))
+                            }
+                            className={cn(
+                              "rounded-full border px-2 py-0.5 text-[10px] transition-colors",
+                              active
+                                ? "border-ink bg-ink text-[var(--canvas)]"
+                                : "border-hairline text-mute hover:border-ink/30 hover:text-ink",
+                            )}
+                          >
+                            {tag}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                  <WorkspaceContextPreviewPanel
+                    workspaceId={ws.id}
+                    name={editName}
+                    description={editDescription}
+                    tags={parseTagInput(editTags)}
                   />
                 </div>
               ) : (

@@ -43,7 +43,7 @@ export function DashboardPageProvider({ children }: { children: ReactNode }) {
       type: "conversation" as const,
       label: c.title,
       subtitle: "Chat session",
-      href: "/chat",
+      href: `/chat?conversation=${c.id}`,
       created_at: c.created_at,
     })),
     ...agentRuns.slice(0, 3).map((r) => ({
@@ -51,7 +51,7 @@ export function DashboardPageProvider({ children }: { children: ReactNode }) {
       type: "agent_run" as const,
       label: r.goal,
       subtitle: r.status,
-      href: "/agents",
+      href: `/agents?run=${r.id}`,
       created_at: r.created_at,
     })),
     ...notes.slice(0, 3).map((n) => ({

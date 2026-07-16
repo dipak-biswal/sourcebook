@@ -20,6 +20,7 @@ export function NotesPageProvider({ children }: { children: ReactNode }) {
 
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  const [creating, setCreating] = useState(false);
 
   const { data: workspaces = [] } = useWorkspaces();
   const { workspaceId: effectiveWorkspaceId, setWorkspaceId: persistWorkspace } =
@@ -77,6 +78,24 @@ export function NotesPageProvider({ children }: { children: ReactNode }) {
     navigate(`/notes/${n.id}`);
   }
 
+  async function onCreate() {
+    if (!effectiveWorkspaceId || creating) return;
+    setCreating(true);
+    setError(null);
+    try {
+      const note = await api.createNote(effectiveWorkspaceId, "Untitled note");
+      await queryClient.invalidateQueries({ queryKey: ["notes", effectiveWorkspaceId] });
+      navigate(`/notes/${note.id}`);
+      success("Note created");
+    } catch (err) {
+      const msg = formatError(err);
+      setError(msg);
+      toastError("Create failed", msg);
+    } finally {
+      setCreating(false);
+    }
+  }
+
   const value: NotesPageContextValue = {
     workspaces,
     workspaceId: effectiveWorkspaceId,
@@ -95,6 +114,8 @@ export function NotesPageProvider({ children }: { children: ReactNode }) {
       if (noteId) void refetchSelected();
     },
     onSelect,
+    onCreate,
+    creating,
     onSave,
     onDelete,
     onLogout: () => navigate("/login", { replace: true }),

@@ -1,4 +1,5 @@
-import { StickyNote } from "lucide-react";
+import { Loader2, Plus, StickyNote } from "lucide-react";
+import { Button } from "@/components/ui/button";
 import { WorkspaceSelect } from "@/components/workspace/WorkspaceSelect";
 import { formatDate } from "@/lib/utils";
 import { useNotesPage } from "./notes-page-context";
@@ -16,6 +17,8 @@ export function NotesSidebar({
     onChangeWorkspace,
     onRefreshWorkspaces,
     onSelect,
+    onCreate,
+    creating,
   } = useNotesPage();
 
   return (
@@ -27,13 +30,28 @@ export function NotesSidebar({
         </div>
 
         {workspaces.length > 0 && (
-          <div className="mt-3">
+          <div className="mt-3 space-y-2">
             <WorkspaceSelect
               workspaces={workspaces}
               workspaceId={workspaceId}
               onChange={onChangeWorkspace}
               onRefresh={onRefreshWorkspaces}
             />
+            <Button
+              type="button"
+              variant="secondary"
+              size="sm"
+              className="h-8 w-full"
+              disabled={!workspaceId || creating}
+              onClick={() => void onCreate()}
+            >
+              {creating ? (
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <Plus className="h-3.5 w-3.5" strokeWidth={1.5} />
+              )}
+              New note
+            </Button>
           </div>
         )}
       </div>
@@ -41,7 +59,7 @@ export function NotesSidebar({
       <div className="document-scroll min-h-0 flex-1 overflow-y-auto p-2">
         {notes.length === 0 ? (
           <p className="px-2 py-3 text-xs text-mute">
-            No notes yet. Approve a create_note run to add one.
+            No notes yet. Click New note or approve a create_note agent run.
           </p>
         ) : (
           <ul className="space-y-1">

@@ -12,6 +12,8 @@ export type NotesPageContextValue = {
   onDismissError: () => void;
   onRetryError: () => void;
   onSelect: (note: Note) => void;
+  onCreate: () => Promise<void>;
+  creating: boolean;
   onSave: (title: string, body: string) => void;
   onDelete: (id: string) => void;
   onLogout: () => void;

@@ -79,6 +79,24 @@ export type Workspace = {
   role: string;
 };
 
+export type WorkspaceContextPreview = {
+  confidence: string;
+  derivation_version: number;
+  outcome_phrase: string;
+  audience_phrase: string;
+  success_criteria: string;
+  tone: string;
+  answer_sections: string[];
+  visual_affordances: string[];
+  external_context_ok: boolean;
+  max_search_documents: number;
+  max_web_search: number;
+  documents_ready: string[];
+  documents_pending: string[];
+  filename_hints: string[];
+  agent_prompt_excerpt: string;
+};
+
 export type Document = {
   id: string;
   workspace_id: string;
@@ -460,6 +478,28 @@ export const api = {
 
   deleteWorkspace: (id: string) =>
     request<void>(`/workspaces/${id}`, { method: "DELETE" }),
+
+  previewWorkspaceContext: (
+    workspaceId: string,
+    draft?: { name?: string; description?: string | null; tags?: string[] | null },
+  ) =>
+    request<WorkspaceContextPreview>(
+      `/workspaces/${workspaceId}/context-preview`,
+      {
+        method: "POST",
+        body: JSON.stringify({
+          name: draft?.name,
+          description: draft?.description,
+          tags: draft?.tags,
+        }),
+      },
+    ),
+
+  createNote: (workspaceId: string, title: string, body = "") =>
+    request<Note>("/notes", {
+      method: "POST",
+      body: JSON.stringify({ workspace_id: workspaceId, title, body }),
+    }),
 
   getNote: (noteId: string) =>
     request<Note>(`/notes/${noteId}`),

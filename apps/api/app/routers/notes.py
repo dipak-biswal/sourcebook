@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session
 from app.db import get_db
 from app.deps import get_current_user
 from app.models import Note, User, WorkspaceMember
-from app.schemas import NoteUpdateRequest
+from app.schemas import NoteCreateRequest, NoteUpdateRequest
 
 router = APIRouter(prefix="/notes", tags=["notes"])
 
@@ -54,6 +54,25 @@ def list_notes(
         .limit(50)
         .all()
     )
+
+
+@router.post("", response_model=NoteResponse, status_code=status.HTTP_201_CREATED)
+def create_note(
+    body: NoteCreateRequest,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    _require_member(db, current_user.id, body.workspace_id)
+    note = Note(
+        workspace_id=body.workspace_id,
+        user_id=current_user.id,
+        title=body.title.strip(),
+        body=body.body,
+    )
+    db.add(note)
+    db.commit()
+    db.refresh(note)
+    return note
 
 
 @router.get("/{note_id}", response_model=NoteResponse)
