@@ -6,6 +6,7 @@ from sqlalchemy.orm import Session
 
 from app.config import settings
 from app.ingestion.embeddings import embed_query
+from app.ingestion.rerank import rerank_chunks
 from app.models import Chunk
 
 
@@ -174,10 +175,22 @@ def retrieve_chunks(
     if not vector_relevant and not keyword_relevant:
         return []
 
-    return _fuse(
+    rerank = settings.rag_rerank_enabled
+    pool_k = max(top_k, settings.rag_rerank_candidate_k) if rerank else top_k
+    fused = _fuse(
         vector_hits,
         keyword_hits,
         q_vec=q_vec,
-        top_k=top_k,
+        top_k=pool_k,
         rrf_k=settings.rag_rrf_k,
     )
+    if rerank and len(fused) > 1:
+        return rerank_chunks(
+            query,
+            fused,
+            top_k=top_k,
+            db=db,
+            user_id=user_id,
+            workspace_id=workspace_id,
+        )
+    return fused[:top_k]

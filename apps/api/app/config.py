@@ -78,6 +78,11 @@ class Settings(BaseSettings):
     # when max cosine < rag_min_score AND no keyword row beats this ts_rank.
     # Raise slightly (e.g. 0.02) if common single-word matches leak through.
     rag_keyword_min_rank: float = 0.0
+    # LLM reranking: fuse to a wider pool, then an LLM scores candidates down
+    # to rag_top_k. Runs after the denial gate (off-topic behavior unchanged).
+    rag_rerank_enabled: bool = True
+    rag_rerank_model: str = ""  # empty → falls back to chat_model
+    rag_rerank_candidate_k: int = 12  # pool size fused before rerank (≥ rag_top_k)
 
     # Local testing helpers (list users / set test passwords). NEVER enable in production.
     dev_mode: bool = True
