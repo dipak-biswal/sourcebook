@@ -148,8 +148,7 @@ def _parse_docx(path: Path) -> str:
     return "\n\n".join(parts)
 
 
-def _parse_html(path: Path) -> str:
-    raw = _parse_text(path)
+def strip_html_text(raw: str) -> str:
     # Lightweight strip tags (no BeautifulSoup dep)
     text = re.sub(r"(?is)<script[^>]*>.*?</script>", " ", raw)
     text = re.sub(r"(?is)<style[^>]*>.*?</style>", " ", text)
@@ -160,6 +159,10 @@ def _parse_html(path: Path) -> str:
     text = re.sub(r"&gt;", ">", text)
     text = re.sub(r"&#\d+;", " ", text)
     return text
+
+
+def _parse_html(path: Path) -> str:
+    return strip_html_text(_parse_text(path))
 
 
 def _parse_json(path: Path) -> str:

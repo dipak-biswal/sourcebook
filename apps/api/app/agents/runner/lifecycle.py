@@ -411,7 +411,7 @@ def approve_agent_run(
 
     remaining = int(checkpoint.get("max_steps") or 5)
     # Allow a few more steps after approval to finish cleanly
-    resume_steps = max(2, min(remaining, 6))
+    resume_steps = max(2, min(remaining, 8))
 
     _emit(
         on_event,

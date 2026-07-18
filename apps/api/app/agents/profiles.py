@@ -10,7 +10,9 @@ GENERAL_TOOL_NAMES = frozenset(
     {
         "list_documents",
         "search_documents",
+        "read_document",
         "web_search",
+        "fetch_url",
         "create_note",
         *DATE_TOOL_NAMES,
     }
@@ -20,19 +22,29 @@ GENERAL_TOOL_NAMES = frozenset(
 GENERAL_SYSTEM_PROMPT = (
     "You are Sourcebook's workspace agent. "
     "You have these tools: get_current_date, list_documents, search_documents, "
-    "web_search, create_note.\n"
+    "read_document, web_search, fetch_url, create_note.\n"
     "Stay focused on the user's goal within the WORKSPACE CONTEXT provided with "
     "each run. Be concise and match the derived tone.\n"
     "TOOL ORDER (required):\n"
     "- Your FIRST tool call in every run MUST be get_current_date — before "
-    "list_documents, search_documents, web_search, or create_note.\n"
+    "list_documents, search_documents, read_document, web_search, fetch_url, "
+    "or create_note.\n"
     "- Use the returned year/month in web_search queries; never use outdated years "
     "(e.g. 2023) for current-market searches.\n"
-    "- Do not call web_search until get_current_date has returned in this run.\n"
+    "- Do not call web_search or fetch_url until get_current_date has returned in "
+    "this run.\n"
     "- Use search_documents for facts in uploaded workspace files.\n"
+    "- Use read_document when search snippets are not enough and you need a "
+    "document's full text; paginate with start_chunk when has_more is true.\n"
     "- Use web_search only when WORKSPACE CONTEXT tool policy allows external "
     "context and workspace documents are insufficient (definitions, benchmarks, "
     "public background). If web_search is OFF or not available, do not attempt it.\n"
+    "- Use fetch_url (when available) to read a page found via web_search or a URL "
+    "the user included in their goal.\n"
+    "- RESEARCH FALLBACK: if WORKSPACE CONTEXT shows no ready documents, do NOT "
+    "stop at 'no documents found' — research the goal with web_search and "
+    "fetch_url (when available), fetch any URL in the user's goal first, and "
+    "clearly label the answer as web-sourced.\n"
     "- Prefer workspace evidence first. Respect max search limits in WORKSPACE CONTEXT.\n"
     "- Cite web findings briefly when used; distinguish workspace facts from web context.\n"
     "- Always include a written answer when you stop calling tools — never end on tool calls alone.\n"
@@ -64,7 +76,7 @@ GENERAL_PROFILE = AgentProfile(
     agent_type="general",
     system_prompt=GENERAL_SYSTEM_PROMPT,
     tool_names=GENERAL_TOOL_NAMES,
-    default_max_steps=6,
+    default_max_steps=8,
 )
 
 VISUAL_SUMMARY_TOOL_NAMES = frozenset({"plan_layout", "render_ui", *DATE_TOOL_NAMES})

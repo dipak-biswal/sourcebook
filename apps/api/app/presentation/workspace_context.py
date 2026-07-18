@@ -103,6 +103,7 @@ class ToolPolicy:
     external_context_ok: bool = True
     max_search_documents: int = 2
     max_web_search: int = 1
+    max_fetch_url: int = 2
 
 
 @dataclass
@@ -177,6 +178,7 @@ def packet_from_dict(data: dict[str, Any]) -> WorkspaceContextPacket:
         external_context_ok=bool(policy_raw.get("external_context_ok", True)),
         max_search_documents=int(policy_raw.get("max_search_documents") or 2),
         max_web_search=int(policy_raw.get("max_web_search") or 1),
+        max_fetch_url=int(policy_raw.get("max_fetch_url") or 2),
     )
     planner_example = derived_raw.get("planner_example")
     derived = WorkspaceDerived(
@@ -338,6 +340,27 @@ def _derive_answer_sections(blob: str, affordances: list[str]) -> list[str]:
     return _ordered_unique(sections)
 
 
+def _tool_policy_for(ready: int, pending: int, external_ok: bool) -> ToolPolicy:
+    """Evidence-driven tool budgets — single source of truth."""
+    style = _evidence_style(ready, pending)
+    max_search = 3 if style == "corpus" else 2
+    if not external_ok:
+        return ToolPolicy(
+            external_context_ok=False,
+            max_search_documents=max_search,
+            max_web_search=0,
+            max_fetch_url=0,
+        )
+    # No ready documents → web research is the only evidence path; widen budgets.
+    research = ready <= 0
+    return ToolPolicy(
+        external_context_ok=True,
+        max_search_documents=max_search,
+        max_web_search=3 if research else 1,
+        max_fetch_url=3 if research else 2,
+    )
+
+
 def _evidence_style(ready: int, pending: int) -> str:
     if ready <= 0 and pending <= 0:
         return "empty"
@@ -399,9 +422,6 @@ def derive_workspace_context(
     if _match_any(blob, _EXTERNAL_OFF):
         external_ok = False
 
-    max_search = 3 if style == "corpus" else 2
-    max_web = 1 if external_ok else 0
-
     derived = WorkspaceDerived(
         outcome_phrase=_derive_outcome(desc, name),
         audience_phrase=_derive_audience(desc, blob),
@@ -410,11 +430,7 @@ def derive_workspace_context(
         external_context_ok=external_ok,
         answer_sections=_derive_answer_sections(blob, affordances),
         visual_affordances=affordances,
-        tool_policy=ToolPolicy(
-            external_context_ok=external_ok,
-            max_search_documents=max_search,
-            max_web_search=max_web,
-        ),
+        tool_policy=_tool_policy_for(len(ready), len(pending), external_ok),
     )
     return WorkspaceContextPacket(
         identity=identity,
@@ -462,13 +478,21 @@ def resolve_workspace_context(
     # Lazy import to avoid a module cycle (profile imports these dataclasses).
     from app.presentation.workspace_profile import resolve_profiled_packet
 
-    return resolve_profiled_packet(
+    packet = resolve_profiled_packet(
         db,
         ws,
         document_rows=doc_rows,
         heuristic=heuristic,
         user_id=user_id,
     )
+    # Cached packets carry budgets computed at cache time — recompute from the
+    # fresh evidence so an emptied/filled workspace gets the right limits.
+    packet.derived.tool_policy = _tool_policy_for(
+        len(packet.evidence.documents_ready),
+        len(packet.evidence.documents_pending),
+        packet.derived.tool_policy.external_context_ok,
+    )
+    return packet
 
 
 def format_workspace_context_for_agent(packet: WorkspaceContextPacket) -> str:
@@ -488,10 +512,23 @@ def format_workspace_context_for_agent(packet: WorkspaceContextPacket) -> str:
 
     web_rule = (
         f"web_search allowed (at most {policy.max_web_search} call(s)); "
+        f"fetch_url allowed (at most {policy.max_fetch_url} page fetch(es)); "
         "prefer workspace documents first; label web-sourced general knowledge."
         if policy.external_context_ok
-        else "web_search is OFF for this workspace — use workspace documents only."
+        else (
+            "web_search and fetch_url are OFF for this workspace — "
+            "use workspace documents only."
+        )
     )
+
+    research_block = ""
+    if not e.documents_ready and policy.external_context_ok:
+        research_block = (
+            "- RESEARCH MODE: this workspace has no ready documents. Do NOT answer "
+            "'no documents found'. Research the goal directly: web_search for the "
+            "topic, then fetch_url on the most relevant results — and if the user's "
+            "goal contains a URL, fetch that first. Label the answer as web-sourced.\n"
+        )
 
     desc = i.description or (
         "(no description — treat as a generic document workspace; "
@@ -516,6 +553,7 @@ def format_workspace_context_for_agent(packet: WorkspaceContextPacket) -> str:
         f"- Filename hints: {', '.join(e.filename_hints[:12]) or '(none)'}\n"
         f"- Tool policy: at most {policy.max_search_documents} search_documents "
         f"call(s); {web_rule}\n"
+        f"{research_block}"
         f"- Confidence: {packet.meta.confidence} "
         f"(derivation v{packet.meta.derivation_version})\n"
         "The user goal below is a task *inside* this workspace — not a redefinition of it."

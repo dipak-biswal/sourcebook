@@ -5,13 +5,14 @@ from langchain_core.tools import tool
 from sqlalchemy.orm import Session
 
 from app.agents.date_tools import get_current_date
+from app.agents.fetch_url import fetch_url_content
 from app.agents.profiles import get_profile
 from app.agents.tool_policy import GENERAL_TOOL_ORDER
 from app.agents.visual_tools import build_visual_tools
 from app.presentation.context import PresentationContext
 from app.agents.web_search import search_web
 from app.ingestion.retrieve import retrieve_chunks
-from app.models import Document, Note
+from app.models import Chunk, Document, Note
 
 
 def build_tools(
@@ -39,6 +40,7 @@ def build_tools(
     tool_names = set(profile.tool_names)
     if not allow_web_search:
         tool_names.discard("web_search")
+        tool_names.discard("fetch_url")
 
     @tool
     def list_documents() -> list[dict[str, Any]]:
@@ -91,6 +93,81 @@ def build_tools(
         return results
 
     @tool
+    def read_document(
+        document_id: str, start_chunk: int = 0, max_chunks: int = 6
+    ) -> dict[str, Any]:
+        """
+        Read the full text of one workspace document, in chunk order.
+        Use after list_documents/search_documents when snippets are not enough.
+        Paginate with start_chunk/max_chunks; has_more and next_start_chunk
+        tell you how to continue.
+        """
+
+        try:
+            doc_uuid = uuid.UUID(document_id)
+        except (ValueError, AttributeError, TypeError):
+            return {"error": "invalid document_id"}
+
+        doc = (
+            db.query(Document)
+            .filter(Document.id == doc_uuid, Document.workspace_id == workspace_id)
+            .first()
+        )
+        if doc is None:
+            return {"error": "document not found in this workspace"}
+
+        chunk_filter = (
+            Chunk.document_id == doc_uuid,
+            Chunk.workspace_id == workspace_id,
+        )
+        total = db.query(Chunk).filter(*chunk_filter).count()
+
+        start = max(0, int(start_chunk))
+        limit = max(1, min(int(max_chunks), 12))
+        rows = (
+            db.query(Chunk)
+            .filter(*chunk_filter)
+            .order_by(Chunk.chunk_index)
+            .offset(start)
+            .limit(limit)
+            .all()
+        )
+
+        content = "\n\n".join(ch.content or "" for ch in rows)
+        content_truncated = len(content) > 12_000
+        if content_truncated:
+            content = content[:12_000]
+
+        returned = len(rows)
+        has_more = start + returned < total
+        payload: dict[str, Any] = {
+            "document_id": str(doc.id),
+            "filename": doc.filename,
+            "status": doc.status,
+            "total_chunks": total,
+            "start_chunk": start,
+            "chunks_returned": returned,
+            "has_more": has_more,
+            "next_start_chunk": start + returned if has_more else None,
+            "content": content,
+            "content_truncated": content_truncated,
+        }
+        if doc.status != "ready" and total == 0:
+            payload["note"] = f"document not ingested yet (status: {doc.status})"
+        return payload
+
+    @tool
+    def fetch_url(url: str) -> dict[str, Any]:
+        """
+        Fetch a public http(s) web page and return its text.
+        Use for URLs from web_search results or a URL the user included in
+        their goal. Requires get_current_date to have run earlier in this run.
+        Only public pages — private/internal addresses are blocked.
+        """
+
+        return fetch_url_content(url)
+
+    @tool
     def web_search(query: str, max_results: int = 5) -> dict[str, Any]:
         """
         Search the public web via DuckDuckGo for external context, benchmarks,
@@ -127,7 +204,9 @@ def build_tools(
     by_name = {
         "list_documents": list_documents,
         "search_documents": search_documents,
+        "read_document": read_document,
         "web_search": web_search,
+        "fetch_url": fetch_url,
         "create_note": create_note,
         "get_current_date": get_current_date,
     }

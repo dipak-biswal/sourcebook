@@ -118,7 +118,7 @@ def start_agent_run(
             workspace_id=body.workspace_id,
             user_id=current_user.id,
             goal=body.goal.strip(),
-            max_steps=min(max(max_steps, 1), 8),
+            max_steps=min(max(max_steps, 1), 10),
             agent_type=agent_type,
         )
     except Exception as e:
@@ -160,7 +160,7 @@ def start_agent_run_stream(
         if body.max_steps is not None
         else profile.default_max_steps
     )
-    max_steps = min(max(max_steps, 1), 8)
+    max_steps = min(max(max_steps, 1), 10)
 
     def work(session: Session, on_event) -> None:
         run = run_agent(

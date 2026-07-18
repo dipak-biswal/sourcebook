@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import uuid
 
-from langchain_core.messages import BaseMessage, ToolMessage
+from langchain_core.messages import AIMessage, BaseMessage, ToolMessage
 from sqlalchemy.orm import Session
 
 from app.agents.execution_trace import LiveTraceContext
@@ -84,6 +84,13 @@ def _run_tool_loop(
         else max(0, _next_step_index(db, run.id) - 1)
     )
     seen_calls: set[str] = set()
+    # Seed from prior turns (matters on resume-after-approve, where the loop
+    # restarts with checkpointed messages but a fresh seen_calls set).
+    for m in messages:
+        if isinstance(m, AIMessage) and m.tool_calls:
+            for tc in m.tool_calls:
+                seen_calls.add(_hash_args(tc.get("name") or "", tc.get("args") or {}))
+    duplicate_grace_used = False
     if trace_live is None:
         trace_live = LiveTraceContext()
     run._trace_live = trace_live  # type: ignore[attr-defined]
@@ -170,20 +177,39 @@ def _run_tool_loop(
 
             # Duplicate detection — check BEFORE appending ai so we don't
             # orphan tool_calls without ToolMessage responses.
+            duplicate_ids: set[str] = set()
             if ai.tool_calls:
-                warn_about_loop = False
+                dup_flags: list[bool] = []
                 for tc in ai.tool_calls:
                     h = _hash_args(tc.get("name") or "", tc.get("args") or {})
-                    if h in seen_calls:
-                        warn_about_loop = True
+                    dup_flags.append(h in seen_calls)
                     seen_calls.add(h)
+                warn_about_loop = any(dup_flags)
 
                 tool_result_count = sum(
                     1 for m in messages if isinstance(m, ToolMessage)
                 )
                 # Never abort before at least one tool round — avoids false positives
                 # from duplicate hashes across runs/threads or twin calls in one turn.
-                if warn_about_loop and tool_result_count > 0:
+                if warn_about_loop and tool_result_count > 0 and not duplicate_grace_used:
+                    # First offense: answer duplicates with an error ToolMessage
+                    # below and let the model self-correct.
+                    duplicate_grace_used = True
+                    duplicate_ids = {
+                        str(tc.get("id"))
+                        for tc, was_dup in zip(ai.tool_calls, dup_flags)
+                        if was_dup
+                    }
+                    _emit(
+                        on_event,
+                        "loop_warning",
+                        run_id=str(run.id),
+                        message=(
+                            "Agent repeated a tool call — answered with a "
+                            "duplicate notice, continuing"
+                        ),
+                    )
+                elif warn_about_loop and tool_result_count > 0:
                     _emit(
                         on_event,
                         "loop_warning",
@@ -255,6 +281,42 @@ def _run_tool_loop(
                     duration_ms=llm_ms if not ai.tool_calls else None,
                 )
 
+            live_calls = list(ai.tool_calls or [])
+            if duplicate_ids:
+                dup_error = {
+                    "error": (
+                        "duplicate of an earlier call in this run — the result "
+                        "would be unchanged; try different arguments, another "
+                        "tool, or finish with your written answer"
+                    )
+                }
+                for tc in ai.tool_calls:
+                    if str(tc.get("id")) not in duplicate_ids:
+                        continue
+                    messages.append(
+                        ToolMessage(
+                            content=json.dumps(dup_error),
+                            tool_call_id=str(tc.get("id")),
+                            name=str(tc.get("name") or ""),
+                        )
+                    )
+                    step_index += 1
+                    _append_step(
+                        db,
+                        run,
+                        step_index=step_index,
+                        type="tool_result",
+                        tool_name=tc.get("name"),
+                        input=tc.get("args") or {},
+                        output=dup_error,
+                        on_event=on_event,
+                    )
+                live_calls = [
+                    tc
+                    for tc in ai.tool_calls
+                    if str(tc.get("id")) not in duplicate_ids
+                ]
+
             if not ai.tool_calls:
                 step_index = finish_run(
                     step_index,
@@ -281,13 +343,13 @@ def _run_tool_loop(
                 return run
 
             write_calls = [
-                tc for tc in ai.tool_calls if tc.get("name") in WRITE_TOOLS
+                tc for tc in live_calls if tc.get("name") in WRITE_TOOLS
             ]
             if write_calls:
                 tc = write_calls[0]
                 # Execute non-write tools from the same turn in parallel first
                 read_before_write = [
-                    rtc for rtc in ai.tool_calls if rtc.get("name") not in WRITE_TOOLS
+                    rtc for rtc in live_calls if rtc.get("name") not in WRITE_TOOLS
                 ]
                 if read_before_write:
                     for rtc in read_before_write:
@@ -370,8 +432,8 @@ def _run_tool_loop(
                 )
                 return run
 
-            # Emit tool_start events for every tool call in this turn
-            for tc in ai.tool_calls:
+            # Emit tool_start events for every live tool call in this turn
+            for tc in live_calls:
                 name = tc.get("name")
                 if name and name not in trace_live.running_tool_names:
                     trace_live.running_tool_names.append(str(name))
@@ -383,12 +445,12 @@ def _run_tool_loop(
                     tool_args=tc.get("args"),
                     call_id=tc.get("id"),
                 )
-            if ai.tool_calls:
+            if live_calls:
                 refresh_trace()
 
             # Execute read tools in parallel
             read_calls = [
-                tc for tc in ai.tool_calls if tc.get("name") not in WRITE_TOOLS
+                tc for tc in live_calls if tc.get("name") not in WRITE_TOOLS
             ]
 
             if read_calls:

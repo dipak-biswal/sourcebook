@@ -13,7 +13,9 @@ GENERAL_TOOL_ORDER: tuple[str, ...] = (
     "get_current_date",
     "list_documents",
     "search_documents",
+    "read_document",
     "web_search",
+    "fetch_url",
     "create_note",
 )
 

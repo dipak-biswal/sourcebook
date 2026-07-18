@@ -121,3 +121,46 @@ def test_packet_schema_has_no_vertical_enum_fields():
     assert "career_lab" not in str(raw)
     assert "presentation_mode" not in raw.get("derived", {})
     assert "domain_hint" not in raw.get("derived", {})
+
+
+def test_empty_workspace_gets_research_budgets():
+    packet = derive_workspace_context(
+        name="Fresh", description=None, tags=None, document_rows=[]
+    )
+    policy = packet.derived.tool_policy
+    assert policy.external_context_ok is True
+    assert policy.max_web_search == 3
+    assert policy.max_fetch_url == 3
+    text = format_workspace_context_for_agent(packet)
+    assert "RESEARCH MODE" in text
+    assert "fetch_url" in text
+
+
+def test_corpus_workspace_gets_default_budgets():
+    packet = derive_workspace_context(
+        name="Docs",
+        description="Team documentation corpus",
+        tags=None,
+        document_rows=[(f"doc{i}.txt", "ready") for i in range(5)],
+    )
+    policy = packet.derived.tool_policy
+    assert policy.max_web_search == 1
+    assert policy.max_fetch_url == 2
+    assert "RESEARCH MODE" not in format_workspace_context_for_agent(packet)
+
+
+def test_private_workspace_zeroes_web_and_fetch():
+    packet = derive_workspace_context(
+        name="Legal",
+        description="Confidential contracts — private, no web lookups.",
+        tags=None,
+        document_rows=[],
+    )
+    policy = packet.derived.tool_policy
+    assert policy.external_context_ok is False
+    assert policy.max_web_search == 0
+    assert policy.max_fetch_url == 0
+    text = format_workspace_context_for_agent(packet)
+    # Even with zero documents, private workspaces never enter research mode.
+    assert "RESEARCH MODE" not in text
+    assert "OFF" in text

@@ -101,3 +101,31 @@ def test_build_tools_single_profile():
     assert "web_search" in general
     assert "create_note" in general
     assert "get_current_date" in general
+
+def test_general_profile_includes_research_tools():
+    profile = get_profile("general")
+    assert "read_document" in profile.tool_names
+    assert "fetch_url" in profile.tool_names
+    prompt = agent_system_prompt()
+    assert "read_document" in prompt
+    assert "fetch_url" in prompt
+    assert "RESEARCH FALLBACK" in prompt
+
+
+def test_disable_web_search_also_removes_fetch_url():
+    db = MagicMock()
+    ws_id = uuid.uuid4()
+    user_id = uuid.uuid4()
+    no_web = {
+        t.name
+        for t in build_tools(
+            db,
+            workspace_id=ws_id,
+            user_id=user_id,
+            agent_type="general",
+            allow_web_search=False,
+        )
+    }
+    assert "web_search" not in no_web
+    assert "fetch_url" not in no_web
+    assert "read_document" in no_web

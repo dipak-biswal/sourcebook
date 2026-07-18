@@ -243,3 +243,44 @@ def test_planner_prompt_prefers_workspace_example():
         layout_hints="",
     )
     assert "EXAMPLE" in fallback
+
+
+def test_legacy_cached_packet_defaults_max_fetch_url():
+    legacy = {
+        "derived": {
+            "tool_policy": {
+                "external_context_ok": True,
+                "max_search_documents": 2,
+                "max_web_search": 1,
+            }
+        }
+    }
+    packet = packet_from_dict(legacy)
+    assert packet.derived.tool_policy.max_fetch_url == 2
+
+
+def test_resolve_recomputes_budgets_from_fresh_evidence(monkeypatch, db_session):
+    """A cached packet with stale budgets gets research-mode limits when empty."""
+    ws = Workspace(name="Stale", description="General notes")
+    db_session.add(ws)
+    db_session.commit()
+
+    stale = derive_workspace_context(
+        name="Stale",
+        description="General notes",
+        tags=None,
+        document_rows=[],
+    )
+    # Simulate a cache written before research-mode budgets existed.
+    stale.derived.tool_policy.max_web_search = 1
+    stale.derived.tool_policy.max_fetch_url = 2
+
+    import app.presentation.workspace_profile as profile_mod
+
+    monkeypatch.setattr(
+        profile_mod, "resolve_profiled_packet", lambda *a, **k: stale
+    )
+
+    packet = resolve_workspace_context(db_session, ws.id)
+    assert packet.derived.tool_policy.max_web_search == 3
+    assert packet.derived.tool_policy.max_fetch_url == 3

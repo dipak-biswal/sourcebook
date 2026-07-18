@@ -108,7 +108,9 @@ export function buildWorkspaceAgentExamples(
 const TOOL_LABELS: Record<string, string> = {
   list_documents: "List documents",
   search_documents: "Search workspace",
+  read_document: "Read document",
   web_search: "Web search",
+  fetch_url: "Fetch web page",
   create_note: "Create note",
   generative_ui: "Visual summary",
   get_current_date: "Current date",

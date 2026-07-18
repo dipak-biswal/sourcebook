@@ -54,6 +54,11 @@ def _tool_context_for_synthesis(messages: list[BaseMessage]) -> str:
         elif isinstance(data, dict):
             if data.get("error"):
                 parts.append(f"Tool error: {data['error']}")
+            elif data.get("text") and data.get("url"):
+                label = data.get("title") or data.get("url")
+                parts.append(f"[web page] {label}: {str(data['text'])[:1500]}")
+            elif data.get("content") and data.get("filename"):
+                parts.append(f"[{data['filename']}] {str(data['content'])[:1500]}")
             elif data.get("results") and data.get("query"):
                 parts.append(f"Web search: {data['query']}")
                 for hit in data.get("results") or []:
