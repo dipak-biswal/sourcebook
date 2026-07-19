@@ -78,6 +78,11 @@ class Settings(BaseSettings):
     # is derived by an LLM profiler and cached on the workspace row; the
     # keyword heuristic remains the fallback. One call per workspace change.
     workspace_llm_profiler: bool = True
+    # When True, the Visual Summary phase runs through the legacy LLM tool
+    # loop (an agent decides when to call plan_layout/render_ui). Default is
+    # the code orchestrator, which runs plan → render directly with no outer
+    # agent turns — same steps and trace, fewer LLM calls.
+    visual_summary_agent_loop: bool = False
     rag_top_k: int = 5
     # Cosine floor: below this → no hits, no sources (off-topic questions).
     # Raise (e.g. 0.25) if off-topic still retrieves; lower if on-topic misses.

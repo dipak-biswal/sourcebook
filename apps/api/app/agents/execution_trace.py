@@ -1328,6 +1328,15 @@ def _parse_steps(
             continue
 
         if step.type == "presentation" or _is_generative_ui(step.output):
+            # The presentation step only exists after the visual phase
+            # finished — close an open turn whose tools all completed
+            # (orchestrated runs have no closing LLM message to do it).
+            if current is not None and all(
+                t.result_step is not None for t in current.tools
+            ):
+                current.state = "done"
+                active_turns().append(current)
+                current = None
             item = _presentation_phase(
                 step,
                 turns=turns,

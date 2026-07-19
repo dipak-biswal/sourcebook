@@ -29,6 +29,7 @@ from app.agents.runner.messages import _deserialize_messages
 from app.agents.runner.visual import (
     _is_presentation_pending,
     _presentation_context_for_run,
+    _run_visual_pipeline,
     _visual_summary_handoff_message,
 )
 from app.agents.tools import build_tools
@@ -182,6 +183,21 @@ def _run_visual_summary_agent(
         output={"status": "handoff", "agent": VISUAL_SUMMARY_AGENT_LABEL},
         on_event=on_event,
     )
+
+    if not settings.visual_summary_agent_loop:
+        # Default: code orchestrator — plan_layout → render_ui directly.
+        # The outer agent added LLM turns but no decisions (render_ui already
+        # accepts "{}" and uses the plan produced by plan_layout).
+        completed = _run_visual_pipeline(
+            db,
+            run,
+            ctx=ctx,
+            step_index=step_index,
+            on_event=on_event,
+        )
+        if trace_live is not None:
+            trace_live.visual_agent_active = False
+        return completed
 
     profile = get_profile("visual_summary")
     messages: list[BaseMessage] = [

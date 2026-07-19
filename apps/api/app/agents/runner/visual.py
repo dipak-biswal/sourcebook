@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import time
 import uuid
 from typing import Any
 
@@ -9,7 +10,11 @@ from sqlalchemy.orm import Session
 
 from app.agents.runner.constants import PRESENTATION_TOOL
 from app.agents.runner.events import EventCallback, _append_step, _emit
-from app.agents.visual_tools import VISUAL_SUMMARY_AGENT_LABEL
+from app.agents.visual_tools import (
+    VISUAL_SUMMARY_AGENT_LABEL,
+    run_plan_layout,
+    run_render_ui,
+)
 from app.config import settings
 from app.models import AgentRun, Document, Workspace
 from app.presentation.answer import resolve_presentation_answer
@@ -253,6 +258,138 @@ def _attach_presentation_step(
         presentation_profile=spec.get("presentation_profile"),
     )
     return step_index
+
+
+def _run_visual_pipeline(
+    db: Session,
+    run: AgentRun,
+    *,
+    ctx: PresentationContext,
+    step_index: int,
+    on_event: EventCallback = None,
+) -> AgentRun:
+    """
+    Code orchestrator for the Visual Summary phase: plan_layout → render_ui
+    with no outer agent loop. Records the same tool_call/tool_result steps the
+    loop would, so the execution trace and token accounting are unchanged.
+    """
+    user_id = run.user_id or uuid.UUID(int=0)
+    initial_usage = int(run.token_usage or 0)
+    prompt_total = completion_total = tokens_total = 0
+
+    def record_tool(
+        tool_name: str,
+        args: dict[str, Any],
+        invoke,
+    ) -> tuple[dict[str, Any], Any]:
+        """Run one visual tool with loop-equivalent step records and events."""
+        nonlocal step_index, prompt_total, completion_total, tokens_total
+        step_index += 1
+        _append_step(
+            db,
+            run,
+            step_index=step_index,
+            type="tool_call",
+            tool_name=tool_name,
+            input=_visual_tool_call_input(tool_name, args, ctx=ctx),
+            on_event=on_event,
+        )
+        _emit(
+            on_event,
+            "tool_start",
+            run_id=str(run.id),
+            tool_name=tool_name,
+            tool_args=args,
+            call_id=f"vs-{tool_name}",
+        )
+        t0 = time.perf_counter()
+        extra: Any = None
+        try:
+            payload, extra = invoke()
+        except Exception as e:  # surface tool failures as results, like the loop
+            payload = {"error": str(e)}
+        ms = (time.perf_counter() - t0) * 1000
+        step_index += 1
+        _append_step(
+            db,
+            run,
+            step_index=step_index,
+            type="tool_result",
+            tool_name=tool_name,
+            input=_visual_tool_result_input(tool_name, args, payload),
+            output=payload,
+            on_event=on_event,
+            duration_ms=round(ms, 1),
+        )
+        prompt_total, completion_total, tokens_total = _accumulate_visual_tool_tokens(
+            payload,
+            prompt_tokens_total=prompt_total,
+            completion_tokens_total=completion_total,
+            total_tokens_acc=tokens_total,
+        )
+        return payload, extra
+
+    plan_payload, plan_result = record_tool(
+        "plan_layout",
+        {"notes": ""},
+        lambda: run_plan_layout(
+            db,
+            ctx,
+            user_id=user_id,
+            workspace_id=run.workspace_id,
+        ),
+    )
+
+    plan = (plan_result or {}).get("plan") if isinstance(plan_result, dict) else None
+    if isinstance(plan, dict) and plan:
+        # Plan was already validated (with repair + skeleton fallback) inside
+        # run_plan_layout — render without re-validating (validate-once).
+        validated = plan_payload.get("validation_status") == "passed"
+        structured = plan_result.get("structured_content")
+        render_payload, _ = record_tool(
+            "render_ui",
+            {"layout_plan_json": "{}"},
+            lambda: (
+                run_render_ui(
+                    db,
+                    ctx,
+                    plan=plan,
+                    user_id=user_id,
+                    workspace_id=run.workspace_id,
+                    structured=structured if isinstance(structured, dict) else None,
+                    validated=validated,
+                ),
+                None,
+            ),
+        )
+        _apply_render_ui_result(
+            run,
+            tool_name="render_ui",
+            result=render_payload,
+            on_event=on_event,
+        )
+
+    run.status = "completed"
+    run.token_usage = (initial_usage + tokens_total) or None
+    run.pending_tool = None
+    _finalize_visual_summary_run(
+        db,
+        run,
+        step_index=step_index,
+        on_event=on_event,
+    )
+    db.commit()
+    db.refresh(run)
+    _emit(
+        on_event,
+        "status",
+        run_id=str(run.id),
+        status=run.status,
+        token_usage=run.token_usage,
+        pending_tool=run.pending_tool,
+        final_answer=run.final_answer,
+    )
+    return run
 
 
 def _finalize_visual_summary_run(

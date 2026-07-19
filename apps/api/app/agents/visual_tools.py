@@ -120,13 +120,11 @@ def _plan_layout_llm(
     skeleton: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     goal = (ctx.goal or "").strip()
-    structured = normalize_structured_content(
-        ctx.structured_content
-        or extract_structured_content(ctx.final_answer or "", goal=goal)
-    )
     # Skeleton provides a reference outline + component list; LLM may reorder/select.
+    # It also carries the structured content, resolved exactly once per plan.
     if skeleton is None:
         skeleton = _plan_layout_skeleton(ctx)
+    structured = skeleton["structured_content"]
     components = list(skeleton["plan"].get("components") or layout_components_from_goal(goal))
     layout_hints = format_layout_requirements(components)
     present_fields = sorted(available_source_hints(structured))
@@ -414,6 +412,135 @@ def _plan_llm_with_repair_and_fallback(
     }
 
 
+def run_plan_layout(
+    db: Session | None,
+    ctx: PresentationContext,
+    *,
+    notes: str = "",
+    user_id: uuid.UUID | None = None,
+    workspace_id: uuid.UUID | None = None,
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    """
+    Produce a validated layout plan for the handoff context.
+
+    Returns (payload, result): payload is the tool-facing dict recorded on the
+    trace; result is the internal _plan_with_validation output (validated plan
+    + structured content) for callers that render next without re-validating.
+    """
+    result = _plan_with_validation(
+        ctx,
+        notes=notes,
+        db=db,
+        user_id=user_id,
+        workspace_id=workspace_id,
+    )
+    usage = result["usage"]
+    payload: dict[str, Any] = {
+        "status": "planned" if result["validation_status"] == "passed" else "validation_failed",
+        "layout_plan": result["plan"],
+        "structured_input": result.get("structured_input"),
+        "ui_intent": result.get("ui_intent") or (result.get("plan") or {}).get("ui_intent"),
+        "validation_status": result["validation_status"],
+        "validation_errors": result.get("validation_errors") or [],
+        "replan_attempted": result.get("replan_attempted", False),
+        "model": usage["model"],
+        "prompt": result["prompt"],
+        "llm_output": result["llm_output"],
+        "prompt_tokens": usage["prompt_tokens"],
+        "completion_tokens": usage["completion_tokens"],
+        "total_tokens": usage["total_tokens"],
+    }
+    if result.get("replan_prompt"):
+        payload["replan_prompt"] = result["replan_prompt"]
+    if result.get("replan_llm_output"):
+        payload["replan_llm_output"] = result["replan_llm_output"]
+    return payload, result
+
+
+def run_render_ui(
+    db: Session,
+    ctx: PresentationContext,
+    *,
+    plan: dict[str, Any],
+    user_id: uuid.UUID,
+    workspace_id: uuid.UUID,
+    structured: dict[str, Any] | None = None,
+    validated: bool = False,
+) -> dict[str, Any]:
+    """
+    Build the generative UI spec from a layout plan.
+
+    validated=True skips re-validation — for plans that already passed
+    validate_layout_plan inside run_plan_layout (the plan/render contract is
+    validate-once). Externally supplied plans must be validated here.
+    """
+    if structured is None:
+        structured = normalize_structured_content(
+            ctx.structured_content
+            or extract_structured_content(ctx.final_answer or "", goal=ctx.goal or "")
+        )
+    if not validated:
+        ok, errors = validate_layout_plan(
+            plan,
+            goal=ctx.goal or "",
+            structured_content=structured,
+            requested_components=[],
+            final_answer=ctx.final_answer or "",
+        )
+        if not ok:
+            return {
+                "error": "Layout plan failed validation",
+                "validation_errors": errors,
+            }
+
+    render_ctx = PresentationContext(
+        workspace_id=ctx.workspace_id,
+        user_id=ctx.user_id,
+        goal=ctx.goal,
+        final_answer=ctx.final_answer,
+        workspace_name=ctx.workspace_name,
+        workspace_description=ctx.workspace_description,
+        workspace_tags=list(ctx.workspace_tags),
+        document_filenames=list(ctx.document_filenames),
+        agent_evidence=ctx.agent_evidence,
+        structured_content=structured,
+        layout_plan=plan,
+        workspace_packet=ctx.workspace_packet,
+    )
+    spec, meta = build_presentation(db, render_ctx)
+    if isinstance(spec, dict) and spec.get("error"):
+        return {"error": spec.get("error"), "meta": meta}
+
+    if int(meta.get("prompt_tokens") or 0) or int(meta.get("completion_tokens") or 0):
+        log_usage(
+            db,
+            user_id=user_id,
+            workspace_id=workspace_id,
+            kind="visual_summary_render",
+            model=meta.get("model") or settings.visual_summary_model,
+            prompt_tokens=int(meta.get("prompt_tokens") or 0),
+            completion_tokens=int(meta.get("completion_tokens") or 0),
+            total_tokens=int(meta.get("total_tokens") or 0),
+            meta={"goal": (ctx.goal or "")[:200]},
+        )
+
+    return {
+        "status": "rendered",
+        "spec": spec,
+        "presentation_profile": spec.get("presentation_profile") if isinstance(spec, dict) else None,
+        "block_count": len(spec.get("blocks") or []) if isinstance(spec, dict) else 0,
+        "model": meta.get("model"),
+        "prompt": meta.get("prompt"),
+        "llm_output": meta.get("llm_output"),
+        "prompt_tokens": meta.get("prompt_tokens"),
+        "completion_tokens": meta.get("completion_tokens"),
+        "total_tokens": meta.get("total_tokens"),
+        "assembly_meta": meta.get("assembly_meta") or (
+            spec.get("assembly_meta") if isinstance(spec, dict) else None
+        ),
+    }
+
+
 def build_visual_tools(
     db: Session,
     *,
@@ -425,7 +552,9 @@ def build_visual_tools(
 
     # Cache the plan_layout result so render_ui can recover when the model
     # hands back malformed/truncated layout_plan_json — LLMs routinely
-    # mis-serialize a multi-KB plan into tool-call arguments.
+    # mis-serialize a multi-KB plan into tool-call arguments. The cache also
+    # carries the resolved structured content and validation status so
+    # render_ui neither re-extracts nor re-validates an approved plan.
     plan_cache: dict[str, Any] = {}
 
     @tool
@@ -434,35 +563,17 @@ def build_visual_tools(
         Analyze the handoff (goal, main agent answer, evidence) and produce a
         structured layout plan before rendering UI. Call this before render_ui.
         """
-        result = _plan_with_validation(
+        payload, result = run_plan_layout(
+            db,
             ctx,
             notes=notes,
-            db=db,
             user_id=user_id,
             workspace_id=workspace_id,
         )
-        usage = result["usage"]
-        payload: dict[str, Any] = {
-            "status": "planned" if result["validation_status"] == "passed" else "validation_failed",
-            "layout_plan": result["plan"],
-            "structured_input": result.get("structured_input"),
-            "ui_intent": result.get("ui_intent") or (result.get("plan") or {}).get("ui_intent"),
-            "validation_status": result["validation_status"],
-            "validation_errors": result.get("validation_errors") or [],
-            "replan_attempted": result.get("replan_attempted", False),
-            "model": usage["model"],
-            "prompt": result["prompt"],
-            "llm_output": result["llm_output"],
-            "prompt_tokens": usage["prompt_tokens"],
-            "completion_tokens": usage["completion_tokens"],
-            "total_tokens": usage["total_tokens"],
-        }
-        if result.get("replan_prompt"):
-            payload["replan_prompt"] = result["replan_prompt"]
-        if result.get("replan_llm_output"):
-            payload["replan_llm_output"] = result["replan_llm_output"]
         if isinstance(result.get("plan"), dict) and result["plan"]:
             plan_cache["plan"] = result["plan"]
+            plan_cache["structured"] = result.get("structured_content")
+            plan_cache["validated"] = result.get("validation_status") == "passed"
         return payload
 
     @tool
@@ -500,68 +611,18 @@ def build_visual_tools(
                 or "layout_plan is required — call plan_layout before render_ui"
             }
 
-        structured = normalize_structured_content(
-            ctx.structured_content
-            or extract_structured_content(ctx.final_answer or "", goal=ctx.goal or "")
+        # Validate once: a plan that already passed inside plan_layout (used
+        # from cache or echoed back verbatim) is not re-validated here.
+        validated = bool(plan_cache.get("validated")) and plan == plan_cache.get("plan")
+        structured = plan_cache.get("structured") if plan == plan_cache.get("plan") else None
+        return run_render_ui(
+            db,
+            ctx,
+            plan=plan,
+            user_id=user_id,
+            workspace_id=workspace_id,
+            structured=structured if isinstance(structured, dict) else None,
+            validated=validated,
         )
-        ok, errors = validate_layout_plan(
-            plan,
-            goal=ctx.goal or "",
-            structured_content=structured,
-            requested_components=layout_components_from_goal(ctx.goal or ""),
-            final_answer=ctx.final_answer or "",
-        )
-        if not ok:
-            return {
-                "error": "Layout plan failed validation",
-                "validation_errors": errors,
-            }
-
-        render_ctx = PresentationContext(
-            workspace_id=ctx.workspace_id,
-            user_id=ctx.user_id,
-            goal=ctx.goal,
-            final_answer=ctx.final_answer,
-            workspace_name=ctx.workspace_name,
-            workspace_description=ctx.workspace_description,
-            workspace_tags=list(ctx.workspace_tags),
-            document_filenames=list(ctx.document_filenames),
-            agent_evidence=ctx.agent_evidence,
-            structured_content=structured,
-            layout_plan=plan,
-            workspace_packet=ctx.workspace_packet,
-        )
-        spec, meta = build_presentation(db, render_ctx)
-        if isinstance(spec, dict) and spec.get("error"):
-            return {"error": spec.get("error"), "meta": meta}
-
-        if int(meta.get("prompt_tokens") or 0) or int(meta.get("completion_tokens") or 0):
-            log_usage(
-                db,
-                user_id=user_id,
-                workspace_id=workspace_id,
-                kind="visual_summary_render",
-                model=meta.get("model") or settings.visual_summary_model,
-                prompt_tokens=int(meta.get("prompt_tokens") or 0),
-                completion_tokens=int(meta.get("completion_tokens") or 0),
-                total_tokens=int(meta.get("total_tokens") or 0),
-                meta={"goal": (ctx.goal or "")[:200]},
-            )
-
-        return {
-            "status": "rendered",
-            "spec": spec,
-            "presentation_profile": spec.get("presentation_profile") if isinstance(spec, dict) else None,
-            "block_count": len(spec.get("blocks") or []) if isinstance(spec, dict) else 0,
-            "model": meta.get("model"),
-            "prompt": meta.get("prompt"),
-            "llm_output": meta.get("llm_output"),
-            "prompt_tokens": meta.get("prompt_tokens"),
-            "completion_tokens": meta.get("completion_tokens"),
-            "total_tokens": meta.get("total_tokens"),
-            "assembly_meta": meta.get("assembly_meta") or (
-                spec.get("assembly_meta") if isinstance(spec, dict) else None
-            ),
-        }
 
     return [get_current_date, plan_layout, render_ui]
