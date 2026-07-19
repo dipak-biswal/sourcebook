@@ -395,6 +395,9 @@ def _run_visual_pipeline(
         step_index=step_index,
         on_event=on_event,
     )
+    from app.agents.run_storage import compact_run_if_terminal
+
+    compact_run_if_terminal(db, run)
     db.commit()
     db.refresh(run)
     _emit(

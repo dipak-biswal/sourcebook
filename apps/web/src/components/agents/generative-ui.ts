@@ -666,31 +666,119 @@ export function extractGenerativeUIFromSteps(
   return best;
 }
 
+function pipeCells(item: string): string[] {
+  return item.split("|").map((c) => c.trim());
+}
+
+function markdownTable(rows: string[]): string[] {
+  if (!rows.length) return [];
+  const parsed = rows.map(pipeCells);
+  const width = Math.max(...parsed.map((r) => r.length), 1);
+  const pad = (cells: string[]) => {
+    const next = [...cells];
+    while (next.length < width) next.push("");
+    return next;
+  };
+  const header = pad(parsed[0]);
+  const lines = [
+    `| ${header.join(" | ")} |`,
+    `| ${header.map(() => "---").join(" | ")} |`,
+  ];
+  for (const row of parsed.slice(1)) {
+    lines.push(`| ${pad(row).join(" | ")} |`);
+  }
+  return lines;
+}
+
+/** Full Markdown export of a visual summary (notes, download, study guide). */
 export function generativeUIToNoteBody(payload: GenerativeUIPayload): string {
-  const lines: string[] = [`# ${payload.title}`];
+  const lines: string[] = [`# ${payload.title || "Visual summary"}`];
+  if (payload.presentation_profile) {
+    lines.push(
+      "",
+      `*Profile: ${payload.presentation_profile.replace(/_/g, " ")}*`,
+    );
+  }
   if (payload.plain_summary) {
     lines.push("", payload.plain_summary);
   }
   for (const b of payload.blocks ?? []) {
     const t = b.title || b.type.replace(/_/g, " ");
     lines.push("", `## ${t}`);
-    if (b.body) lines.push(b.body);
-    for (const item of b.items ?? []) {
-      if (b.type === "table" && item.includes("|")) {
-        lines.push(`| ${item.split("|").map((c) => c.trim()).join(" | ")} |`);
+    if (b.tags?.length) {
+      lines.push(`*Tags: ${b.tags.join(", ")}*`);
+    }
+    if (b.body && b.type !== "quote") {
+      lines.push("", b.body);
+    }
+    if (b.type === "quote" && b.body) {
+      lines.push("", `> ${b.body}`);
+    }
+    if (b.type === "table" || b.type === "comparison") {
+      const rows = (b.items ?? []).filter(Boolean);
+      if (rows.length) {
+        lines.push("", ...markdownTable(rows));
+      }
+    } else if (b.type === "metrics" || b.type === "progress" || b.type === "chart") {
+      if (b.measures?.length) {
+        for (const m of b.measures) {
+          const unit = m.unit ? ` ${m.unit}` : "";
+          lines.push(`- **${m.label}**: ${m.value}${unit}`);
+        }
       } else {
+        for (const item of b.items ?? []) {
+          const [label, value] = pipeCells(item);
+          lines.push(value ? `- **${label}**: ${value}` : `- ${item}`);
+        }
+      }
+    } else if (b.type === "timeline" || b.type === "steps" || b.type === "key_points" || b.type === "chips") {
+      for (const item of b.items ?? []) {
         lines.push(`- ${item}`);
+      }
+    } else {
+      for (const item of b.items ?? []) {
+        if (item.includes("|")) {
+          lines.push(`- ${pipeCells(item).join(" — ")}`);
+        } else {
+          lines.push(`- ${item}`);
+        }
       }
     }
     for (const term of b.terms ?? []) {
       lines.push(`- **${term.term}**: ${term.definition}`);
     }
     for (const f of b.faqs ?? []) {
-      lines.push(`**Q: ${f.question}**`, `A: ${f.answer}`);
+      lines.push("", `**Q: ${f.question}**`, "", `A: ${f.answer}`);
     }
-    if (b.type === "quote" && b.body) {
-      lines.push(`> ${b.body}`);
+    if (b.source_indices?.length) {
+      lines.push("", `*Sources: ${b.source_indices.map((i) => `[${i}]`).join(" ")}*`);
     }
   }
-  return lines.join("\n").trim();
+  const sources = payload.sources ?? [];
+  const files = (payload.source_files ?? []).filter(Boolean);
+  if (sources.length || files.length) {
+    lines.push("", "## Sources");
+    if (sources.length) {
+      for (const s of sources) {
+        const name = s.filename || "document";
+        const snip = (s.snippet || "").replace(/\s+/g, " ").slice(0, 160);
+        lines.push(snip ? `- **[${s.index}] ${name}** — ${snip}` : `- **[${s.index}] ${name}**`);
+      }
+    } else {
+      for (const f of files) {
+        lines.push(`- ${f}`);
+      }
+    }
+  }
+  return lines.join("\n").trim() + "\n";
+}
+
+/** Filename-safe slug for Markdown downloads. */
+export function generativeUIExportFilename(payload: GenerativeUIPayload): string {
+  const base = (payload.title || "visual-summary")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 60);
+  return `${base || "visual-summary"}.md`;
 }

@@ -371,6 +371,13 @@ export const api = {
 
   usageSummary: () => request<UsageSummary>("/usage/summary"),
 
+  visualPipelineSummary: (workspaceId?: string) => {
+    const q = workspaceId
+      ? `?workspace_id=${encodeURIComponent(workspaceId)}`
+      : "";
+    return request<VisualPipelineSummary>(`/usage/visual-summary${q}`);
+  },
+
   usageEvents: (limit = 50) =>
     request<UsageEventRow[]>(`/usage/events?limit=${limit}`),
 
@@ -579,6 +586,19 @@ export type UsageSummary = {
   daily_totals: DailyTotal[];
 };
 
+/** Aggregated Visual Summary pipeline health from /usage/visual-summary. */
+export type VisualPipelineSummary = {
+  plan_count: number;
+  render_count: number;
+  validation_failed_rate: number;
+  replan_rate: number;
+  skeleton_fallback_rate: number;
+  render_fallback_rate: number;
+  avg_block_count: number;
+  dropped_block_total: number;
+  tokens_by_kind: Record<string, number>;
+};
+
 export type UsageEventDetail = {
   kind: string;
   goal: string | null;
@@ -676,78 +696,154 @@ export type PresentationSkeleton = {
   presentation_profile?: string;
 };
 
+const TERMINAL_RUN_STATUSES = new Set([
+  "completed",
+  "failed",
+  "cancelled",
+  "error",
+  "waiting_approval",
+]);
+
+/** Poll GET /agents/runs/{id} after SSE drop so the UI can recover mid-run. */
+async function pollAgentRunUntilSettled(
+  runId: string,
+  handlers: AgentStreamHandlers,
+  *,
+  maxWaitMs = 120_000,
+  intervalMs = 2_000,
+): Promise<AgentRun | null> {
+  const deadline = Date.now() + maxWaitMs;
+  let last: AgentRun | null = null;
+  while (Date.now() < deadline) {
+    try {
+      last = await api.agentRun(runId);
+    } catch {
+      await new Promise((r) => setTimeout(r, intervalMs));
+      continue;
+    }
+    for (const step of last.steps ?? []) {
+      handlers.onStep?.(step);
+    }
+    if (last.execution_trace) {
+      handlers.onTrace?.(last.execution_trace);
+    }
+    handlers.onStatus?.({
+      status: last.status,
+      token_usage: last.token_usage,
+      final_answer: last.final_answer,
+      pending_tool: last.pending_tool,
+      presentation_spec: last.presentation_spec,
+    });
+    if (TERMINAL_RUN_STATUSES.has((last.status || "").toLowerCase())) {
+      handlers.onDone?.(last);
+      return last;
+    }
+    await new Promise((r) => setTimeout(r, intervalMs));
+  }
+  return last;
+}
+
 async function streamAgentRun(
   path: string,
   body: Record<string, unknown>,
   handlers: AgentStreamHandlers,
 ): Promise<AgentRun | null> {
   let finalRun: AgentRun | null = null;
-  await consumeSSE(
-    path,
-    body,
-    (payload) => {
-    const type = String(payload.type || "");
-    if (type === "run_start") {
-      handlers.onRunStart?.({
-        run_id: payload.run_id as string | undefined,
-        goal: payload.goal as string | undefined,
-        status: payload.status as string | undefined,
-      });
-    } else if (type === "llm_start") {
-      handlers.onLlmStart?.(payload);
-    } else if (type === "llm_delta") {
-      handlers.onLlmDelta?.({
-        turn_id: payload.turn_id as string | undefined,
-        delta: String(payload.delta ?? ""),
-      });
-    } else if (type === "llm_end") {
-      handlers.onLlmEnd?.({
-        duration_ms: payload.duration_ms as number | undefined,
-        prompt_tokens: payload.prompt_tokens as number | undefined,
-        completion_tokens: payload.completion_tokens as number | undefined,
-        total_tokens: payload.total_tokens as number | undefined,
-        token_usage_so_far: payload.token_usage_so_far as number | undefined,
-        has_tool_calls: payload.has_tool_calls as boolean | undefined,
-      });
-    } else if (type === "step" && payload.step) {
-      handlers.onStep?.(payload.step as AgentStep);
-    } else if (type === "tool_start") {
-      handlers.onToolStart?.({
-        tool_name: payload.tool_name as string,
-        tool_args: payload.tool_args as Record<string, unknown> | undefined,
-        call_id: payload.call_id as string | undefined,
-      });
-    } else if (type === "loop_warning") {
-      handlers.onLoopWarning?.({ message: payload.message as string });
-    } else if (type === "presentation_skeleton") {
-      handlers.onPresentationSkeleton?.({
-        outline: (payload.outline as PresentationSkeleton["outline"]) ?? [],
-        presentation_profile: payload.presentation_profile as string | undefined,
-      });
-    } else if (type === "trace" && payload.execution_trace) {
-      handlers.onTrace?.(payload.execution_trace as ExecutionTrace);
-    } else if (type === "status") {
-      handlers.onStatus?.({
-        status: payload.status as string | undefined,
-        token_usage: (payload.token_usage as number | null | undefined) ?? null,
-        final_answer: (payload.final_answer as string | null | undefined) ?? null,
-        pending_tool: payload.pending_tool as AgentRun["pending_tool"],
-        presentation_spec: payload.presentation_spec as AgentRun["presentation_spec"],
-      });
-    } else if (type === "done" && payload.run) {
-      finalRun = payload.run as AgentRun;
-      handlers.onDone?.(finalRun);
-    } else if (type === "error") {
-      const detail = String(payload.detail || "Agent stream error");
-      handlers.onError?.(detail);
-      throw new Error(detail);
+  let liveRunId: string | null =
+    typeof body.run_id === "string"
+      ? body.run_id
+      : path.includes("/runs/") && path.includes("/approve")
+        ? path.split("/runs/")[1]?.split("/")[0] ?? null
+        : null;
+
+  try {
+    await consumeSSE(
+      path,
+      body,
+      (payload) => {
+        const type = String(payload.type || "");
+        if (type === "heartbeat") {
+          return; // keep-alive only
+        }
+        if (payload.run_id && typeof payload.run_id === "string") {
+          liveRunId = payload.run_id;
+        }
+        if (type === "run_start") {
+          handlers.onRunStart?.({
+            run_id: payload.run_id as string | undefined,
+            goal: payload.goal as string | undefined,
+            status: payload.status as string | undefined,
+          });
+        } else if (type === "llm_start") {
+          handlers.onLlmStart?.(payload);
+        } else if (type === "llm_delta") {
+          handlers.onLlmDelta?.({
+            turn_id: payload.turn_id as string | undefined,
+            delta: String(payload.delta ?? ""),
+          });
+        } else if (type === "llm_end") {
+          handlers.onLlmEnd?.({
+            duration_ms: payload.duration_ms as number | undefined,
+            prompt_tokens: payload.prompt_tokens as number | undefined,
+            completion_tokens: payload.completion_tokens as number | undefined,
+            total_tokens: payload.total_tokens as number | undefined,
+            token_usage_so_far: payload.token_usage_so_far as number | undefined,
+            has_tool_calls: payload.has_tool_calls as boolean | undefined,
+          });
+        } else if (type === "step" && payload.step) {
+          handlers.onStep?.(payload.step as AgentStep);
+        } else if (type === "tool_start") {
+          handlers.onToolStart?.({
+            tool_name: payload.tool_name as string,
+            tool_args: payload.tool_args as Record<string, unknown> | undefined,
+            call_id: payload.call_id as string | undefined,
+          });
+        } else if (type === "loop_warning") {
+          handlers.onLoopWarning?.({ message: payload.message as string });
+        } else if (type === "presentation_skeleton") {
+          handlers.onPresentationSkeleton?.({
+            outline: (payload.outline as PresentationSkeleton["outline"]) ?? [],
+            presentation_profile: payload.presentation_profile as
+              | string
+              | undefined,
+          });
+        } else if (type === "trace" && payload.execution_trace) {
+          handlers.onTrace?.(payload.execution_trace as ExecutionTrace);
+        } else if (type === "status") {
+          handlers.onStatus?.({
+            status: payload.status as string | undefined,
+            token_usage:
+              (payload.token_usage as number | null | undefined) ?? null,
+            final_answer:
+              (payload.final_answer as string | null | undefined) ?? null,
+            pending_tool: payload.pending_tool as AgentRun["pending_tool"],
+            presentation_spec:
+              payload.presentation_spec as AgentRun["presentation_spec"],
+          });
+        } else if (type === "done" && payload.run) {
+          finalRun = payload.run as AgentRun;
+          handlers.onDone?.(finalRun);
+        } else if (type === "error") {
+          const detail = String(payload.detail || "Agent stream error");
+          handlers.onError?.(detail);
+          throw new Error(detail);
+        }
+      },
+      {
+        idleTimeoutMs: AGENT_SSE_IDLE_MS,
+        maxDurationMs: AGENT_SSE_MAX_MS,
+      },
+    );
+  } catch (err) {
+    // Stream dropped (idle timeout, proxy, network). If we already know the
+    // run id, poll the REST snapshot until the agent settles — true reconnect.
+    if (finalRun) return finalRun;
+    if (liveRunId) {
+      const recovered = await pollAgentRunUntilSettled(liveRunId, handlers);
+      if (recovered) return recovered;
     }
-    },
-    {
-      idleTimeoutMs: AGENT_SSE_IDLE_MS,
-      maxDurationMs: AGENT_SSE_MAX_MS,
-    },
-  );
+    throw err;
+  }
   return finalRun;
 }
 

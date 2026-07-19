@@ -1,6 +1,7 @@
 import json
 import queue
 import threading
+import time
 import uuid
 from collections.abc import Generator
 
@@ -63,10 +64,15 @@ def _sse(payload: dict) -> str:
 
 def _stream_agent_work(
     work,
+    *,
+    heartbeat_seconds: float = 15.0,
 ) -> Generator[str, None, None]:
     """
     Run agent work in a background thread with its own DB session,
     yield LangSmith-style SSE events as they occur.
+
+    Heartbeats keep proxies and the browser idle timer from killing long
+    plan/render waits; clients may ignore `type=heartbeat`.
     """
     q: queue.Queue = queue.Queue()
 
@@ -85,7 +91,11 @@ def _stream_agent_work(
 
     threading.Thread(target=runner, daemon=True).start()
     while True:
-        item = q.get()
+        try:
+            item = q.get(timeout=heartbeat_seconds)
+        except queue.Empty:
+            yield _sse({"type": "heartbeat", "ts": time.time()})
+            continue
         if item is None:
             break
         yield _sse(item)
@@ -302,6 +312,18 @@ def list_agent_runs(
     db: Session = Depends(get_db),
 ):
     _require_member(db, current_user.id, workspace_id)
+    # Opportunistic storage hygiene for this workspace (cheap when nothing to drop).
+    from app.agents.run_storage import prune_agent_runs
+
+    try:
+        pruned = prune_agent_runs(
+            db, user_id=current_user.id, workspace_id=workspace_id
+        )
+        if pruned.get("deleted_by_age") or pruned.get("deleted_by_cap"):
+            db.commit()
+    except Exception:
+        db.rollback()
+
     q = (
         db.query(AgentRun)
         .options(joinedload(AgentRun.steps))
@@ -314,6 +336,24 @@ def list_agent_runs(
         q = q.filter(AgentRun.agent_type == normalize_agent_type(agent_type))
     runs = q.order_by(AgentRun.created_at.desc()).limit(30).all()
     return [_as_run_response(r, db) for r in runs]
+
+
+@router.post("/runs/prune")
+def prune_runs(
+    workspace_id: uuid.UUID | None = None,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Manually prune aged / excess agent runs for the current user."""
+    if workspace_id is not None:
+        _require_member(db, current_user.id, workspace_id)
+    from app.agents.run_storage import prune_agent_runs
+
+    result = prune_agent_runs(
+        db, user_id=current_user.id, workspace_id=workspace_id
+    )
+    db.commit()
+    return {"status": "ok", **result}
 
 
 @router.delete("/runs/{run_id}", status_code=204)

@@ -497,43 +497,14 @@ export function useAgentThread(
     if (!workspaceId || savingNote) return;
     setSavingNote(true);
     setError(null);
-    const userId = `agent-user-note-${Date.now()}`;
-    const asstId = `agent-asst-note-${Date.now()}`;
-    const goalText =
-      `Create a note titled ${JSON.stringify(title)} with body:\n${body}`;
-    setModePersist("agent");
-    setAgentThread((prev) => [
-      ...prev,
-      { id: userId, role: "user", content: `Save visual summary as note: ${title}` },
-      {
-        id: asstId,
-        role: "assistant",
-        content: "Preparing note (approval required)…",
-        pending: true,
-        run: null,
-        goal: goalText,
-      },
-    ]);
-    requestAnimationFrame(() => {
-      bottomRef.current?.scrollIntoView({ behavior: "smooth" });
-    });
     try {
-      const run = await api.startAgentRun(workspaceId, goalText, { maxSteps: 5 });
-      applyRunToThread(asstId, run);
-      setAgentRunId(run.id);
-      void queryClient.invalidateQueries({ queryKey: ["agentRuns", workspaceId] });
-      if (run.status === "waiting_approval") {
-        success("Approve the note", "Review create_note below, then Approve.");
-      } else if (run.status === "completed") {
-        success("Note flow finished");
-      }
+      await api.createNote(workspaceId, title, body);
+      void queryClient.invalidateQueries({ queryKey: ["notes", workspaceId] });
+      success("Saved as note", "Open Notes to edit or continue studying.");
     } catch (err) {
       const msg = formatError(err);
       setError(msg);
-      toastError("Could not start save-as-note", msg);
-      setAgentThread((prev) =>
-        prev.filter((m) => m.id !== userId && m.id !== asstId),
-      );
+      toastError("Could not save note", msg);
     } finally {
       setSavingNote(false);
     }

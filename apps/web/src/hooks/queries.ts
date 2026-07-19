@@ -8,6 +8,7 @@ import {
   type Note,
   type UsageSummary,
   type UserProfile,
+  type VisualPipelineSummary,
   type Workspace,
 } from "@/api";
 
@@ -105,5 +106,12 @@ export function useUsageSummary() {
   return useQuery<UsageSummary>({
     queryKey: ["usageSummary"],
     queryFn: () => api.usageSummary(),
+  });
+}
+
+export function useVisualPipelineSummary(workspaceId?: string) {
+  return useQuery<VisualPipelineSummary>({
+    queryKey: ["visualPipelineSummary", workspaceId ?? "all"],
+    queryFn: () => api.visualPipelineSummary(workspaceId),
   });
 }

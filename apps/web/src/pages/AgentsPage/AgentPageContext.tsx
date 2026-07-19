@@ -483,25 +483,16 @@ export function AgentPageProvider({
     if (!effectiveWorkspaceId || savingNote) return;
     setSavingNote(true);
     setError(null);
-    const goalText =
-      `Create a note titled ${JSON.stringify(title)} with body:\n${body}`;
     try {
-      const run = await api.startAgentRun(effectiveWorkspaceId, goalText, {
-        maxSteps: DEFAULT_MAX_STEPS,
-      });
+      await api.createNote(effectiveWorkspaceId, title, body);
       await queryClient.invalidateQueries({
-        queryKey: ["agentRuns", effectiveWorkspaceId],
+        queryKey: ["notes", effectiveWorkspaceId],
       });
-      setSelected(run);
-      if (run.status === "waiting_approval") {
-        success("Approve the note", "Review create_note, then Approve.");
-      } else {
-        success("Note flow finished");
-      }
+      success("Saved as note", "Open Notes to edit or continue studying.");
     } catch (err) {
       const msg = formatError(err);
       setError(msg);
-      toastError("Could not start save-as-note", msg);
+      toastError("Could not save note", msg);
     } finally {
       setSavingNote(false);
     }

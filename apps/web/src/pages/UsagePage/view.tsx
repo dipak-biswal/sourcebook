@@ -30,8 +30,44 @@ import { useToast } from "@/components/ui/toast";
 type SortDir = "asc" | "desc";
 type SortCol = "created_at" | "kind" | "model" | "total_tokens";
 
+function pct(rate: number | undefined | null): string {
+  if (rate == null || Number.isNaN(rate)) return "—";
+  return `${Math.round(rate * 100)}%`;
+}
+
+function HealthCard({
+  label,
+  value,
+  hint,
+  warn,
+}: {
+  label: string;
+  value: string;
+  hint?: string;
+  warn?: boolean;
+}) {
+  return (
+    <div className="rounded-vercel-md border border-hairline bg-canvas p-3">
+      <div className="text-[10px] font-medium uppercase tracking-wide text-mute">
+        {label}
+      </div>
+      <div
+        className={
+          warn
+            ? "mt-0.5 text-xl font-semibold text-warning-text"
+            : "mt-0.5 text-xl font-semibold text-ink"
+        }
+      >
+        {value}
+      </div>
+      {hint && <p className="mt-1 text-[11px] leading-snug text-mute">{hint}</p>}
+    </div>
+  );
+}
+
 export function UsagePageView({
   data,
+  visualPipeline,
   error,
   loading,
   onRefresh,
@@ -183,6 +219,73 @@ export function UsagePageView({
               </div>
             </div>
           </div>
+
+          {visualPipeline &&
+            (visualPipeline.plan_count > 0 || visualPipeline.render_count > 0) && (
+              <div className="mb-6">
+                <div className="mb-2 flex items-baseline justify-between gap-2">
+                  <h2 className="text-sm font-semibold text-ink">
+                    Visual Summary health
+                  </h2>
+                  <span className="text-[11px] text-mute">
+                    From plan/render outcome rows — where the pipeline degrades
+                  </span>
+                </div>
+                <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-6">
+                  <HealthCard
+                    label="Plans"
+                    value={String(visualPipeline.plan_count)}
+                    hint="Layout plan outcomes logged"
+                  />
+                  <HealthCard
+                    label="Renders"
+                    value={String(visualPipeline.render_count)}
+                    hint={`Avg ${visualPipeline.avg_block_count || 0} blocks`}
+                  />
+                  <HealthCard
+                    label="Validation fail"
+                    value={pct(visualPipeline.validation_failed_rate)}
+                    hint="Plans that failed first validation"
+                    warn={visualPipeline.validation_failed_rate >= 0.25}
+                  />
+                  <HealthCard
+                    label="Replan rate"
+                    value={pct(visualPipeline.replan_rate)}
+                    hint="Plans that needed a repair pass"
+                    warn={visualPipeline.replan_rate >= 0.35}
+                  />
+                  <HealthCard
+                    label="Skeleton fallback"
+                    value={pct(visualPipeline.skeleton_fallback_rate)}
+                    hint="Code skeleton used instead of LLM plan"
+                    warn={visualPipeline.skeleton_fallback_rate >= 0.4}
+                  />
+                  <HealthCard
+                    label="Render fallback"
+                    value={pct(visualPipeline.render_fallback_rate)}
+                    hint="LLM render used when assembly failed"
+                    warn={visualPipeline.render_fallback_rate >= 0.25}
+                  />
+                </div>
+                {visualPipeline.dropped_block_total > 0 && (
+                  <p className="mt-2 text-[11px] text-mute">
+                    Dropped hollow blocks (total):{" "}
+                    <span className="font-medium text-body">
+                      {visualPipeline.dropped_block_total}
+                    </span>
+                    {Object.keys(visualPipeline.tokens_by_kind || {}).length > 0 && (
+                      <>
+                        {" "}
+                        · Tokens by kind:{" "}
+                        {Object.entries(visualPipeline.tokens_by_kind)
+                          .map(([k, v]) => `${k}=${v}`)
+                          .join(", ")}
+                      </>
+                    )}
+                  </p>
+                )}
+              </div>
+            )}
 
           {data?.daily_totals && data.daily_totals.length > 0 && (
             <div className="mb-6">

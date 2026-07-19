@@ -3,8 +3,11 @@ import {
   AlertTriangle,
   BarChart3,
   BookOpen,
+  Check,
   ChevronDown,
   ChevronRight,
+  Copy,
+  Download,
   FileText,
   HelpCircle,
   Lightbulb,
@@ -32,6 +35,7 @@ import type { GenUIBlock, GenerativeUIPayload } from "./generative-ui";
 import { KNOWN_BLOCK_TYPES } from "./block-contract";
 import {
   coerceTableRows,
+  generativeUIExportFilename,
   generativeUIToNoteBody,
   parseProgressValue,
 } from "./generative-ui";
@@ -881,6 +885,36 @@ export function GenerativeUIView({
     [workspaceId, runId],
   );
   const chipProps = { activeTag, onSelect: onChipSelect };
+  const [copied, setCopied] = useState(false);
+  const markdown = generativeUIToNoteBody(payload);
+
+  const handleCopyMarkdown = useCallback(async () => {
+    try {
+      await navigator.clipboard.writeText(markdown);
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 1600);
+    } catch {
+      // Fallback for older browsers / denied clipboard
+      const ta = document.createElement("textarea");
+      ta.value = markdown;
+      document.body.appendChild(ta);
+      ta.select();
+      document.execCommand("copy");
+      document.body.removeChild(ta);
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 1600);
+    }
+  }, [markdown]);
+
+  const handleDownloadMarkdown = useCallback(() => {
+    const blob = new Blob([markdown], { type: "text/markdown;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = generativeUIExportFilename(payload);
+    a.click();
+    URL.revokeObjectURL(url);
+  }, [markdown, payload]);
 
   return (
     <div
@@ -905,6 +939,30 @@ export function GenerativeUIView({
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-1.5">
+          <Button
+            type="button"
+            size="sm"
+            variant="secondary"
+            className="h-7 gap-1 text-[11px]"
+            onClick={() => void handleCopyMarkdown()}
+          >
+            {copied ? (
+              <Check className="h-3 w-3" strokeWidth={1.5} />
+            ) : (
+              <Copy className="h-3 w-3" strokeWidth={1.5} />
+            )}
+            {copied ? "Copied" : "Copy MD"}
+          </Button>
+          <Button
+            type="button"
+            size="sm"
+            variant="secondary"
+            className="h-7 gap-1 text-[11px]"
+            onClick={handleDownloadMarkdown}
+          >
+            <Download className="h-3 w-3" strokeWidth={1.5} />
+            Download
+          </Button>
           {onSaveAsNote && (
             <Button
               type="button"
@@ -915,7 +973,7 @@ export function GenerativeUIView({
               onClick={() =>
                 onSaveAsNote(
                   payload.title.slice(0, 120) || "Visual summary",
-                  generativeUIToNoteBody(payload),
+                  markdown,
                 )
               }
             >

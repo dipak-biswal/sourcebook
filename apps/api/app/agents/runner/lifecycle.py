@@ -267,6 +267,9 @@ def approve_agent_run(
             run.status = "cancelled"
             run.pending_tool = None
             run.final_answer = f"Write action `{name}` was rejected by the user."
+        from app.agents.run_storage import compact_run_if_terminal
+
+        compact_run_if_terminal(db, run)
         db.commit()
         db.refresh(run)
         return run
@@ -298,6 +301,9 @@ def approve_agent_run(
             trace_live=trace_live,
         )
         run.status = "completed"
+        from app.agents.run_storage import compact_run_if_terminal
+
+        compact_run_if_terminal(db, run)
         db.commit()
         db.refresh(run)
         trace_live.approving = False

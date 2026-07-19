@@ -1,7 +1,14 @@
-import type { UsageSummary, Document, Workspace, DevUserList } from "@/api";
+import type {
+  UsageSummary,
+  Document,
+  Workspace,
+  DevUserList,
+  VisualPipelineSummary,
+} from "@/api";
 
 export type UsagePageViewProps = {
   data: UsageSummary | null;
+  visualPipeline: VisualPipelineSummary | null;
   error: string | null;
   loading: boolean;
   onRefresh: () => void;

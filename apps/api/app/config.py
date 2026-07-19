@@ -122,6 +122,14 @@ class Settings(BaseSettings):
     rate_limit_ingest_per_window: int = 10
     rate_limit_agent_per_window: int = 10
 
+    # Agent run storage hygiene (free-tier Postgres).
+    # Strip bulky prompt/llm_output from steps when a run leaves running/waiting.
+    agent_step_compact_on_complete: bool = True
+    # Delete terminal runs older than N days (0 = never by age).
+    agent_run_retention_days: int = 30
+    # Keep at most N runs per workspace (0 = no cap); newest win.
+    agent_run_max_per_workspace: int = 50
+
     # Logging
     log_level: str = "INFO"
     log_json: bool = True  # false = human-readable lines for local terminals
