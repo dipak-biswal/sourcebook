@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useCallback, useState } from "react";
 import {
   AlertTriangle,
   BarChart3,
@@ -17,6 +17,7 @@ import {
   Tags,
   Timer,
 } from "lucide-react";
+import { api } from "@/api";
 import { Button } from "@/components/ui/button";
 import {
   Table,
@@ -28,11 +29,30 @@ import {
 } from "@/components/ui/table";
 import { cn } from "@/lib/utils";
 import type { GenUIBlock, GenerativeUIPayload } from "./generative-ui";
+import { KNOWN_BLOCK_TYPES } from "./block-contract";
 import {
   coerceTableRows,
   generativeUIToNoteBody,
   parseProgressValue,
 } from "./generative-ui";
+
+/** Best-effort: never block the UI on ranking telemetry. */
+function reportVisualInteraction(opts: {
+  workspaceId?: string | null;
+  runId?: string | null;
+  action: string;
+  affordance?: string;
+  label?: string;
+}) {
+  if (!opts.workspaceId) return;
+  void api.logVisualInteraction({
+    workspace_id: opts.workspaceId,
+    action: opts.action,
+    affordance: opts.affordance,
+    label: opts.label,
+    run_id: opts.runId ?? undefined,
+  });
+}
 
 function isDashOnlyRow(text: string): boolean {
   const s = text.trim();
@@ -272,20 +292,27 @@ function ChipsBlock({
 
 function MetricsBlock({ block }: { block: GenUIBlock }) {
   const items = block.items ?? [];
-  if (!items.length) return null;
+  // Server-derived measures keep label/value intact even when the label
+  // itself contains a pipe; fall back to parsing the raw pipe rows.
+  const rows: Array<[string, string]> = block.measures?.length
+    ? block.measures.map((m) => [m.label, m.value])
+    : items.map((item) => {
+        const [label, value] = parsePipeRow(item);
+        return [label || item, value ?? ""];
+      });
+  if (!rows.length) return null;
   return (
     <div>
       <BlockLabel type="metrics" title={block.title} />
       <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
-        {items.map((item, j) => {
-          const [label, value] = parsePipeRow(item);
+        {rows.map(([label, value], j) => {
           return (
             <div
               key={j}
               className="rounded-[8px] border border-hairline bg-canvas px-3 py-2.5"
             >
               <div className="text-[10px] font-medium uppercase tracking-wide text-mute">
-                {label || item}
+                {label}
               </div>
               {value && (
                 <div className="mt-0.5 text-base font-semibold tabular-nums text-ink">
@@ -344,12 +371,23 @@ function ProgressBlock({ block }: { block: GenUIBlock }) {
 
 function ChartBlock({ block }: { block: GenUIBlock }) {
   const items = block.items ?? [];
-  if (!items.length) return null;
-  const rows = items.map((item) => {
-    const [label, raw] = parsePipeRow(item);
-    const parsed = parseProgressValue(raw || "");
-    return { label: label || item, ...parsed };
-  });
+  const measures = block.measures ?? [];
+  // When every row has a server-verified numeric, scale bars by the real
+  // values ("200 ms" vs "450 ms") instead of the qualitative 50% fallback.
+  const numericScale =
+    measures.length > 0 && measures.every((m) => typeof m.numeric === "number");
+  const rows = numericScale
+    ? measures.map((m) => ({
+        label: m.label,
+        pct: Math.abs(m.numeric as number),
+        display: m.value,
+      }))
+    : items.map((item) => {
+        const [label, raw] = parsePipeRow(item);
+        const parsed = parseProgressValue(raw || "");
+        return { label: label || item, ...parsed };
+      });
+  if (!rows.length) return null;
   const max = Math.max(...rows.map((r) => r.pct), 1);
 
   return (
@@ -618,7 +656,13 @@ function TermsBlock({ block }: { block: GenUIBlock }) {
   );
 }
 
-function FaqBlock({ block }: { block: GenUIBlock }) {
+function FaqBlock({
+  block,
+  onExpand,
+}: {
+  block: GenUIBlock;
+  onExpand?: (question: string) => void;
+}) {
   const [openIdx, setOpenIdx] = useState<number | null>(0);
   const faqs = block.faqs ?? [];
   if (!faqs.length) return null;
@@ -633,7 +677,11 @@ function FaqBlock({ block }: { block: GenUIBlock }) {
             <div key={j}>
               <button
                 type="button"
-                onClick={() => setOpenIdx(open ? null : j)}
+                onClick={() => {
+                  const next = open ? null : j;
+                  setOpenIdx(next);
+                  if (next !== null) onExpand?.(f.question);
+                }}
                 className="flex w-full items-start gap-2 px-3 py-2.5 text-left hover:bg-canvas-soft"
               >
                 {open ? (
@@ -661,12 +709,14 @@ function FaqBlock({ block }: { block: GenUIBlock }) {
 function GenerativeUIBlock({
   block,
   chipProps,
+  onFaqExpand,
 }: {
   block: GenUIBlock;
   chipProps?: {
     activeTag: string | null;
     onSelect: (tag: string | null) => void;
   };
+  onFaqExpand?: (question: string) => void;
 }) {
   switch (block.type) {
     case "summary":
@@ -702,8 +752,15 @@ function GenerativeUIBlock({
     case "key_terms":
       return <TermsBlock block={block} />;
     case "faq":
-      return <FaqBlock block={block} />;
+      return <FaqBlock block={block} onExpand={onFaqExpand} />;
     default:
+      // A type in the contract but missing a case above means this renderer
+      // is behind the backend registry — surface it in dev builds.
+      if (import.meta.env.DEV && KNOWN_BLOCK_TYPES.has(block.type)) {
+        console.warn(
+          `GenerativeUI: block type "${block.type}" is in the block contract but has no renderer case`,
+        );
+      }
       return (
         <div className="rounded-[8px] border border-hairline bg-canvas-soft px-3 py-2.5">
           <BlockLabel type={block.type} title={block.title} />
@@ -722,16 +779,70 @@ function GenerativeUIBlock({
   }
 }
 
+export function GenerativeUISkeleton({
+  skeleton,
+  className,
+}: {
+  skeleton: import("@/api").PresentationSkeleton;
+  className?: string;
+}) {
+  const widths = BLOCK_CONTRACT.widths as Record<string, string>;
+  const outline = skeleton.outline ?? [];
+  if (!outline.length) return null;
+  return (
+    <div
+      className={cn(
+        "w-full max-w-[min(100%,60rem)] space-y-4 rounded-vercel-md border border-hairline bg-canvas p-3 shadow-[var(--elevation-2)] sm:p-4",
+        className,
+      )}
+    >
+      <div className="flex items-center gap-1.5">
+        <Loader2 className="h-4 w-4 shrink-0 animate-spin text-mute" />
+        <h3 className="text-sm font-semibold tracking-tight text-ink">
+          Building visual summary…
+        </h3>
+      </div>
+      <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+        {outline.map((entry, i) => {
+          const full =
+            entry.width === "full" ||
+            (!entry.width && widths[entry.type] === "full");
+          return (
+            <div
+              key={`${entry.type}-${i}`}
+              className={cn(
+                "min-w-0 animate-pulse rounded-[8px] border border-hairline bg-canvas-soft px-3 py-2.5",
+                full && "md:col-span-2",
+              )}
+            >
+              <div className="text-[11px] font-bold uppercase tracking-wide text-mute">
+                {entry.title || entry.type.replace(/_/g, " ")}
+              </div>
+              <div className="mt-2 h-2 w-3/4 rounded bg-canvas-soft-2" />
+              <div className="mt-1.5 h-2 w-1/2 rounded bg-canvas-soft-2" />
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 export function GenerativeUIView({
   payload,
   className,
   onSaveAsNote,
   savingNote,
+  workspaceId,
+  runId,
 }: {
   payload: GenerativeUIPayload;
   className?: string;
   onSaveAsNote?: (title: string, body: string) => void;
   savingNote?: boolean;
+  /** When set, chip/FAQ interactions are logged for affordance ranking. */
+  workspaceId?: string | null;
+  runId?: string | null;
 }) {
   const blocks = payload.blocks ?? [];
   const sourceFiles = [
@@ -742,7 +853,34 @@ export function GenerativeUIView({
     ),
   ];
   const [activeTag, setActiveTag] = useState<string | null>(null);
-  const chipProps = { activeTag, onSelect: setActiveTag };
+  const onChipSelect = useCallback(
+    (tag: string | null) => {
+      setActiveTag(tag);
+      if (tag) {
+        reportVisualInteraction({
+          workspaceId,
+          runId,
+          action: "chip_select",
+          affordance: "topic_filter",
+          label: tag,
+        });
+      }
+    },
+    [workspaceId, runId],
+  );
+  const onFaqExpand = useCallback(
+    (question: string) => {
+      reportVisualInteraction({
+        workspaceId,
+        runId,
+        action: "faq_expand",
+        affordance: "self_check",
+        label: question,
+      });
+    },
+    [workspaceId, runId],
+  );
+  const chipProps = { activeTag, onSelect: onChipSelect };
 
   return (
     <div
@@ -819,6 +957,7 @@ export function GenerativeUIView({
               <GenerativeUIBlock
                 block={b}
                 chipProps={b.type === "chips" ? chipProps : undefined}
+                onFaqExpand={b.type === "faq" ? onFaqExpand : undefined}
               />
             </div>
           );

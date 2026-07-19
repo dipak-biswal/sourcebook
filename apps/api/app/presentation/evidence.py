@@ -12,6 +12,7 @@ class DocumentEvidenceHit:
     snippet: str
     score: float | None = None
     chunk_id: str | None = None
+    document_id: str | None = None
 
 
 @dataclass
@@ -43,12 +44,14 @@ def _parse_document_hits(output: Any) -> list[DocumentEvidenceHit]:
         filename = (item.get("filename") or "document").strip() or "document"
         score = item.get("score")
         chunk_id = item.get("chunk_id")
+        document_id = item.get("document_id")
         hits.append(
             DocumentEvidenceHit(
                 filename=filename,
                 snippet=snippet[:1200],
                 score=float(score) if isinstance(score, (int, float)) else None,
                 chunk_id=str(chunk_id) if chunk_id else None,
+                document_id=str(document_id) if document_id else None,
             )
         )
     return hits
@@ -129,6 +132,7 @@ def serialize_agent_evidence(bundle: AgentEvidenceBundle) -> dict[str, list[dict
                 "snippet": hit.snippet,
                 "score": hit.score,
                 "chunk_id": hit.chunk_id,
+                "document_id": hit.document_id,
             }
             for hit in bundle.document_hits
         ],

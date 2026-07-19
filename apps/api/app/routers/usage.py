@@ -2,14 +2,19 @@ import uuid
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, Field
 from sqlalchemy import Date, cast, func
 from sqlalchemy.orm import Session
 
 from app.db import get_db
 from app.deps import get_current_user
-from app.models import AgentRun, AgentStep, Message, UsageEvent, User
+from app.models import AgentRun, AgentStep, Message, UsageEvent, User, WorkspaceMember
+from app.presentation.interactions import (
+    ACTION_TO_AFFORDANCE,
+    ALLOWED_ACTIONS,
+    log_visual_interaction,
+)
 
 router = APIRouter(prefix="/usage", tags=["usage"])
 
@@ -146,6 +151,155 @@ def usage_summary(
         by_kind=by_kind,
         recent=[_to_event_response(r) for r in rows],
         daily_totals=daily_totals,
+    )
+
+
+_VISUAL_PIPELINE_KINDS = (
+    "visual_summary_plan_outcome",
+    "visual_summary_render",
+    "visual_summary_plan",
+    "presentation",
+)
+
+
+class VisualPipelineSummary(BaseModel):
+    """Aggregated quality/cost signals for the Visual Summary pipeline."""
+
+    plan_count: int = 0
+    render_count: int = 0
+    validation_failed_rate: float = 0.0
+    replan_rate: float = 0.0
+    skeleton_fallback_rate: float = 0.0
+    render_fallback_rate: float = 0.0
+    avg_block_count: float = 0.0
+    dropped_block_total: int = 0
+    tokens_by_kind: dict[str, int] = Field(default_factory=dict)
+
+
+def summarize_visual_pipeline(rows: list[UsageEvent]) -> VisualPipelineSummary:
+    """Fold usage rows (any kinds) into pipeline health rates."""
+    plan_count = 0
+    render_count = 0
+    validation_failed = 0
+    replans = 0
+    skeleton_fallbacks = 0
+    render_fallbacks = 0
+    block_count_total = 0
+    dropped_total = 0
+    tokens_by_kind: dict[str, int] = {}
+
+    for row in rows:
+        kind = str(row.kind or "")
+        if kind not in _VISUAL_PIPELINE_KINDS:
+            continue
+        meta = row.meta if isinstance(row.meta, dict) else {}
+        tokens_by_kind[kind] = tokens_by_kind.get(kind, 0) + int(row.total_tokens or 0)
+        if kind == "visual_summary_plan_outcome":
+            plan_count += 1
+            if meta.get("validation_status") == "failed":
+                validation_failed += 1
+            if meta.get("replan_attempted"):
+                replans += 1
+            if meta.get("planner_source") == "skeleton":
+                skeleton_fallbacks += 1
+        elif kind == "visual_summary_render":
+            render_count += 1
+            if meta.get("render_fallback_used"):
+                render_fallbacks += 1
+            block_count_total += int(meta.get("block_count") or 0)
+            dropped_total += int(meta.get("dropped_blocks") or 0)
+
+    def rate(n: int, d: int) -> float:
+        return round(n / d, 4) if d else 0.0
+
+    return VisualPipelineSummary(
+        plan_count=plan_count,
+        render_count=render_count,
+        validation_failed_rate=rate(validation_failed, plan_count),
+        replan_rate=rate(replans, plan_count),
+        skeleton_fallback_rate=rate(skeleton_fallbacks, plan_count),
+        render_fallback_rate=rate(render_fallbacks, render_count),
+        avg_block_count=round(block_count_total / render_count, 2) if render_count else 0.0,
+        dropped_block_total=dropped_total,
+        tokens_by_kind=tokens_by_kind,
+    )
+
+
+@router.get("/visual-summary", response_model=VisualPipelineSummary)
+def visual_pipeline_summary(
+    workspace_id: uuid.UUID | None = Query(None),
+    limit: int = Query(500, ge=1, le=2000),
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Health of the Visual Summary pipeline: fallback and validation rates."""
+    q = (
+        db.query(UsageEvent)
+        .filter(UsageEvent.user_id == current_user.id)
+        .filter(UsageEvent.kind.in_(_VISUAL_PIPELINE_KINDS))
+    )
+    if workspace_id is not None:
+        q = q.filter(UsageEvent.workspace_id == workspace_id)
+    rows = q.order_by(UsageEvent.created_at.desc()).limit(limit).all()
+    return summarize_visual_pipeline(rows)
+
+
+class VisualInteractionIn(BaseModel):
+    workspace_id: uuid.UUID
+    action: str = Field(..., min_length=1, max_length=64)
+    affordance: str | None = Field(None, max_length=64)
+    label: str | None = Field(None, max_length=120)
+    run_id: uuid.UUID | None = None
+
+
+class VisualInteractionOut(BaseModel):
+    status: str = "ok"
+    action: str
+    affordance: str | None = None
+
+
+@router.post("/visual-interactions", response_model=VisualInteractionOut, status_code=201)
+def post_visual_interaction(
+    body: VisualInteractionIn,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Record a chip click / FAQ expand so future layouts rank what users open."""
+    action = body.action.strip().lower()
+    if action not in ALLOWED_ACTIONS and action not in ACTION_TO_AFFORDANCE:
+        # Allow any action that maps or is explicitly listed; reject garbage.
+        if action not in ACTION_TO_AFFORDANCE and not body.affordance:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail=f"Unknown action '{action}' (expected one of "
+                f"{sorted(ACTION_TO_AFFORDANCE)} or affordance_open with affordance)",
+            )
+    member = (
+        db.query(WorkspaceMember)
+        .filter(
+            WorkspaceMember.user_id == current_user.id,
+            WorkspaceMember.workspace_id == body.workspace_id,
+        )
+        .first()
+    )
+    if not member:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Workspace not found")
+
+    event = log_visual_interaction(
+        db,
+        user_id=current_user.id,
+        workspace_id=body.workspace_id,
+        action=action,
+        affordance=body.affordance,
+        label=body.label,
+        run_id=str(body.run_id) if body.run_id else None,
+    )
+    db.commit()
+    meta = event.meta if isinstance(event.meta, dict) else {}
+    return VisualInteractionOut(
+        status="ok",
+        action=action,
+        affordance=meta.get("affordance"),
     )
 
 

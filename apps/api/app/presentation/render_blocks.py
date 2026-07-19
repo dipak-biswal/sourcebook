@@ -6,15 +6,13 @@ import re
 from typing import Any
 
 from app.agents.gen_ui import FaqItem, GenUIBlock, KeyTerm, _normalize_block_dict
+from app.blocks import FULL_WIDTH_TYPES, WIDTH_PROMOTE_TYPES
 
 
-# Wide blocks carry more data and read better full-width; compact blocks pair up.
-_FULL_WIDTH_TYPES = frozenset(
-    {"summary", "table", "comparison", "chart", "timeline", "steps", "chips"}
-)
-# Compact blocks get promoted to full width once they hold this many rows.
-# key_points/faq stay half so they pair with a neighbor instead of stacking.
-_WIDTH_PROMOTE_TYPES = frozenset({"key_terms", "progress", "metrics"})
+# Width policy comes from the block registry: wide blocks carry more data and
+# read better full-width; "promote" blocks pair up until they hold many rows.
+_FULL_WIDTH_TYPES = FULL_WIDTH_TYPES
+_WIDTH_PROMOTE_TYPES = WIDTH_PROMOTE_TYPES
 _WIDTH_PROMOTE_THRESHOLD = 6
 
 

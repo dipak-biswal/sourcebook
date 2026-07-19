@@ -25,6 +25,7 @@ export type AgentPageContextValue = {
   liveTrace: LiveTraceSpan[];
   activeToolCalls: { tool_name: string; startTime: number }[];
   loopWarning: string | null;
+  liveSkeleton: import("@/api").PresentationSkeleton | null;
   onChangeWorkspace: (id: string) => void;
   onSelectRun: (id: string) => void;
   onGoalChange: (v: string) => void;

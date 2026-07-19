@@ -7,6 +7,8 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, Field, field_validator
 
+from app.blocks import BLOCK_TYPE_SET
+
 
 BlockType = Literal[
     "summary",
@@ -31,6 +33,48 @@ class KeyTerm(BaseModel):
     definition: str
 
 
+class MeasureItem(BaseModel):
+    """Structured form of a metrics/progress/chart row ("Label | 42 ms")."""
+
+    label: str
+    value: str
+    unit: str | None = None
+    numeric: float | None = None
+
+
+_NUMERIC_RE = re.compile(r"-?\d[\d,]*(?:\.\d+)?")
+
+
+def parse_measure_item(text: str) -> MeasureItem | None:
+    """
+    Parse a pipe row into a structured measure.
+
+    "Latency | 200 ms" → label=Latency value="200 ms" numeric=200 unit="ms"
+    "Coverage | 85%"   → numeric=85 unit="%"
+    "Onboarding | Gap" → numeric=None (qualitative value)
+    """
+    if not text or "|" not in text:
+        return None
+    label, _, value = text.partition("|")
+    label = label.strip()
+    value = value.strip()
+    if not label or not value:
+        return None
+    numeric: float | None = None
+    unit: str | None = None
+    m = _NUMERIC_RE.search(value)
+    if m:
+        try:
+            numeric = float(m.group(0).replace(",", ""))
+        except ValueError:
+            numeric = None
+        if numeric is not None:
+            rest = (value[: m.start()] + value[m.end() :]).strip(" ,")
+            if rest and len(rest) <= 12:
+                unit = rest
+    return MeasureItem(label=label, value=value, unit=unit, numeric=numeric)
+
+
 class FaqItem(BaseModel):
     question: str
     answer: str
@@ -47,6 +91,9 @@ class GenUIBlock(BaseModel):
     tags: list[str] | None = None
     # Grid layout hint honored by the web UI (full span vs half column)
     width: Literal["full", "half"] | None = None
+    # Structured rows for metrics/progress/chart — derived from items by the
+    # engine (never model-supplied) so charts can render real values.
+    measures: list[MeasureItem] | None = None
     # 1-based indices into payload.sources (same numbers as [1], [2] in context)
     source_indices: list[int] = Field(default_factory=list)
 
@@ -184,6 +231,17 @@ def _as_str_list(value: Any) -> list[str]:
             if isinstance(x, str) and x.strip():
                 out.append(_clean_display_text(x.strip()))
             elif isinstance(x, dict):
+                # {"label": ..., "value": ...} measure rows keep both halves —
+                # taking only the value loses the label on metrics tiles.
+                label = x.get("label") or x.get("name") or x.get("metric") or x.get("skill")
+                value = x.get("value", x.get("score", x.get("level")))
+                if label is not None and value is not None and str(label).strip():
+                    unit = str(x.get("unit") or "").strip()
+                    val = f"{str(value).strip()} {unit}".strip()
+                    out.append(
+                        _clean_display_text(f"{str(label).strip()} | {val}")
+                    )
+                    continue
                 # {"text": "..."} or {"point": "..."}
                 for k in ("text", "point", "item", "value", "content"):
                     if k in x and str(x[k]).strip():
@@ -251,22 +309,7 @@ def _normalize_block_dict(raw: Any) -> dict[str, Any] | None:
         "bar_chart": "chart",
         "graph": "chart",
     }
-    b["type"] = type_map.get(t, t if t in {
-        "summary",
-        "key_points",
-        "key_terms",
-        "faq",
-        "callout",
-        "steps",
-        "chips",
-        "table",
-        "metrics",
-        "timeline",
-        "quote",
-        "comparison",
-        "progress",
-        "chart",
-    } else "summary")
+    b["type"] = type_map.get(t, t if t in BLOCK_TYPE_SET else "summary")
 
     # title
     if not b.get("title"):

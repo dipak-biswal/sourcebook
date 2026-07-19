@@ -83,6 +83,11 @@ class Settings(BaseSettings):
     # the code orchestrator, which runs plan → render directly with no outer
     # agent turns — same steps and trace, fewer LLM calls.
     visual_summary_agent_loop: bool = False
+    # When True (and both extractor + planner flags are on), extraction and
+    # layout planning happen in ONE combined LLM call instead of two. The
+    # regex heuristic still gates handoff validation; a thin heuristic falls
+    # back to a separate extraction call. Set False to restore two calls.
+    visual_summary_combined_call: bool = True
     rag_top_k: int = 5
     # Cosine floor: below this → no hits, no sources (off-topic questions).
     # Raise (e.g. 0.25) if off-topic still retrieves; lower if on-topic misses.

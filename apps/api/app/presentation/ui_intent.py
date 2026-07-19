@@ -6,25 +6,46 @@ import re
 from dataclasses import dataclass, field
 from typing import Any
 
+from app.blocks import (
+    AFFORDANCE_SPEC as _AFFORDANCE_SPEC,
+    KNOWN_SOURCE_HINTS,
+    SOURCE_HINT_AFFORDANCE as _SOURCE_HINT_AFFORDANCE,
+    spec_for,
+)
 from app.presentation.layout import layout_components_from_goal
 
-# Affordance → (block_type, source_hint, default_title)
-_AFFORDANCE_SPEC: dict[str, tuple[str, str, str]] = {
-    "overview": ("summary", "summary", "Overview"),
-    "highlights": ("key_points", "key_points", "Key points"),
-    "concept_glossary": ("key_terms", "concepts", "Core concepts"),
-    "ordered_guide": ("steps", "ordered_actions", "Steps"),
-    "comparison_matrix": ("table", "matrix_rows", "Comparison"),
-    "qualitative_levels": ("progress", "levels", "Levels"),
-    "self_check": ("faq", "faq", "FAQ"),
-    "priority_alert": ("callout", "priority_message", "Priority"),
-    "topic_filter": ("chips", "themes", "Themes"),
-    "timeline": ("timeline", "milestones", "Timeline"),
-    "metrics": ("metrics", "metrics", "Metrics"),
-}
+
+@dataclass(frozen=True)
+class UiIntentScoringConfig:
+    """Tunable weights for resolve_ui_intent scoring.
+
+    Extracted from magic numbers so ordering can be regression-tested and
+    rebalanced without touching scoring logic.
+    """
+
+    # workspace rank: max(0, workspace_rank_base - index * workspace_rank_decay)
+    workspace_rank_base: float = 10.0
+    workspace_rank_decay: float = 0.5
+    # flat boost when presentation_hints lists the affordance
+    hint_boost: float = 2.0
+    # boost when goal phrasing maps to the affordance (layout_components_from_goal)
+    goal_boost: float = 1.5
+    # max boost from interaction signals (chip clicks, FAQ expands, …)
+    interaction_boost_cap: float = 3.0
+    # max blocks in the outline
+    outline_cap: int = 8
+
+
+DEFAULT_SCORING = UiIntentScoringConfig()
 
 # Secondary block when primary data shape fits comparison better as comparison type
-_COMPARISON_ALT = ("comparison", "comparisons", "Tradeoffs")
+_comparison_spec = spec_for("comparison")
+assert _comparison_spec is not None
+_COMPARISON_ALT = (
+    _comparison_spec.type,
+    _comparison_spec.source_hint or "",
+    _comparison_spec.default_title,
+)
 
 _DEFAULT_AFFORDANCE_ORDER = (
     "overview",
@@ -206,37 +227,8 @@ def affordance_has_data(affordance: str, structured: dict[str, Any]) -> bool:
     return False
 
 
-# source_hint → affordance used for data presence (mirrors assemble_block branches)
-_SOURCE_HINT_AFFORDANCE: dict[str, str] = {
-    "summary": "overview",
-    "key_points": "highlights",
-    "concepts": "concept_glossary",
-    "ordered_actions": "ordered_guide",
-    "matrix_rows": "comparison_matrix",
-    "comparisons": "comparison_matrix",
-    "levels": "qualitative_levels",
-    "faq": "self_check",
-    "priority_message": "priority_alert",
-    "themes": "topic_filter",
-    "milestones": "timeline",
-    "metrics": "metrics",
-}
-
-# Canonical source_hints the planner may use (order is prompt display order).
-KNOWN_SOURCE_HINTS: tuple[str, ...] = (
-    "summary",
-    "key_points",
-    "concepts",
-    "ordered_actions",
-    "matrix_rows",
-    "comparisons",
-    "levels",
-    "faq",
-    "priority_message",
-    "themes",
-    "milestones",
-    "metrics",
-)
+# _SOURCE_HINT_AFFORDANCE and KNOWN_SOURCE_HINTS come from app.blocks —
+# the block registry is the single source of truth for hints and ordering.
 
 
 def available_source_hints(structured: dict[str, Any]) -> set[str]:
@@ -291,13 +283,18 @@ def _workspace_affordances(packet: dict[str, Any] | None) -> list[str]:
     return out or ["overview", "highlights", "self_check"]
 
 
-def _workspace_rank(packet: dict[str, Any] | None, affordance: str) -> float:
+def _workspace_rank(
+    packet: dict[str, Any] | None,
+    affordance: str,
+    *,
+    config: UiIntentScoringConfig = DEFAULT_SCORING,
+) -> float:
     affs = _workspace_affordances(packet)
     if affordance not in affs:
         return 0.0
     # Earlier in packet list = higher priority
     idx = affs.index(affordance)
-    return max(0.0, 10.0 - idx * 0.5)
+    return max(0.0, config.workspace_rank_base - idx * config.workspace_rank_decay)
 
 
 def _hint_affordances(hints: dict[str, Any] | None) -> list[str]:
@@ -307,11 +304,16 @@ def _hint_affordances(hints: dict[str, Any] | None) -> list[str]:
     return [str(a).strip() for a in raw if str(a).strip()]
 
 
-def _goal_boost(goal: str, affordance: str) -> float:
+def _goal_boost(
+    goal: str,
+    affordance: str,
+    *,
+    config: UiIntentScoringConfig = DEFAULT_SCORING,
+) -> float:
     components = layout_components_from_goal(goal or "")
     block = _AFFORDANCE_SPEC.get(affordance, ("", "", ""))[0]
     if block and block in components:
-        return 1.5
+        return config.goal_boost
     # map goal components to affordances
     mapping = {
         "table": "comparison_matrix",
@@ -327,7 +329,7 @@ def _goal_boost(goal: str, affordance: str) -> float:
     }
     for comp in components:
         if mapping.get(comp) == affordance:
-            return 1.5
+            return config.goal_boost
     return 0.0
 
 
@@ -353,15 +355,21 @@ def resolve_ui_intent(
     workspace_packet: dict[str, Any] | None = None,
     presentation_hints: dict[str, Any] | None = None,
     goal: str = "",
+    scoring: UiIntentScoringConfig | None = None,
+    interaction_boosts: dict[str, float] | None = None,
 ) -> UiIntent:
     """Merge packet affordances ∩ data ∩ hints; order by score."""
+    config = scoring or DEFAULT_SCORING
     structured = structured_content if isinstance(structured_content, dict) else {}
     candidates = set(_workspace_affordances(workspace_packet))
     candidates.update(_hint_affordances(presentation_hints))
     # Always consider overview/highlights/self_check if data exists
     for base in ("overview", "highlights", "self_check", "topic_filter", "ordered_guide"):
         candidates.add(base)
+    if interaction_boosts:
+        candidates.update(a for a in interaction_boosts if a in _AFFORDANCE_SPEC)
 
+    hint_set = set(_hint_affordances(presentation_hints))
     scores: dict[str, float] = {}
     eligible: list[str] = []
     for aff in candidates:
@@ -369,11 +377,18 @@ def resolve_ui_intent(
             continue
         if not affordance_has_data(aff, structured):
             continue
+        ix_boost = 0.0
+        if interaction_boosts and aff in interaction_boosts:
+            ix_boost = min(
+                float(interaction_boosts[aff]),
+                config.interaction_boost_cap,
+            )
         score = (
-            _workspace_rank(workspace_packet, aff)
-            + (2.0 if aff in _hint_affordances(presentation_hints) else 0.0)
-            + _goal_boost(goal, aff)
+            _workspace_rank(workspace_packet, aff, config=config)
+            + (config.hint_boost if aff in hint_set else 0.0)
+            + _goal_boost(goal, aff, config=config)
             + _data_richness(aff, structured)
+            + ix_boost
         )
         scores[aff] = score
         eligible.append(aff)
@@ -395,7 +410,7 @@ def resolve_ui_intent(
     elif "overview" in ordered:
         ordered = ["overview"] + [a for a in ordered if a != "overview"]
     # Cap outline size for scannability
-    block_order = ordered[:8]
+    block_order = ordered[: config.outline_cap]
 
     emphasis = ""
     if isinstance(presentation_hints, dict):

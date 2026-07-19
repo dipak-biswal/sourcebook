@@ -6,27 +6,11 @@ import json
 import re
 from typing import Any
 
+from app.blocks import BLOCK_TYPE_SET
 from app.presentation.layout import layout_components_from_goal
 from app.presentation.ui_intent import KNOWN_SOURCE_HINTS, available_source_hints
 
-ALLOWED_BLOCK_TYPES = frozenset(
-    {
-        "summary",
-        "key_points",
-        "faq",
-        "key_terms",
-        "table",
-        "progress",
-        "chart",
-        "chips",
-        "callout",
-        "steps",
-        "timeline",
-        "comparison",
-        "quote",
-        "metrics",
-    }
-)
+ALLOWED_BLOCK_TYPES = BLOCK_TYPE_SET
 
 _VALID_WIDTHS = frozenset({"full", "half"})
 _DATE_RE = re.compile(r"\b(19|20)\d{2}\b")

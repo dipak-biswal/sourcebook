@@ -6,7 +6,10 @@ import {
   isPresentationPending,
   toolDisplayName,
 } from "@/components/agents/agent-utils";
-import { GenerativeUIView } from "@/components/agents/GenerativeUI";
+import {
+  GenerativeUISkeleton,
+  GenerativeUIView,
+} from "@/components/agents/GenerativeUI";
 import { extractGenerativeUIFromRun } from "@/components/agents/generative-ui";
 import { MarkdownContent } from "@/components/chat/MarkdownContent";
 import { formatDate } from "@/lib/utils";
@@ -57,10 +60,12 @@ export function AgentRunDisplay() {
     liveSteps,
     activeToolCalls,
     loopWarning,
+    liveSkeleton,
     approving,
     onApprove,
     onSaveLearningNote,
     savingNote,
+    workspaceId,
   } = useAgentPage();
 
   const steps = selected?.steps ?? [];
@@ -80,6 +85,8 @@ export function AgentRunDisplay() {
   const presentationPending =
     selected?.status === "waiting_approval" &&
     isPresentationPending(selected.pending_tool);
+  // Visual phase in flight: plan outline arrived, spec not yet rendered.
+  const buildingVisual = (running || approving) && !!liveSkeleton;
   const [activeTab, setActiveTab] = useState<TabKey>(running ? "trace" : "answer");
 
   useEffect(() => {
@@ -154,12 +161,12 @@ export function AgentRunDisplay() {
             }
             onClick={() => setActiveTab("answer")}
           />
-          {gen && (
+          {(gen || buildingVisual) && (
             <TabButton
               active={activeTab === "visual"}
-              disabled={running}
+              disabled={running && !buildingVisual && !gen}
               icon={Sparkles}
-              label="Visual summary"
+              label={buildingVisual && !gen ? "Visual summary…" : "Visual summary"}
               onClick={() => setActiveTab("visual")}
             />
           )}
@@ -191,13 +198,21 @@ export function AgentRunDisplay() {
           </div>
         )}
 
-        {activeTab === "visual" && gen && !running && (
+        {activeTab === "visual" && gen && (
           <div className="p-4">
             <GenerativeUIView
               payload={gen}
               onSaveAsNote={(t, b) => onSaveLearningNote(t, b)}
               savingNote={savingNote}
+              workspaceId={workspaceId}
+              runId={selected?.id}
             />
+          </div>
+        )}
+
+        {activeTab === "visual" && !gen && buildingVisual && liveSkeleton && (
+          <div className="p-4">
+            <GenerativeUISkeleton skeleton={liveSkeleton} />
           </div>
         )}
 

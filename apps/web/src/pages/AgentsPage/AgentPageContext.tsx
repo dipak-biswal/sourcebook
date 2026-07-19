@@ -54,6 +54,8 @@ export function AgentPageProvider({
   const [selected, setSelected] = useState<AgentRun | null>(null);
   const [activeToolCalls, setActiveToolCalls] = useState<{ tool_name: string; startTime: number }[]>([]);
   const [loopWarning, setLoopWarning] = useState<string | null>(null);
+  const [liveSkeleton, setLiveSkeleton] =
+    useState<import("@/api").PresentationSkeleton | null>(null);
 
   const { data: workspaces = [], isLoading: loading } = useWorkspaces();
   const { workspaceId: effectiveWorkspaceId, setWorkspaceId: persistWorkspace } =
@@ -128,6 +130,7 @@ export function AgentPageProvider({
     setLiveTrace([]);
     setActiveToolCalls([]);
     setLoopWarning(null);
+    setLiveSkeleton(null);
   }
 
   async function onRun(e: SubmitEvent<HTMLFormElement>) {
@@ -334,8 +337,12 @@ export function AgentPageProvider({
               onLoopWarning: (p) => {
                 setLoopWarning(p.message);
               },
+              onPresentationSkeleton: (p) => {
+                setLiveSkeleton(p);
+              },
               onStatus: (p) => {
                 if (p.presentation_spec) {
+                  setLiveSkeleton(null);
                   setSelected((prev) =>
                     prev
                       ? { ...prev, presentation_spec: p.presentation_spec ?? null }
@@ -347,6 +354,7 @@ export function AgentPageProvider({
             },
             (final) => {
               setSelected(final);
+              setLiveSkeleton(null);
               setLiveExecutionTrace(final.execution_trace ?? null);
             },
             false,
@@ -540,6 +548,7 @@ export function AgentPageProvider({
     liveTrace,
     activeToolCalls,
     loopWarning,
+    liveSkeleton,
     onChangeWorkspace,
     onSelectRun: onSelect,
     onGoalChange: setGoal,

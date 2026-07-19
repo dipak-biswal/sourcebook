@@ -383,6 +383,22 @@ export const api = {
   deleteAllUsageEvents: () =>
     request<void>("/usage/events", { method: "DELETE" }),
 
+  /** Fire-and-forget visual UI signal (chip/FAQ) for affordance ranking. */
+  logVisualInteraction: (body: {
+    workspace_id: string;
+    action: string;
+    affordance?: string;
+    label?: string;
+    run_id?: string;
+  }) =>
+    request<{ status: string; action: string; affordance?: string | null }>(
+      "/usage/visual-interactions",
+      {
+        method: "POST",
+        body: JSON.stringify(body),
+      },
+    ).catch(() => undefined),
+
   startAgentRun: (
     workspaceId: string,
     goal: string,
@@ -652,6 +668,12 @@ export type AgentStreamHandlers = {
     call_id?: string;
   }) => void;
   onLoopWarning?: (payload: { message: string }) => void;
+  onPresentationSkeleton?: (payload: PresentationSkeleton) => void;
+};
+
+export type PresentationSkeleton = {
+  outline: { type: string; title?: string; width?: "full" | "half" | null }[];
+  presentation_profile?: string;
 };
 
 async function streamAgentRun(
@@ -697,6 +719,11 @@ async function streamAgentRun(
       });
     } else if (type === "loop_warning") {
       handlers.onLoopWarning?.({ message: payload.message as string });
+    } else if (type === "presentation_skeleton") {
+      handlers.onPresentationSkeleton?.({
+        outline: (payload.outline as PresentationSkeleton["outline"]) ?? [],
+        presentation_profile: payload.presentation_profile as string | undefined,
+      });
     } else if (type === "trace" && payload.execution_trace) {
       handlers.onTrace?.(payload.execution_trace as ExecutionTrace);
     } else if (type === "status") {

@@ -117,6 +117,35 @@ def test_pipeline_plans_and_renders_without_agent_turns(
     assert render_result.output.get("block_count", 0) >= 1
 
 
+def test_pipeline_emits_presentation_skeleton_event(
+    db_session, seeded_run, monkeypatch
+):
+    monkeypatch.setattr(settings, "visual_summary_llm_planner", False)
+
+    events: list[tuple[str, dict]] = []
+    _run_visual_pipeline(
+        db_session,
+        seeded_run,
+        ctx=_ctx(seeded_run),
+        step_index=0,
+        on_event=lambda kind, payload: events.append((kind, payload)),
+    )
+
+    skeletons = [p for k, p in events if k == "presentation_skeleton"]
+    assert len(skeletons) == 1
+    outline = skeletons[0]["outline"]
+    assert outline and all(e["type"] for e in outline)
+    # Skeleton fires before the render_ui result lands
+    kinds = [k for k, _ in events]
+    render_steps = [
+        i
+        for i, (k, p) in enumerate(events)
+        if k == "step" and (p.get("step") or {}).get("tool_name") == "render_ui"
+        and (p.get("step") or {}).get("type") == "tool_result"
+    ]
+    assert render_steps and kinds.index("presentation_skeleton") < render_steps[0]
+
+
 def test_pipeline_token_usage_counts_embedded_llm_tokens(
     db_session, seeded_run, monkeypatch
 ):

@@ -14,14 +14,26 @@ from app.agents.date_tools import get_current_date
 from app.config import settings
 from app.presentation.context import PresentationContext
 from app.presentation.engine import build_presentation
-from app.presentation.handoff import normalize_structured_content
+from app.presentation.handoff import (
+    _format_evidence_block,
+    combined_extract_plan_enabled,
+    format_combined_extract_plan_prompt,
+    normalize_structured_content,
+    structured_content_has_substance,
+)
 from app.presentation.layout import format_layout_requirements, layout_components_from_goal
+from app.presentation.llm_json import (
+    COMBINED_EXTRACT_PLAN_SCHEMA,
+    PLAN_SCHEMA,
+    chat_json,
+)
 from app.presentation.plan_validator import format_validator_notes, validate_layout_plan
 from app.presentation.structured import (
     build_plan_layout_input,
     extract_structured_content,
     format_plan_layout_prompt,
 )
+from app.presentation.interactions import interaction_boosts_for_workspace
 from app.presentation.ui_intent import (
     available_source_hints,
     build_skeleton_layout_plan,
@@ -65,19 +77,39 @@ def _packet_and_hints(ctx: PresentationContext) -> tuple[dict[str, Any] | None, 
     return packet, hints
 
 
+def _ensure_structured(ctx: PresentationContext) -> dict[str, Any]:
+    """Resolve structured content once and pin it on the context.
+
+    The orchestrator / handoff already populates ctx.structured_content. Downstream
+    plan/render paths must reuse that value so heuristic extraction does not re-run
+    with different inputs mid-pipeline. Only extract when the field is still empty
+    (standalone tool calls / tests).
+    """
+    if isinstance(ctx.structured_content, dict) and ctx.structured_content:
+        structured = normalize_structured_content(ctx.structured_content)
+        ctx.structured_content = structured
+        return structured
+    goal = (ctx.goal or "").strip()
+    structured = normalize_structured_content(
+        extract_structured_content(ctx.final_answer or "", goal=goal)
+    )
+    ctx.structured_content = structured
+    if not ctx.structured_source:
+        ctx.structured_source = "heuristic"
+    return structured
+
+
 def _plan_layout_skeleton(ctx: PresentationContext) -> dict[str, Any]:
     """Code-first layout from UiIntent (affordance ∩ data)."""
     goal = (ctx.goal or "").strip()
-    structured = normalize_structured_content(
-        ctx.structured_content
-        or extract_structured_content(ctx.final_answer or "", goal=goal)
-    )
+    structured = _ensure_structured(ctx)
     packet, hints = _packet_and_hints(ctx)
     intent = resolve_ui_intent(
         structured_content=structured,
         workspace_packet=packet,
         presentation_hints=hints,
         goal=goal,
+        interaction_boosts=ctx.interaction_boosts,
     )
     plan = build_skeleton_layout_plan(intent, structured_content=structured)
     components = list(plan.get("components") or [])
@@ -156,22 +188,18 @@ def _plan_layout_llm(
         f"{json.dumps(skeleton['plan'].get('block_outline') or [], ensure_ascii=False)}\n"
     )
 
-    client = _client()
-    resp = client.chat.completions.create(
+    resp = chat_json(
+        _client(),
         model=settings.visual_summary_model,
-        messages=[
-            {
-                "role": "system",
-                "content": (
-                    "You are the Visual Summary layout planner. Output valid JSON only. "
-                    "Decide which blocks to show, their order, titles, source_hint, and width. "
-                    "Use only available source_hint fields from the prompt. Do not invent facts."
-                ),
-            },
-            {"role": "user", "content": prompt},
-        ],
+        system=(
+            "You are the Visual Summary layout planner. Output valid JSON only. "
+            "Decide which blocks to show, their order, titles, source_hint, and width. "
+            "Use only available source_hint fields from the prompt. Do not invent facts."
+        ),
+        prompt=prompt,
+        schema_name="layout_plan",
+        schema=PLAN_SCHEMA,
         temperature=0.2,
-        response_format={"type": "json_object"},
     )
     raw = (resp.choices[0].message.content or "{}").strip()
     try:
@@ -231,6 +259,122 @@ def _plan_layout_llm(
     }
 
 
+def _workspace_block_from_packet_dict(packet: dict[str, Any] | None) -> str:
+    """Compact workspace signal for the combined prompt (dict-form packet)."""
+    if not isinstance(packet, dict):
+        return ""
+    identity = packet.get("identity") if isinstance(packet.get("identity"), dict) else {}
+    derived = packet.get("derived") if isinstance(packet.get("derived"), dict) else {}
+    if not identity and not derived:
+        return ""
+    affs = derived.get("visual_affordances") or []
+    return (
+        f"Workspace: {identity.get('name') or '(unnamed)'}\n"
+        f"Description: {str(identity.get('description') or '')[:400] or '(none)'}\n"
+        f"Outcome: {derived.get('outcome_phrase') or ''}\n"
+        f"Tone: {derived.get('tone') or ''}\n"
+        f"Success: {derived.get('success_criteria') or ''}\n"
+        f"Suggested affordances: {', '.join(str(a) for a in affs[:10])}"
+    )
+
+
+def _extract_and_plan_llm(
+    ctx: PresentationContext,
+    *,
+    skeleton: dict[str, Any],
+    db: Session | None = None,
+    user_id: uuid.UUID | None = None,
+    workspace_id: uuid.UUID | None = None,
+) -> dict[str, Any] | None:
+    """
+    ONE LLM call that extracts structured content AND plans the layout.
+
+    Replaces the separate extraction + planning calls on the happy path.
+    Returns a result shaped like _plan_layout_llm's (plus structured_content
+    from its own extraction), or None so the caller falls back to two calls.
+    """
+    goal = (ctx.goal or "").strip()
+    answer = (ctx.final_answer or "").strip()
+    if len(answer) < 40:
+        return None
+
+    components = list(skeleton["plan"].get("components") or [])
+    prompt = format_combined_extract_plan_prompt(
+        answer,
+        goal=goal,
+        workspace_block=_workspace_block_from_packet_dict(ctx.workspace_packet),
+        evidence_block=_format_evidence_block(ctx.agent_evidence),
+        layout_hints=format_layout_requirements(components),
+        skeleton_outline=json.dumps(
+            skeleton["plan"].get("block_outline") or [], ensure_ascii=False
+        ),
+    )
+    try:
+        resp = chat_json(
+            _client(),
+            model=settings.visual_summary_model,
+            system=(
+                "You extract structured facts from an agent answer and plan a "
+                "visual layout from them, in one JSON response. Never invent facts."
+            ),
+            prompt=prompt,
+            schema_name="extract_and_plan",
+            schema=COMBINED_EXTRACT_PLAN_SCHEMA,
+        )
+    except Exception:
+        return None
+
+    raw = (resp.choices[0].message.content or "").strip()
+    try:
+        parsed = json.loads(raw)
+    except json.JSONDecodeError:
+        return None
+    if not isinstance(parsed, dict):
+        return None
+    structured = normalize_structured_content(parsed.get("structured_content"))
+    plan = parsed.get("layout_plan")
+    if not isinstance(plan, dict) or not structured_content_has_substance(structured):
+        return None
+    plan.setdefault("presentation_profile", "workspace_derived")
+    plan.setdefault("components", components)
+    plan.setdefault("block_outline", [])
+    plan.setdefault("rationale", "")
+
+    usage = getattr(resp, "usage", None)
+    prompt_tokens = int(getattr(usage, "prompt_tokens", 0) or 0)
+    completion_tokens = int(getattr(usage, "completion_tokens", 0) or 0)
+    if prompt_tokens == 0 and completion_tokens == 0:
+        prompt_tokens = estimate_tokens(prompt)
+        completion_tokens = estimate_tokens(raw)
+    usage_payload = {
+        "model": settings.visual_summary_model,
+        "prompt_tokens": prompt_tokens,
+        "completion_tokens": completion_tokens,
+        "total_tokens": prompt_tokens + completion_tokens,
+    }
+    if db is not None and user_id is not None and workspace_id is not None:
+        log_usage(
+            db,
+            user_id=user_id,
+            workspace_id=workspace_id,
+            kind="visual_summary_extract_plan",
+            model=usage_payload["model"],
+            prompt_tokens=prompt_tokens,
+            completion_tokens=completion_tokens,
+            total_tokens=usage_payload["total_tokens"],
+            meta={"goal": goal[:200]},
+        )
+
+    return {
+        "plan": plan,
+        "prompt": prompt,
+        "llm_output": raw,
+        "usage": usage_payload,
+        "structured_content": structured,
+        "requested_components": list(plan.get("components") or components),
+    }
+
+
 def _outline_empty_or_ungrounded(
     plan: dict[str, Any],
     structured: dict[str, Any],
@@ -264,14 +408,68 @@ def _plan_with_validation(
     """
     Layout planning with grounding validation.
 
-    When settings.visual_summary_llm_planner is True (default): LLM is primary
-    planner; code skeleton is fallback after failed validation/repair.
-
-    When False: skeleton-first (legacy); LLM only for notes or invalid skeleton.
+    Default: ONE combined extract+plan LLM call (when the context still holds
+    the heuristic extraction); repair is the only extra call. With the
+    combined flag off, the planner LLM runs against pre-extracted structured
+    content. With visual_summary_llm_planner off: skeleton-first (legacy).
     """
+    # Load interaction boosts once per plan (chip/FAQ signals from prior runs).
+    if (
+        db is not None
+        and user_id is not None
+        and workspace_id is not None
+        and ctx.interaction_boosts is None
+    ):
+        try:
+            ctx.interaction_boosts = interaction_boosts_for_workspace(
+                db, user_id=user_id, workspace_id=workspace_id
+            ) or None
+        except Exception:
+            ctx.interaction_boosts = None
     skeleton_result = _plan_layout_skeleton(ctx)
     structured = skeleton_result["structured_content"]
     llm_primary = bool(getattr(settings, "visual_summary_llm_planner", True))
+
+    # --- Combined extract+plan: one LLM call instead of extract then plan ---
+    # Only on the first pass (no notes) and only when the context still holds
+    # the heuristic extraction — an "llm" source means extraction already ran.
+    if (
+        llm_primary
+        and not notes.strip()
+        and ctx.structured_source == "heuristic"
+        and combined_extract_plan_enabled()
+    ):
+        combined = _extract_and_plan_llm(
+            ctx,
+            skeleton=skeleton_result,
+            db=db,
+            user_id=user_id,
+            workspace_id=workspace_id,
+        )
+        if combined is not None:
+            # Re-anchor the context and skeleton on the richer combined
+            # extraction so validation, repair, and fallback are grounded in it.
+            ctx.structured_content = combined["structured_content"]
+            ctx.structured_source = "llm"
+            new_skeleton = _plan_layout_skeleton(ctx)
+            combined["ui_intent"] = new_skeleton.get("ui_intent")
+            combined["structured_input"] = build_plan_layout_input(
+                goal=ctx.goal or "",
+                structured_content=combined["structured_content"],
+                evidence=ctx.agent_evidence,
+                components=list(combined.get("requested_components") or []),
+                notes="combined_extract_plan",
+            )
+            return _plan_llm_with_repair_and_fallback(
+                ctx,
+                skeleton_result=new_skeleton,
+                notes="",
+                db=db,
+                user_id=user_id,
+                workspace_id=workspace_id,
+                first_attempt=combined,
+                first_source="combined",
+            )
 
     # --- Legacy skeleton-first path (flag off, no notes) ---
     if not llm_primary and not notes.strip():
@@ -289,6 +487,7 @@ def _plan_with_validation(
                 "validation_status": "passed",
                 "validation_errors": [],
                 "replan_attempted": False,
+                "planner_source": "skeleton",
             }
         # Skeleton invalid → LLM repair, then skeleton fallback if still bad
         return _plan_llm_with_repair_and_fallback(
@@ -319,15 +518,21 @@ def _plan_llm_with_repair_and_fallback(
     db: Session | None,
     user_id: uuid.UUID | None,
     workspace_id: uuid.UUID | None,
+    first_attempt: dict[str, Any] | None = None,
+    first_source: str = "llm",
 ) -> dict[str, Any]:
-    """Call planner LLM, optional one repair pass, then skeleton fallback."""
+    """
+    Validate the first plan attempt, optional one repair pass, then skeleton
+    fallback. The first attempt is either the plan-only LLM call (default) or
+    a precomputed combined extract+plan result (first_attempt).
+    """
     structured = skeleton_result["structured_content"]
     replan_attempted = False
     replan_prompt = ""
     replan_llm_output = ""
     merged_usage = dict(skeleton_result["usage"])
 
-    llm = _plan_layout_llm(
+    llm = first_attempt if first_attempt is not None else _plan_layout_llm(
         ctx,
         notes=notes,
         db=db,
@@ -337,7 +542,7 @@ def _plan_llm_with_repair_and_fallback(
     )
     merged_usage = _merge_usage(merged_usage, llm["usage"])
     plan = llm["plan"]
-    structured = llm["structured_content"]
+    structured = llm.get("structured_content") or structured
     ok, errors = validate_layout_plan(
         plan,
         goal=ctx.goal or "",
@@ -346,6 +551,7 @@ def _plan_llm_with_repair_and_fallback(
         final_answer=ctx.final_answer or "",
     )
     result = {**skeleton_result, **llm, "plan": plan}
+    planner_source = first_source
 
     # One repair pass when validation fails
     if not ok and _MAX_AUTO_REPLANS > 0:
@@ -366,6 +572,7 @@ def _plan_llm_with_repair_and_fallback(
         merged_usage = _merge_usage(merged_usage, second["usage"])
         plan = second["plan"]
         structured = second["structured_content"]
+        planner_source = "llm"
         ok, errors = validate_layout_plan(
             plan,
             goal=ctx.goal or "",
@@ -380,6 +587,7 @@ def _plan_llm_with_repair_and_fallback(
         not ok
         or _outline_empty_or_ungrounded(plan, structured)
     ):
+        planner_source = "skeleton"
         plan = skeleton_result["plan"]
         ok, errors = validate_layout_plan(
             plan,
@@ -409,6 +617,7 @@ def _plan_llm_with_repair_and_fallback(
         "replan_attempted": replan_attempted,
         "replan_prompt": replan_prompt or None,
         "replan_llm_output": replan_llm_output or None,
+        "planner_source": planner_source,
     }
 
 
@@ -454,6 +663,26 @@ def run_plan_layout(
         payload["replan_prompt"] = result["replan_prompt"]
     if result.get("replan_llm_output"):
         payload["replan_llm_output"] = result["replan_llm_output"]
+    payload["planner_source"] = result.get("planner_source") or "llm"
+
+    # Zero-token outcome row: how planning went, regardless of which LLM
+    # calls were made. Aggregated by /usage/visual-summary.
+    if db is not None and workspace_id is not None:
+        outline = (result.get("plan") or {}).get("block_outline") or []
+        log_usage(
+            db,
+            user_id=user_id,
+            workspace_id=workspace_id,
+            kind="visual_summary_plan_outcome",
+            model=usage.get("model"),
+            meta={
+                "goal": (ctx.goal or "")[:200],
+                "validation_status": result["validation_status"],
+                "replan_attempted": bool(result.get("replan_attempted")),
+                "planner_source": payload["planner_source"],
+                "outline_blocks": len(outline),
+            },
+        )
     return payload, result
 
 
@@ -475,10 +704,10 @@ def run_render_ui(
     validate-once). Externally supplied plans must be validated here.
     """
     if structured is None:
-        structured = normalize_structured_content(
-            ctx.structured_content
-            or extract_structured_content(ctx.final_answer or "", goal=ctx.goal or "")
-        )
+        structured = _ensure_structured(ctx)
+    else:
+        structured = normalize_structured_content(structured)
+        ctx.structured_content = structured
     if not validated:
         ok, errors = validate_layout_plan(
             plan,
@@ -511,18 +740,30 @@ def run_render_ui(
     if isinstance(spec, dict) and spec.get("error"):
         return {"error": spec.get("error"), "meta": meta}
 
-    if int(meta.get("prompt_tokens") or 0) or int(meta.get("completion_tokens") or 0):
-        log_usage(
-            db,
-            user_id=user_id,
-            workspace_id=workspace_id,
-            kind="visual_summary_render",
-            model=meta.get("model") or settings.visual_summary_model,
-            prompt_tokens=int(meta.get("prompt_tokens") or 0),
-            completion_tokens=int(meta.get("completion_tokens") or 0),
-            total_tokens=int(meta.get("total_tokens") or 0),
-            meta={"goal": (ctx.goal or "")[:200]},
-        )
+    # Always log the render — the zero-token code-assembly path is the primary
+    # path and was previously invisible in usage. Quality signals ride in meta.
+    assembly_meta = meta.get("assembly_meta") or (
+        spec.get("assembly_meta") if isinstance(spec, dict) else None
+    )
+    assembly_meta = assembly_meta if isinstance(assembly_meta, dict) else {}
+    log_usage(
+        db,
+        user_id=user_id,
+        workspace_id=workspace_id,
+        kind="visual_summary_render",
+        model=meta.get("model") or settings.visual_summary_model,
+        prompt_tokens=int(meta.get("prompt_tokens") or 0),
+        completion_tokens=int(meta.get("completion_tokens") or 0),
+        total_tokens=int(meta.get("total_tokens") or 0),
+        meta={
+            "goal": (ctx.goal or "")[:200],
+            "render_fallback_used": bool(assembly_meta.get("render_fallback_used")),
+            "block_count": len(spec.get("blocks") or []) if isinstance(spec, dict) else 0,
+            "assembled_blocks": len(assembly_meta.get("assembled_blocks") or []),
+            "dropped_blocks": len(assembly_meta.get("dropped_blocks") or []),
+            "plan_prevalidated": bool(validated),
+        },
+    )
 
     return {
         "status": "rendered",

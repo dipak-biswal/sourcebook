@@ -9,15 +9,18 @@ from typing import Any
 from openai import OpenAI
 from sqlalchemy.orm import Session
 
+from app.blocks import ALL_BLOCK_TYPES
 from app.agents.gen_ui import (
     GenUIBlock,
     GenerativeUIPayload,
     SourceSnippet,
     _normalize_block_dict,
+    parse_measure_item,
 )
 from app.config import settings
 from app.presentation.context import PresentationContext
 from app.presentation.layout import layout_components_from_goal
+from app.presentation.llm_json import RENDER_PAYLOAD_SCHEMA, chat_json
 from app.presentation.render_blocks import block_width, payload_from_assembly
 from app.presentation.structured import (
     extract_structured_content,
@@ -32,23 +35,22 @@ _PLACEHOLDER_ORG = re.compile(
     r"example\s+company|sample\s+company|test\s+company|placeholder\s+"
     r")"
 )
-
-_BLOCK_TYPES = (
-    "summary",
-    "key_points",
-    "key_terms",
-    "faq",
-    "callout",
-    "steps",
-    "chips",
-    "table",
-    "metrics",
-    "timeline",
-    "quote",
-    "comparison",
-    "progress",
-    "chart",
+# Fake contact details and lorem-style filler that should never survive grounding.
+_PLACEHOLDER_CONTACT = re.compile(
+    r"(?i)(?:"
+    r"\b[\w.+-]+@(?:example|test|email|domain)\.(?:com|org|net)\b|"
+    r"\b(?:https?://)?(?:www\.)?example\.(?:com|org|net)\b|"
+    r"\b(?:https?://)?(?:www\.)?test\.(?:com|org|net)\b|"
+    r"\b(?:555[-.\s]?){1,2}\d{4}\b|"
+    r"\b01[01][-/.]01[-/.](?:19|20)\d{2}\b|"
+    r"\b(?:19|20)\d{2}[-/.]0?1[-/.]0?1\b|"
+    r"\blorem\s+ipsum\b|"
+    r"\bjohn\s+doe\b|\bjane\s+doe\b|"
+    r"\bfoo\s+bar\b"
+    r")"
 )
+
+_BLOCK_TYPES = ALL_BLOCK_TYPES
 
 
 def _client() -> OpenAI:
@@ -60,19 +62,63 @@ def _corpus_blob(answer: str, context: str) -> str:
 
 
 def _looks_like_placeholder(text: str) -> bool:
-    return bool(_PLACEHOLDER_ORG.search(text))
+    if not text or not text.strip():
+        return False
+    return bool(_PLACEHOLDER_ORG.search(text) or _PLACEHOLDER_CONTACT.search(text))
+
+
+def _normalize_span(text: str) -> str:
+    return re.sub(r"\s+", " ", (text or "").strip().lower())
 
 
 def _phrase_grounded(phrase: str, corpus: str) -> bool:
-    """True when a proper-noun phrase appears supported by answer/excerpts."""
+    """True when a proper-noun phrase is supported by a contiguous span in corpus.
+
+    Half-token bag-of-words matching used to pass recombined facts ("Acme" +
+    "Real" from different sentences). Require either an exact normalized
+    substring of the full phrase, or an ordered contiguous window of its
+    significant tokens.
+    """
     phrase = (phrase or "").strip()
     if not phrase or _looks_like_placeholder(phrase):
         return False
     tokens = [w for w in re.findall(r"[a-z0-9][a-z0-9+.#-]*", phrase.lower()) if len(w) > 2]
     if not tokens:
         return True
-    hits = sum(1 for t in tokens if t in corpus)
-    return hits >= max(1, len(tokens) // 2)
+    norm_phrase = _normalize_span(phrase)
+    norm_corpus = _normalize_span(corpus)
+    if norm_phrase and norm_phrase in norm_corpus:
+        return True
+    # Contiguous ordered window: all significant tokens appear in order with
+    # only short gaps (≤2 intervening tokens) between consecutive ones.
+    corpus_tokens = re.findall(r"[a-z0-9][a-z0-9+.#-]*", norm_corpus)
+    if not corpus_tokens:
+        return False
+    start = 0
+    for tok in tokens:
+        found_at = -1
+        # Search a limited lookahead from the previous match so tokens stay
+        # near each other (recombined distant tokens fail).
+        end = min(len(corpus_tokens), start + 3) if start > 0 else len(corpus_tokens)
+        search_from = start if start > 0 else 0
+        for i in range(search_from, end if start > 0 else len(corpus_tokens)):
+            if corpus_tokens[i] == tok:
+                found_at = i
+                break
+            # After the first token is locked, allow at most 2 intervening tokens.
+            if start > 0 and i >= start + 2:
+                break
+        if found_at < 0:
+            # First token may appear later — retry a full scan only for token 0.
+            if start == 0:
+                for i, ct in enumerate(corpus_tokens):
+                    if ct == tok:
+                        found_at = i
+                        break
+            if found_at < 0:
+                return False
+        start = found_at + 1
+    return True
 
 
 def _timeline_item_grounded(item: str, corpus: str) -> bool:
@@ -100,10 +146,18 @@ def _ensure_requested_layout(
     required: list[str],
     *,
     answer: str,
+    structured: dict[str, Any] | None = None,
 ) -> list[GenUIBlock]:
-    """Add minimal fallback blocks when the model skipped requested component types."""
+    """
+    Add minimal fallback blocks when the model skipped requested component types.
+
+    Fallbacks are grounded only: text quoted from the answer or themes already
+    extracted into structured content. A component with no grounded data is
+    omitted — never filled with invented placeholder content.
+    """
     if not required:
         return blocks
+    structured = structured if isinstance(structured, dict) else {}
     present = {b.type for b in blocks}
     out = list(blocks)
 
@@ -132,22 +186,17 @@ def _ensure_requested_layout(
             out.append(GenUIBlock(type="table", title="Key points", items=rows))
 
     if "chips" in required and "chips" not in present:
-        out.append(
-            GenUIBlock(
-                type="chips",
-                title="Themes",
-                items=["Technical|technical", "Leadership|leadership", "Gaps|gaps"],
-            )
-        )
-    elif "chips" in present:
-        for i, b in enumerate(out):
-            if b.type == "chips" and b.items and len(b.items) < 3:
-                extra = ["Leadership|leadership", "Gaps|gaps"]
-                merged = list(b.items)
-                for e in extra:
-                    if e not in merged:
-                        merged.append(e)
-                out[i] = b.model_copy(update={"items": merged[:5]})
+        themes = [
+            str(t).strip()
+            for t in (structured.get("themes") or [])
+            if str(t).strip()
+        ]
+        if len(themes) >= 2:
+            items = [
+                f"{t.title()}|{re.sub(r'[^a-z0-9]+', '-', t.lower()).strip('-')}"
+                for t in themes[:5]
+            ]
+            out.append(GenUIBlock(type="chips", title="Themes", items=items))
 
     return out
 
@@ -159,37 +208,137 @@ def _numeric_stated_in_answer(value: str, answer: str) -> bool:
     return v in answer or f"{v}%" in answer
 
 
+_MEASURE_NUM_RE = re.compile(r"-?\d[\d,]*(?:\.\d+)?")
+
+
+def _number_grounded(num: str, corpus: str) -> bool:
+    """True when the digit string appears in the corpus (comma-insensitive)."""
+    n = num.replace(",", "").lstrip("-")
+    if not n:
+        return False
+    if n.endswith(".0"):
+        n = n[:-2]
+    return n in corpus
+
+
+def _measure_numbers_grounded(value: str, corpus: str) -> bool:
+    """Every numeric token in a measure value must appear in the corpus."""
+    nums = _MEASURE_NUM_RE.findall(value)
+    if not nums:
+        return True  # qualitative value — nothing to verify
+    return all(_number_grounded(n, corpus) for n in nums)
+
+
+def _ground_metric_numbers(
+    blocks: list[GenUIBlock],
+    *,
+    corpus: str,
+) -> list[GenUIBlock]:
+    """
+    Drop metrics rows whose numbers are not stated in the answer or evidence.
+
+    Metrics tiles present values as facts, so an unverifiable number is
+    removed rather than softened; a block losing every row is dropped.
+    """
+    corpus = corpus.replace(",", "")
+    out: list[GenUIBlock] = []
+    for block in blocks:
+        if block.type != "metrics" or not block.items:
+            out.append(block)
+            continue
+        kept = [i for i in block.items if _measure_numbers_grounded(i, corpus)]
+        if not kept:
+            continue
+        if len(kept) != len(block.items):
+            block = block.model_copy(update={"items": kept})
+        out.append(block)
+    return out
+
+
+def _attach_measures(blocks: list[GenUIBlock]) -> list[GenUIBlock]:
+    """Derive structured {label, value, unit, numeric} rows for measure blocks."""
+    out: list[GenUIBlock] = []
+    for block in blocks:
+        if block.type in ("metrics", "progress", "chart") and block.items:
+            measures = [
+                m
+                for m in (parse_measure_item(i) for i in block.items)
+                if m is not None
+            ]
+            if measures:
+                block = block.model_copy(update={"measures": measures})
+        out.append(block)
+    return out
+
+
+# Ordered by precedence: an explicit weakness statement beats praise elsewhere
+# in the same sentence ("strong basics but lacks depth" → Gap).
+_LEVEL_KEYWORDS: tuple[tuple[str, tuple[str, ...]], ...] = (
+    (
+        "Gap",
+        (
+            "gap",
+            "lacking",
+            "lacks",
+            "weakness",
+            "weak",
+            "missing",
+            "needs improvement",
+            "needs work",
+            "further depth",
+            "limited",
+        ),
+    ),
+    (
+        "Strong",
+        (
+            "strong",
+            "expert",
+            "excellent",
+            "advanced",
+            "proficient",
+            "extensive",
+            "deep",
+            "mastery",
+            "solid",
+        ),
+    ),
+    (
+        "Growing",
+        (
+            "growing",
+            "improving",
+            "expanding",
+            "learning",
+            "foundational",
+            "emerging",
+            "developing",
+            "hands-on",
+            "early",
+        ),
+    ),
+)
+
+
 def _infer_qualitative_level(label: str, answer: str) -> str:
-    """Map a skill label to a level using wording in the agent answer."""
-    lower = answer.lower()
-    lbl = label.lower()
-    gap_terms = ("ai depth", "backend", "leadership", "machine learning")
-    if any(t in lbl for t in gap_terms):
-        if any(
-            g in lower
-            for g in (
-                "gap",
-                "lacking",
-                "lacks",
-                "weakness",
-                "foundational understanding",
-                "further depth",
-            )
-        ):
-            return "Gap"
-    if "frontend" in lbl and "strong" in lower:
-        return "Strong"
-    if "ai" in lbl and any(
-        w in lower for w in ("expanding", "foundational", "hands-on", "rag")
-    ):
-        return "Growing"
-    if "testing" in lbl or "optimization" in lbl:
-        if "proficient" in lower:
-            return "Strong"
-    if "domain" in lbl or "experience" in lbl:
+    """
+    Map a label to a level using the answer sentences that mention it.
+
+    Domain-agnostic: no hardcoded label vocabulary — only wording the main
+    agent actually wrote about this label. Unmentioned labels stay Moderate.
+    """
+    tokens = [t for t in re.findall(r"[a-z0-9]+", label.lower()) if len(t) > 2]
+    if not tokens:
         return "Moderate"
-    if "strong" in lower:
-        return "Strong"
+    sentences = re.split(r"(?<=[.!?])\s+|\n+", answer)
+    scoped = " ".join(
+        s for s in sentences if any(t in s.lower() for t in tokens)
+    ).lower()
+    if not scoped:
+        return "Moderate"
+    for level, words in _LEVEL_KEYWORDS:
+        if any(w in scoped for w in words):
+            return level
     return "Moderate"
 
 
@@ -197,8 +346,15 @@ def _normalize_qualitative_progress(
     blocks: list[GenUIBlock],
     *,
     answer: str,
+    corpus: str = "",
 ) -> list[GenUIBlock]:
-    """Replace invented numeric scores with qualitative levels from the answer."""
+    """
+    Replace invented numeric scores with qualitative levels from the answer.
+
+    corpus (answer + evidence snippets) widens the grounding check so a
+    number stated only in a retrieved snippet still counts as stated.
+    """
+    grounding = corpus or answer
     out: list[GenUIBlock] = []
     for block in blocks:
         if block.type not in ("progress", "chart") or not block.items:
@@ -210,8 +366,8 @@ def _normalize_qualitative_progress(
                 new_items.append(item)
                 continue
             label, val = [p.strip() for p in item.split("|", 1)]
-            if re.match(r"^\d{1,3}%?$", val) and not _numeric_stated_in_answer(
-                val, answer
+            if re.match(r"^\d{1,3}%?$", val) and not _number_grounded(
+                val.rstrip("%"), grounding
             ):
                 level = _infer_qualitative_level(label, answer)
                 new_items.append(f"{label} | {level}")
@@ -264,6 +420,59 @@ def _sanitize_blocks_for_grounding(
     return cleaned
 
 
+def _block_citation_text(block: GenUIBlock) -> str:
+    parts: list[str] = [block.title or "", block.body or ""]
+    parts.extend(block.items or [])
+    for t in block.terms or []:
+        parts.append(f"{t.term} {t.definition}")
+    for f in block.faqs or []:
+        parts.append(f"{f.question} {f.answer}")
+    return " ".join(p for p in parts if p)
+
+
+def _attribute_block_sources(
+    blocks: list[GenUIBlock],
+    sources: list[SourceSnippet],
+) -> list[GenUIBlock]:
+    """
+    Attach snippet-overlap citations to blocks that carry none.
+
+    The code-assembly path maps structured fields to blocks and cannot carry
+    per-block citations; recover them by token overlap with source snippets.
+    Conservative: a block with no clear overlap keeps zero citations rather
+    than inheriting unrelated sources.
+    """
+    if not sources:
+        return blocks
+    snippet_tokens = [
+        (s.index, set(re.findall(r"[a-z0-9]{4,}", (s.snippet or "").lower())))
+        for s in sources
+    ]
+    out: list[GenUIBlock] = []
+    for block in blocks:
+        if block.source_indices:
+            out.append(block)
+            continue
+        btoks = set(re.findall(r"[a-z0-9]{4,}", _block_citation_text(block).lower()))
+        if len(btoks) < 3:
+            out.append(block)
+            continue
+        matches: list[tuple[int, int]] = []
+        for idx, stoks in snippet_tokens:
+            if not stoks:
+                continue
+            common = btoks & stoks
+            if len(common) >= 3 and len(common) >= 0.25 * min(len(btoks), len(stoks)):
+                matches.append((len(common), idx))
+        matches.sort(key=lambda m: (-m[0], m[1]))
+        if matches:
+            block = block.model_copy(
+                update={"source_indices": [idx for _, idx in matches[:3]]}
+            )
+        out.append(block)
+    return out
+
+
 def _structured_grounding_corpus(
     structured: dict[str, Any],
     *,
@@ -296,10 +505,13 @@ def build_presentation(
     if not layout_plan:
         return {"error": "layout_plan is required — call plan_layout before render_ui"}, {}
 
-    structured = ctx.structured_content or extract_structured_content(
-        answer,
-        goal=goal,
-    )
+    # Prefer the structured content already resolved by the orchestrator /
+    # plan_layout. Only re-extract as a last resort for standalone callers.
+    if isinstance(ctx.structured_content, dict) and ctx.structured_content:
+        structured = ctx.structured_content
+    else:
+        structured = extract_structured_content(answer, goal=goal)
+        ctx.structured_content = structured
     evidence_summary = summarize_agent_evidence(ctx.agent_evidence)
 
     source_files: list[str] = []
@@ -311,10 +523,10 @@ def build_presentation(
         sources.append(
             SourceSnippet(
                 index=i,
-                chunk_id="",
-                document_id="",
+                chunk_id=hit.chunk_id or "",
+                document_id=hit.document_id or "",
                 filename=name,
-                score=None,
+                score=hit.score,
                 snippet=(hit.snippet or "")[:280],
             )
         )
@@ -366,13 +578,13 @@ def build_presentation(
             "Output valid JSON. Never invent facts."
         )
         try:
-            resp = _client().chat.completions.create(
+            resp = chat_json(
+                _client(),
                 model=render_model,
-                messages=[
-                    {"role": "system", "content": system_message},
-                    {"role": "user", "content": prompt},
-                ],
-                temperature=0.1,
+                system=system_message,
+                prompt=prompt,
+                schema_name="render_payload",
+                schema=RENDER_PAYLOAD_SCHEMA,
                 max_tokens=4000,
             )
             raw = (resp.choices[0].message.content or "").strip()
@@ -459,15 +671,38 @@ def build_presentation(
             break
 
     if render_fallback_used:
-        blocks = _ensure_requested_layout(blocks, layout_components, answer=answer)
+        blocks = _ensure_requested_layout(
+            blocks,
+            layout_components,
+            answer=answer,
+            structured=structured if isinstance(structured, dict) else {},
+        )
 
-    blocks = _normalize_qualitative_progress(blocks, answer=answer)
+    # Numbers may only come from what the main agent wrote or retrieved —
+    # deliberately excludes the structured dump, which is what's being checked.
+    numeric_corpus = " ".join(
+        [
+            answer,
+            *(h.snippet or "" for h in ctx.agent_evidence.document_hits),
+            *(h.snippet or "" for h in ctx.agent_evidence.web_hits),
+        ]
+    )
+
+    blocks = _normalize_qualitative_progress(
+        blocks, answer=answer, corpus=numeric_corpus
+    )
+
+    blocks = _ground_metric_numbers(blocks, corpus=numeric_corpus)
 
     blocks = _sanitize_blocks_for_grounding(
         blocks,
         answer=answer,
         context=grounding_context,
     )
+
+    blocks = _attribute_block_sources(blocks, sources)
+
+    blocks = _attach_measures(blocks)
 
     # Ensure every block carries a grid width hint (assembly path already sets it).
     blocks = [

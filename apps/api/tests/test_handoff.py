@@ -83,6 +83,11 @@ def _mock_llm(monkeypatch, payload: dict, captured: list | None = None):
     monkeypatch.setattr(
         "app.presentation.handoff.settings.openai_api_key", "sk-test"
     )
+    # These tests cover the standalone extraction path — combined mode would
+    # defer extraction to the planner and skip the call being mocked here.
+    monkeypatch.setattr(
+        "app.presentation.handoff.settings.visual_summary_combined_call", False
+    )
 
 
 def test_resolve_structured_content_llm_primary_with_visual_fields(monkeypatch):

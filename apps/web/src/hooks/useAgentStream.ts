@@ -3,6 +3,7 @@ import {
   type AgentRun,
   type AgentStep,
   type AgentStreamHandlers,
+  type PresentationSkeleton,
 } from "@/api";
 import type { ExecutionTrace } from "@/api";
 import type {
@@ -30,6 +31,7 @@ type AgentLiveCallbacks = {
     call_id?: string;
   }) => void;
   onLoopWarning?: (p: { message: string }) => void;
+  onPresentationSkeleton?: (p: PresentationSkeleton) => void;
   onStatus?: (p: {
     status?: string;
     token_usage?: number | null;
@@ -150,6 +152,9 @@ export function makeAgentStreamHandlers(
     },
     onLoopWarning: (p) => {
       cb.onLoopWarning?.(p);
+    },
+    onPresentationSkeleton: (p) => {
+      cb.onPresentationSkeleton?.(p);
     },
     onDone: (final) => {
       onDoneExtra?.(final);

@@ -1,3 +1,10 @@
+export type GenUIMeasure = {
+  label: string;
+  value: string;
+  unit?: string | null;
+  numeric?: number | null;
+};
+
 export type GenUIBlock = {
   type: string;
   title?: string | null;
@@ -6,6 +13,8 @@ export type GenUIBlock = {
   terms?: { term: string; definition: string }[] | null;
   faqs?: { question: string; answer: string }[] | null;
   tags?: string[] | null;
+  /** Structured rows for metrics/progress/chart, derived server-side from items. */
+  measures?: GenUIMeasure[] | null;
   source_indices?: number[] | null;
   /** Layout hint honored by the grid. Backend may set it; otherwise defaulted per type. */
   width?: "full" | "half" | null;

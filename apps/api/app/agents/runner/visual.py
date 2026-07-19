@@ -60,7 +60,7 @@ def _presentation_context_for_run(db: Session, run: AgentRun) -> PresentationCon
         db, run.workspace_id, user_id=run.user_id
     )
     run._workspace_context = packet  # type: ignore[attr-defined]
-    structured_content, _source = resolve_structured_content(
+    structured_content, structured_source = resolve_structured_content(
         narrative,
         goal=goal,
         db=db,
@@ -80,6 +80,7 @@ def _presentation_context_for_run(db: Session, run: AgentRun) -> PresentationCon
         document_filenames=filenames,
         agent_evidence=agent_evidence,
         structured_content=structured_content,
+        structured_source=structured_source,
         workspace_packet=packet.to_dict(),
     )
 
@@ -342,6 +343,22 @@ def _run_visual_pipeline(
 
     plan = (plan_result or {}).get("plan") if isinstance(plan_result, dict) else None
     if isinstance(plan, dict) and plan:
+        # Let the UI show placeholder blocks while render runs.
+        _emit(
+            on_event,
+            "presentation_skeleton",
+            run_id=str(run.id),
+            presentation_profile=plan.get("presentation_profile"),
+            outline=[
+                {
+                    "type": str(entry.get("type")),
+                    "title": str(entry.get("title") or ""),
+                    "width": entry.get("width") or None,
+                }
+                for entry in (plan.get("block_outline") or [])
+                if isinstance(entry, dict) and entry.get("type")
+            ],
+        )
         # Plan was already validated (with repair + skeleton fallback) inside
         # run_plan_layout — render without re-validating (validate-once).
         validated = plan_payload.get("validation_status") == "passed"

@@ -11,6 +11,7 @@ from openai import OpenAI
 from sqlalchemy.orm import Session
 
 from app.config import settings
+from app.presentation.llm_json import STRUCTURED_CONTENT_SCHEMA, chat_json
 from app.presentation.structured import extract_structured_content
 from app.usage import estimate_tokens, log_usage
 
@@ -231,6 +232,58 @@ def _format_llm_extraction_prompt(
     )
 
 
+def format_combined_extract_plan_prompt(
+    answer: str,
+    *,
+    goal: str,
+    workspace_block: str = "",
+    evidence_block: str = "",
+    layout_hints: str = "",
+    skeleton_outline: str = "",
+) -> str:
+    """One prompt: extract structured facts AND plan the layout from them."""
+    extraction = _format_llm_extraction_prompt(
+        answer,
+        goal=goal,
+        workspace_block=workspace_block,
+        evidence_block=evidence_block,
+    )
+    outline_block = (
+        "REFERENCE SKELETON OUTLINE (from goal/workspace heuristics — optional "
+        "starting point; reorder, retitle, or replace freely):\n"
+        f"{skeleton_outline}\n\n"
+        if skeleton_outline.strip()
+        else ""
+    )
+    hints_block = f"{layout_hints.strip()}\n\n" if layout_hints.strip() else ""
+    return (
+        "Two tasks in one response.\n\n"
+        "TASK 1 — EXTRACT. Follow these extraction rules; put the result in "
+        '"structured_content":\n'
+        "----\n"
+        f"{extraction}\n"
+        "----\n\n"
+        "TASK 2 — PLAN. From YOUR OWN structured_content, plan the visual "
+        'layout; put the result in "layout_plan":\n'
+        f"{outline_block}"
+        f"{hints_block}"
+        "PLAN RULES:\n"
+        "- Lead with the block that best answers the user's goal.\n"
+        "- Every block_outline entry needs type, title, purpose, source_hint, width.\n"
+        "- source_hint must name a structured_content field YOU filled with real "
+        "data — never an empty one.\n"
+        '- width: "full" for wide data (table/comparison/timeline/steps/chips/'
+        'summary), "half" for compact blocks.\n'
+        "- Prefer 4-7 blocks; omit anything without data.\n\n"
+        "OUTPUT (JSON only):\n"
+        '{"structured_content": {...extraction shape above...},\n'
+        ' "layout_plan": {"presentation_profile": "short_snake_case", '
+        '"components": ["table", ...], "block_outline": [{"type": "...", '
+        '"title": "...", "purpose": "...", "source_hint": "...", '
+        '"width": "full"}], "rationale": "1-3 sentences"}}'
+    )
+
+
 def extract_structured_content_llm(
     answer: str,
     *,
@@ -263,17 +316,13 @@ def extract_structured_content_llm(
         evidence_block=_format_evidence_block(evidence),
     )
     try:
-        resp = _client().chat.completions.create(
+        resp = chat_json(
+            _client(),
             model=settings.visual_summary_model,
-            messages=[
-                {
-                    "role": "system",
-                    "content": "You extract structured facts for visual layout planning. JSON only.",
-                },
-                {"role": "user", "content": prompt},
-            ],
-            temperature=0.1,
-            response_format={"type": "json_object"},
+            system="You extract structured facts for visual layout planning. JSON only.",
+            prompt=prompt,
+            schema_name="structured_content",
+            schema=STRUCTURED_CONTENT_SCHEMA,
         )
     except Exception:
         return None
@@ -327,6 +376,16 @@ def _merge_structured(
     return merged
 
 
+def combined_extract_plan_enabled() -> bool:
+    """True when extraction + planning run as one LLM call in plan_layout."""
+    return bool(
+        settings.visual_summary_combined_call
+        and settings.visual_summary_llm_planner
+        and settings.visual_summary_llm_extractor
+        and settings.openai_api_key
+    )
+
+
 def resolve_structured_content(
     answer: str,
     *,
@@ -342,10 +401,18 @@ def resolve_structured_content(
     regex heuristic as fallback and gap-filler.
 
     Returns (structured_content, source) where source is 'heuristic' or 'llm'.
+
+    Combined mode: when the planner will extract+plan in one call, a heuristic
+    with substance is returned as-is (no extraction call here) — the combined
+    call replaces it during planning. A thin heuristic still gets the separate
+    LLM extraction, because handoff validation runs before planning.
     """
     heuristic = normalize_structured_content(
         extract_structured_content(answer, goal=goal)
     )
+
+    if combined_extract_plan_enabled() and structured_content_has_substance(heuristic):
+        return heuristic, "heuristic"
 
     llm_result: dict[str, Any] | None = None
     llm_attempted = False
