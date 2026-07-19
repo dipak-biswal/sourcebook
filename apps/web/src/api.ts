@@ -708,7 +708,6 @@ const TERMINAL_RUN_STATUSES = new Set([
 async function pollAgentRunUntilSettled(
   runId: string,
   handlers: AgentStreamHandlers,
-  *,
   maxWaitMs = 120_000,
   intervalMs = 2_000,
 ): Promise<AgentRun | null> {

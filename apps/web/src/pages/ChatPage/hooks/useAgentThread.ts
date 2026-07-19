@@ -22,7 +22,7 @@ export function useAgentThread(
   setError: (err: string | null) => void,
   setInput: (v: string) => void,
   bottomRef: RefObject<HTMLDivElement | null>,
-  setModePersist: (mode: "chat" | "agent") => void,
+  _setModePersist: (mode: "chat" | "agent") => void,
 ) {
   const { success, error: toastError } = useToast();
   const queryClient = useQueryClient();

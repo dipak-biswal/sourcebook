@@ -32,7 +32,7 @@ import {
 } from "@/components/ui/table";
 import { cn } from "@/lib/utils";
 import type { GenUIBlock, GenerativeUIPayload } from "./generative-ui";
-import { KNOWN_BLOCK_TYPES } from "./block-contract";
+import { BLOCK_CONTRACT, KNOWN_BLOCK_TYPES } from "./block-contract";
 import {
   coerceTableRows,
   generativeUIExportFilename,
