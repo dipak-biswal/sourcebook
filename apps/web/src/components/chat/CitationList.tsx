@@ -1,13 +1,16 @@
 import { useMemo, useState } from "react";
-import { ChevronDown, ChevronRight, FileText } from "lucide-react";
+import { Link } from "react-router-dom";
+import { ChevronDown, ChevronRight, ExternalLink, FileText } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
+import { citationViewerPath } from "@/lib/document-links";
 import type { Citation } from "@/api";
 import { asCitations } from "./citations";
 
 type FileGroup = {
   key: string;
   filename: string;
+  documentId?: string;
   bestScore?: number;
   chunks: Citation[];
 };
@@ -39,11 +42,15 @@ function groupByFile(items: Citation[]): FileGroup[] {
       map.set(key, {
         key,
         filename,
+        documentId: c.document_id,
         bestScore: c.score,
         chunks: [c],
       });
     } else {
       existing.chunks.push(c);
+      if (!existing.documentId && c.document_id) {
+        existing.documentId = c.document_id;
+      }
       if (
         typeof c.score === "number" &&
         (existing.bestScore == null || c.score > existing.bestScore)
@@ -65,6 +72,7 @@ type CitationListProps = {
 
 /**
  * Grouped by file (chips). Expand for per-chunk snippets + scores.
+ * Click a file or chunk to open the document viewer at that source.
  */
 export function CitationList({
   citations,
@@ -98,33 +106,59 @@ export function CitationList({
       </div>
 
       <div className="flex flex-wrap gap-1.5">
-        {groups.map((g) => (
-          <Badge
-            key={g.key}
-            variant="outline"
-            className="cursor-default gap-1 font-normal"
-            title={`${g.chunks.length} chunk(s)`}
-          >
-            <FileText className="h-3 w-3" strokeWidth={1.5} />
-            {truncate(g.filename, 28)}
-            <span className="text-mute">
-              · {g.chunks.length}x
-              {typeof g.bestScore === "number" &&
-                ` · ${g.bestScore.toFixed(2)}`}
-            </span>
-          </Badge>
-        ))}
+        {groups.map((g) => {
+          const path = g.documentId
+            ? citationViewerPath({
+                document_id: g.documentId,
+                chunk_id: g.chunks[0]?.chunk_id,
+                snippet: g.chunks[0]?.snippet,
+              })
+            : null;
+          const chipClass =
+            "inline-flex items-center gap-1 rounded-full border border-hairline bg-canvas px-2 py-0.5 text-[11px] font-normal text-ink transition-colors hover:border-ink/30 hover:bg-canvas-soft";
+          const body = (
+            <>
+              <FileText className="h-3 w-3" strokeWidth={1.5} />
+              {truncate(g.filename, 28)}
+              <span className="text-mute">
+                · {g.chunks.length}x
+                {typeof g.bestScore === "number" &&
+                  ` · ${g.bestScore.toFixed(2)}`}
+              </span>
+              {path && (
+                <ExternalLink className="h-2.5 w-2.5 text-mute" strokeWidth={1.5} />
+              )}
+            </>
+          );
+          return path ? (
+            <Link
+              key={g.key}
+              to={path}
+              className={chipClass}
+              title={`Open ${g.filename} at cited chunk`}
+            >
+              {body}
+            </Link>
+          ) : (
+            <Badge
+              key={g.key}
+              variant="outline"
+              className="cursor-default gap-1 font-normal"
+              title={`${g.chunks.length} chunk(s)`}
+            >
+              {body}
+            </Badge>
+          );
+        })}
       </div>
 
       {expanded && (
         <ul className="space-y-1.5">
           {items.map((c, i) => {
             const n = c.index ?? i + 1;
-            return (
-              <li
-                key={`detail-${c.chunk_id ?? i}`}
-                className="rounded-[6px] border border-hairline bg-canvas px-2.5 py-2 text-xs text-body"
-              >
+            const path = citationViewerPath(c);
+            const inner = (
+              <>
                 <div className="mb-1 flex flex-wrap items-center gap-1.5">
                   <span className="font-semibold text-ink">[{n}]</span>
                   {c.filename && (
@@ -138,10 +172,32 @@ export function CitationList({
                       {scoreLabel(c.score)} {c.score.toFixed(3)}
                     </Badge>
                   )}
+                  {path && (
+                    <span className="inline-flex items-center gap-0.5 text-[10px] font-medium text-mute">
+                      Open
+                      <ExternalLink className="h-2.5 w-2.5" strokeWidth={1.5} />
+                    </span>
+                  )}
                 </div>
                 <p className="text-mute leading-relaxed">
                   {c.snippet ?? "…"}
                 </p>
+              </>
+            );
+            return (
+              <li key={`detail-${c.chunk_id ?? i}`}>
+                {path ? (
+                  <Link
+                    to={path}
+                    className="block rounded-[6px] border border-hairline bg-canvas px-2.5 py-2 text-xs text-body transition-colors hover:border-ink/25 hover:bg-canvas-soft"
+                  >
+                    {inner}
+                  </Link>
+                ) : (
+                  <div className="rounded-[6px] border border-hairline bg-canvas px-2.5 py-2 text-xs text-body">
+                    {inner}
+                  </div>
+                )}
               </li>
             );
           })}

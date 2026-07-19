@@ -20,8 +20,10 @@ import {
   Tags,
   Timer,
 } from "lucide-react";
+import { Link } from "react-router-dom";
 import { api } from "@/api";
 import { Button } from "@/components/ui/button";
+import { citationViewerPath } from "@/lib/document-links";
 import {
   Table,
   TableBody,
@@ -1026,20 +1028,60 @@ export function GenerativeUIView({
         <p className="text-xs text-mute">Presentation has no sections yet.</p>
       )}
 
-      {sourceFiles.length > 0 && (
+      {(payload.sources?.length || sourceFiles.length > 0) && (
         <div className="flex flex-wrap items-center gap-1.5 border-t border-hairline pt-3">
           <span className="text-[10px] font-bold uppercase tracking-wide text-mute">
             Sources
           </span>
-          {sourceFiles.map((file, j) => (
-            <span
-              key={j}
-              className="inline-flex items-center gap-1 rounded-full border border-hairline bg-canvas-soft px-2 py-0.5 text-[10px] font-medium text-body"
-            >
-              <FileText className="h-3 w-3 shrink-0 text-mute" strokeWidth={1.5} />
-              {file}
-            </span>
-          ))}
+          {payload.sources && payload.sources.length > 0
+            ? payload.sources.map((s) => {
+                const path = citationViewerPath({
+                  document_id: s.document_id,
+                  chunk_id: s.chunk_id,
+                  snippet: s.snippet,
+                });
+                const label = s.filename || `Source ${s.index}`;
+                const chip = (
+                  <>
+                    <FileText
+                      className="h-3 w-3 shrink-0 text-mute"
+                      strokeWidth={1.5}
+                    />
+                    <span className="font-semibold text-ink">[{s.index}]</span>
+                    {label}
+                  </>
+                );
+                return path ? (
+                  <Link
+                    key={`${s.index}-${s.chunk_id || s.document_id || label}`}
+                    to={path}
+                    title={s.snippet || label}
+                    className="inline-flex max-w-full items-center gap-1 truncate rounded-full border border-hairline bg-canvas-soft px-2 py-0.5 text-[10px] font-medium text-body transition-colors hover:border-ink/30 hover:bg-canvas"
+                  >
+                    {chip}
+                  </Link>
+                ) : (
+                  <span
+                    key={`${s.index}-${label}`}
+                    className="inline-flex max-w-full items-center gap-1 truncate rounded-full border border-hairline bg-canvas-soft px-2 py-0.5 text-[10px] font-medium text-body"
+                    title={s.snippet || label}
+                  >
+                    {chip}
+                  </span>
+                );
+              })
+            : sourceFiles.map((file, j) => (
+                <span
+                  key={j}
+                  className="inline-flex items-center gap-1 rounded-full border border-hairline bg-canvas-soft px-2 py-0.5 text-[10px] font-medium text-body"
+                >
+                  <FileText
+                    className="h-3 w-3 shrink-0 text-mute"
+                    strokeWidth={1.5}
+                  />
+                  {file}
+                </span>
+              ))}
         </div>
       )}
     </div>

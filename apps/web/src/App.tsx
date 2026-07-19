@@ -36,6 +36,11 @@ const DashboardPage = lazyWithRetry(() =>
 const DocumentsPage = lazyWithRetry(() =>
   import("@/pages/DocumentsPage").then((m) => ({ default: m.DocumentsPage })),
 );
+const DocumentViewerPage = lazyWithRetry(() =>
+  import("@/pages/DocumentsPage/DocumentViewerPage").then((m) => ({
+    default: m.DocumentViewerPage,
+  })),
+);
 const LoginPage = lazyWithRetry(() =>
   import("@/pages/LoginPage").then((m) => ({ default: m.LoginPage })),
 );
@@ -76,6 +81,10 @@ function AppRoutes() {
       <Route path="/" element={<RequireAuth page={DashboardPage} />} />
       <Route path="/chat" element={<RequireAuth page={ChatPage} />} />
       <Route path="/documents" element={<RequireAuth page={DocumentsPage} />} />
+      <Route
+        path="/documents/:documentId"
+        element={<RequireAuth page={DocumentViewerPage} />}
+      />
       <Route path="/usage" element={<RequireAuth page={UsagePage} />} />
       <Route path="/agents" element={<RequireAuth page={AgentsPage} />} />
       <Route path="/settings" element={<RequireAuth page={SettingsPage} />} />

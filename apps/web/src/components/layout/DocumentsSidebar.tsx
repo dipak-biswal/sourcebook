@@ -1,4 +1,5 @@
 import { useRef, useState } from "react";
+import { Link } from "react-router-dom";
 import {
   AlertCircle,
   ChevronDown,
@@ -13,6 +14,7 @@ import type { Document, Workspace } from "@/api";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { WorkspaceSelect } from "@/components/workspace/WorkspaceSelect";
+import { documentViewerPath } from "@/lib/document-links";
 import { cn } from "@/lib/utils";
 
 type DocumentsSidebarProps = {
@@ -219,9 +221,19 @@ export function DocumentsSidebar({
                       strokeWidth={1.5}
                     />
                     <div className="min-w-0 flex-1">
-                      <div className="truncate text-sm font-medium text-ink">
-                        {doc.filename}
-                      </div>
+                      {ready ? (
+                        <Link
+                          to={documentViewerPath(doc.id)}
+                          className="block truncate text-sm font-medium text-ink underline-offset-2 hover:underline"
+                          title="Open document chunks"
+                        >
+                          {doc.filename}
+                        </Link>
+                      ) : (
+                        <div className="truncate text-sm font-medium text-ink">
+                          {doc.filename}
+                        </div>
+                      )}
                       <div className="mt-1 flex flex-wrap items-center gap-1">
                         <Badge variant={statusVariant(doc.status)}>
                           {doc.status}

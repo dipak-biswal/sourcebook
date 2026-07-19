@@ -107,6 +107,16 @@ export type Document = {
   created_at: string;
 };
 
+export type DocumentChunk = {
+  id: string;
+  document_id: string;
+  workspace_id: string;
+  chunk_index: number;
+  content: string;
+  token_count?: number | null;
+  filename?: string | null;
+};
+
 export type Conversation = {
   id: string;
   workspace_id: string;
@@ -319,6 +329,15 @@ export const api = {
 
   documents: (workspaceId: string) =>
     request<Document[]>(`/documents?workspace_id=${workspaceId}`),
+
+  document: (documentId: string) =>
+    request<Document>(`/documents/${documentId}`),
+
+  documentChunks: (documentId: string) =>
+    request<DocumentChunk[]>(`/documents/${documentId}/chunks`),
+
+  chunk: (chunkId: string) =>
+    request<DocumentChunk>(`/documents/chunks/${chunkId}`),
 
   upload: (workspaceId: string, file: File) => {
     const form = new FormData();

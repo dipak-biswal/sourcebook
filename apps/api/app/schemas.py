@@ -47,6 +47,23 @@ class DocumentResponse(BaseModel):
     model_config = {"from_attributes": True}
 
 
+class ChunkResponse(BaseModel):
+    id: uuid.UUID
+    document_id: uuid.UUID
+    workspace_id: uuid.UUID
+    chunk_index: int
+    content: str
+    token_count: int | None = None
+
+    model_config = {"from_attributes": True}
+
+
+class ChunkDetailResponse(ChunkResponse):
+    """Chunk plus parent document filename for citation deep-links."""
+
+    filename: str | None = None
+
+
 class ConversationCreate(BaseModel):
     workspace_id: uuid.UUID
     title: str = "New chat"

@@ -8,7 +8,7 @@ from app.db import get_db
 from app.deps import get_current_user
 from app.ingestion.parsers import is_supported_filename, supported_types_message
 from app.models import Chunk, Document, User, WorkspaceMember
-from app.schemas import DocumentResponse
+from app.schemas import ChunkDetailResponse, ChunkResponse, DocumentResponse
 from app.storage import get_storage
 
 router = APIRouter(prefix="/documents", tags=["documents"])
@@ -92,6 +92,69 @@ async def upload_document(
     db.commit()
     db.refresh(doc)
     return doc
+
+
+# Static path must be registered before /{document_id} so "chunks" is not
+# parsed as a UUID document id.
+@router.get("/chunks/{chunk_id}", response_model=ChunkDetailResponse)
+def get_chunk(
+    chunk_id: uuid.UUID,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Resolve a single chunk (with filename) for citation navigation."""
+    ch = db.get(Chunk, chunk_id)
+    if not ch:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Chunk not found"
+        )
+    _require_workspce_member(db, current_user.id, ch.workspace_id)
+    doc = db.get(Document, ch.document_id)
+    return ChunkDetailResponse(
+        id=ch.id,
+        document_id=ch.document_id,
+        workspace_id=ch.workspace_id,
+        chunk_index=ch.chunk_index,
+        content=ch.content,
+        token_count=ch.token_count,
+        filename=doc.filename if doc else None,
+    )
+
+
+@router.get("/{document_id}", response_model=DocumentResponse)
+def get_document(
+    document_id: uuid.UUID,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    doc = db.get(Document, document_id)
+    if not doc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Document not found"
+        )
+    _require_workspce_member(db, current_user.id, doc.workspace_id)
+    return doc
+
+
+@router.get("/{document_id}/chunks", response_model=list[ChunkResponse])
+def list_document_chunks(
+    document_id: uuid.UUID,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Ordered text chunks for the document viewer / citation deep-links."""
+    doc = db.get(Document, document_id)
+    if not doc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Document not found"
+        )
+    _require_workspce_member(db, current_user.id, doc.workspace_id)
+    return (
+        db.query(Chunk)
+        .filter(Chunk.document_id == doc.id, Chunk.workspace_id == doc.workspace_id)
+        .order_by(Chunk.chunk_index.asc())
+        .all()
+    )
 
 
 @router.delete("/{document_id}")
