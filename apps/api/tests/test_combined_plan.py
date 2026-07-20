@@ -304,3 +304,5 @@ def test_combined_extract_plan_prompt_teaches_diagram_fields():
     assert "interaction_sequence" in prompt
     assert "flow_diagram" in prompt
     assert "sequence_diagram" in prompt
+    assert "explain" in prompt.lower() or "mechanism" in prompt.lower()
+    assert "flow_diagram FIRST" in prompt or "put flow_diagram" in prompt

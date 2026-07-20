@@ -274,6 +274,78 @@ def test_assemble_sequence_diagram_too_few_actors_dropped():
     assert dropped and dropped[0]["type"] == "sequence_diagram"
 
 
+def test_available_source_hints_includes_diagram_fields():
+    from app.presentation.ui_intent import available_source_hints
+
+    structured = {
+        "summary": "Event loop overview",
+        "process_flow": {
+            "nodes": [
+                {"id": "stack", "label": "Call Stack"},
+                {"id": "queue", "label": "Task Queue"},
+            ],
+            "edges": [{"source": "stack", "target": "queue", "label": "async"}],
+        },
+        "interaction_sequence": {
+            "actors": ["Stack", "Queue"],
+            "messages": [
+                {
+                    "source": "Stack",
+                    "target": "Queue",
+                    "label": "enqueue",
+                    "order": 0,
+                }
+            ],
+        },
+    }
+    present = available_source_hints(structured)
+    assert "process_flow" in present
+    assert "interaction_sequence" in present
+
+
+def test_explain_goal_leads_with_mechanism_when_process_flow_present():
+    from app.presentation.ui_intent import resolve_ui_intent
+
+    structured = {
+        "summary": "The event loop runs async callbacks when the stack is clear.",
+        "key_points": ["JS is single-threaded", "Queues hold callbacks"],
+        "concepts": ["Event loop — scheduler", "Call stack — frames"],
+        "faq": [{"question": "Is JS multi-threaded?", "answer": "No."}],
+        "process_flow": {
+            "nodes": [
+                {"id": "stack", "label": "Call Stack", "detail": "Sync frames"},
+                {"id": "web", "label": "Web APIs"},
+                {"id": "queue", "label": "Callback Queue"},
+            ],
+            "edges": [
+                {"source": "stack", "target": "web", "label": "setTimeout"},
+                {"source": "web", "target": "queue", "label": "ready"},
+                {"source": "queue", "target": "stack", "label": "tick"},
+            ],
+        },
+    }
+    intent = resolve_ui_intent(
+        structured_content=structured,
+        workspace_packet={
+            "derived": {
+                "visual_affordances": [
+                    "mechanism_explainer",
+                    "concept_glossary",
+                    "self_check",
+                ]
+            }
+        },
+        goal="explain eventloop",
+    )
+    assert intent.block_order[0] == "mechanism_explainer"
+    assert "mechanism_explainer" in intent.eligible_affordances
+
+    plan = build_skeleton_layout_plan(intent, structured_content=structured)
+    types = [b["type"] for b in plan.get("block_outline") or []]
+    assert "flow_diagram" in types
+    assert types.index("flow_diagram") <= 2
+
+
 def test_goal_aware_lead_block_for_comparison():
     structured = {
         "summary": "React is strong; cloud is thin.",

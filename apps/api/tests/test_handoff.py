@@ -51,6 +51,66 @@ def test_normalize_structured_content_trims_and_caps():
     assert "extra" not in out
 
 
+def test_normalize_preserves_process_flow_and_interaction_sequence():
+    raw = {
+        "summary": "The event loop coordinates async work.",
+        "key_points": ["Stack runs sync code first"],
+        "process_flow": {
+            "nodes": [
+                {"id": "call_stack", "label": "**Call Stack**", "detail": "`foo()` runs"},
+                {"id": "web_api", "label": "Web APIs"},
+                {"id": "queue", "label": "Callback Queue"},
+            ],
+            "edges": [
+                {"source": "call_stack", "target": "web_api", "label": "setTimeout"},
+                {"source": "web_api", "target": "queue", "label": "ready"},
+                {"source": "queue", "target": "missing", "label": "orphan"},
+            ],
+        },
+        "interaction_sequence": {
+            "actors": ["Call Stack", "Web APIs"],
+            "messages": [
+                {
+                    "source": "Call Stack",
+                    "target": "Web APIs",
+                    "label": "setTimeout",
+                    "order": 0,
+                    "note": "Timer registered",
+                },
+                {
+                    "source": "Web APIs",
+                    "target": "Call Stack",
+                    "label": "callback",
+                    "order": 1,
+                },
+            ],
+        },
+    }
+    out = normalize_structured_content(raw)
+    assert "process_flow" in out
+    assert len(out["process_flow"]["nodes"]) == 3
+    assert out["process_flow"]["nodes"][0]["label"] == "Call Stack"
+    assert out["process_flow"]["nodes"][0]["detail"] == "`foo()` runs"
+    # Orphan edge to unknown node dropped
+    assert len(out["process_flow"]["edges"]) == 2
+    assert "interaction_sequence" in out
+    assert len(out["interaction_sequence"]["actors"]) == 2
+    assert len(out["interaction_sequence"]["messages"]) == 2
+
+
+def test_normalize_drops_empty_diagram_modules():
+    out = normalize_structured_content(
+        {
+            "summary": "Thin answer",
+            "key_points": ["a"],
+            "process_flow": {"nodes": [], "edges": []},
+            "interaction_sequence": {"actors": [], "messages": []},
+        }
+    )
+    assert "process_flow" not in out
+    assert "interaction_sequence" not in out
+
+
 def test_resolve_structured_content_uses_heuristic_when_llm_disabled(monkeypatch):
     monkeypatch.setattr(
         "app.presentation.handoff.settings.visual_summary_llm_extractor", False

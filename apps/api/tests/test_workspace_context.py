@@ -36,9 +36,12 @@ def test_learning_description_derives_concepts_and_instructional_tone():
     assert packet.derived.tone == "instructional"
     assert "concept_glossary" in packet.derived.visual_affordances
     assert "ordered_guide" in packet.derived.visual_affordances
+    assert "mechanism_explainer" in packet.derived.visual_affordances
+    assert "interaction_walkthrough" in packet.derived.visual_affordances
     assert "explain tradeoffs" in packet.derived.success_criteria.lower()
     assert len(packet.evidence.documents_ready) == 2
     assert "Core concepts" in packet.derived.answer_sections
+    assert "How it works" in packet.derived.answer_sections
 
 
 def test_comparison_description_derives_matrix_and_analytical():

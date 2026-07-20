@@ -155,6 +155,23 @@ function parseJsonGenerativeUI(raw: string): GenerativeUIPayload | null {
   }
 }
 
+function blockHasDiagramData(block: GenUIBlock): boolean {
+  const nodes = block.nodes ?? [];
+  const edges = block.edges ?? [];
+  const actors = block.actors ?? [];
+  const messages = block.messages ?? [];
+  if (block.type === "flow_diagram" || (nodes.length >= 2 && edges.length >= 1)) {
+    return nodes.length >= 2 && edges.length >= 1;
+  }
+  if (
+    block.type === "sequence_diagram" ||
+    (actors.length >= 2 && messages.length >= 1)
+  ) {
+    return actors.length >= 2 && messages.length >= 1;
+  }
+  return false;
+}
+
 function blockContentScore(block: GenUIBlock): number {
   const anyB = block as GenUIBlock & Record<string, unknown>;
   let score = 0;
@@ -165,6 +182,11 @@ function blockContentScore(block: GenUIBlock): number {
   if (typeof anyB.data === "string" && anyB.data.trim()) score += 4;
   if (Array.isArray(anyB.data) && anyB.data.length) score += anyB.data.length * 2;
   if (block.type === "table" && coerceTableRows(block).length) score += 4;
+  if (block.nodes?.length) score += block.nodes.length * 2;
+  if (block.edges?.length) score += block.edges.length;
+  if (block.actors?.length) score += block.actors.length;
+  if (block.messages?.length) score += block.messages.length * 2;
+  if (block.measures?.length) score += block.measures.length * 2;
   return score;
 }
 
@@ -246,6 +268,16 @@ export function cleanDisplayText(text: string): string {
       .join(" | ");
   }
   return cleanCellText(text);
+}
+
+/** Like cleanDisplayText but keeps `inline code` ticks for teaching panels. */
+export function cleanTeachingText(text: string): string {
+  let s = text.trim();
+  s = s.replace(/\*\*([^*]+)\*\*/g, "$1");
+  s = s.replace(/__([^_]+)__/g, "$1");
+  s = s.replace(/(?<!\*)\*([^*]+)\*(?!\*)/g, "$1");
+  s = s.replace(/\*\*/g, "");
+  return s.trim();
 }
 
 function isSeparatorText(text: string): boolean {
@@ -530,6 +562,24 @@ function cleanBlockFields(block: GenUIBlock): GenUIBlock {
       question: cleanDisplayText(f.question),
       answer: cleanDisplayText(f.answer),
     })),
+    nodes: block.nodes?.map((n) => ({
+      id: n.id,
+      label: cleanDisplayText(n.label),
+      detail: n.detail ? cleanTeachingText(n.detail) : n.detail,
+    })),
+    edges: block.edges?.map((e) => ({
+      source: e.source,
+      target: e.target,
+      label: e.label ? cleanDisplayText(e.label) : e.label,
+    })),
+    actors: block.actors?.map((a) => cleanDisplayText(a)),
+    messages: block.messages?.map((m) => ({
+      source: m.source,
+      target: m.target,
+      label: cleanDisplayText(m.label),
+      order: m.order,
+      note: m.note ? cleanTeachingText(m.note) : m.note,
+    })),
   };
 }
 
@@ -629,6 +679,11 @@ export function normalizeGenerativeUI(raw: GenerativeUIPayload): GenerativeUIPay
       tags: tags && tags.length ? tags : b.tags,
       source_indices: b.source_indices,
       width: b.width,
+      measures: b.measures,
+      nodes: b.nodes,
+      edges: b.edges,
+      actors: b.actors,
+      messages: b.messages,
     });
   });
 
@@ -645,7 +700,8 @@ export function normalizeGenerativeUI(raw: GenerativeUIPayload): GenerativeUIPay
         b.type === "timeline" ||
         b.type === "comparison" ||
         b.type === "progress" ||
-        b.type === "chart"
+        b.type === "chart" ||
+        blockHasDiagramData(b)
       ),
   );
 
@@ -764,7 +820,34 @@ export function generativeUIToNoteBody(payload: GenerativeUIPayload): string {
     if (b.type === "quote" && b.body) {
       lines.push("", `> ${b.body}`);
     }
-    if (b.type === "table" || b.type === "comparison") {
+    if (b.type === "flow_diagram" && b.nodes?.length) {
+      lines.push("", "### Components");
+      for (const n of b.nodes) {
+        lines.push(
+          n.detail ? `- **${n.label}**: ${n.detail}` : `- **${n.label}**`,
+        );
+      }
+      if (b.edges?.length) {
+        lines.push("", "### Connections");
+        for (const e of b.edges) {
+          const via = e.label ? ` (${e.label})` : "";
+          const src =
+            b.nodes.find((n) => n.id === e.source)?.label ?? e.source;
+          const tgt =
+            b.nodes.find((n) => n.id === e.target)?.label ?? e.target;
+          lines.push(`- ${src} → ${tgt}${via}`);
+        }
+      }
+    } else if (b.type === "sequence_diagram" && b.messages?.length) {
+      if (b.actors?.length) {
+        lines.push("", `*Actors: ${b.actors.join(", ")}*`);
+      }
+      const ordered = [...b.messages].sort((a, c) => a.order - c.order);
+      for (const m of ordered) {
+        lines.push(`- **${m.order + 1}. ${m.source} → ${m.target}**: ${m.label}`);
+        if (m.note) lines.push(`  - ${m.note}`);
+      }
+    } else if (b.type === "table" || b.type === "comparison") {
       const rows = (b.items ?? []).filter(Boolean);
       if (rows.length) {
         lines.push("", ...markdownTable(rows));

@@ -472,6 +472,25 @@ _PLANNER_FEW_SHOTS: dict[str, str] = {
         '],'
         '"rationale":"FAQ-first layout when the answer is Q&A heavy."}'
     ),
+    "mechanism_explainer": (
+        'EXAMPLE (mechanism_explainer):\n'
+        '{"presentation_profile":"mechanism_explainer","components":'
+        '["summary","flow_diagram","sequence_diagram","key_terms","faq"],'
+        '"block_outline":['
+        '{"type":"summary","title":"Overview","source_hint":"summary","width":"full",'
+        '"purpose":"What the mechanism is in plain language"},'
+        '{"type":"flow_diagram","title":"How it works","source_hint":"process_flow",'
+        '"width":"full","purpose":"Architecture: components and handoffs"},'
+        '{"type":"sequence_diagram","title":"Worked example","source_hint":'
+        '"interaction_sequence","width":"full",'
+        '"purpose":"Step-by-step walkthrough of one concrete run"},'
+        '{"type":"key_terms","title":"Core concepts","source_hint":"concepts",'
+        '"width":"full","purpose":"Terms learners must remember"},'
+        '{"type":"faq","title":"Common misconceptions","source_hint":"faq",'
+        '"width":"half","purpose":"Self-check questions"}'
+        '],'
+        '"rationale":"Lead with mechanism diagrams for explain goals; glossary and FAQ support."}'
+    ),
 }
 
 # One-line purpose for each planner block type (menu for the LLM).
@@ -512,6 +531,12 @@ _SOURCE_HINT_BLOCK_TYPE: dict[str, str] = {
 
 def _planner_few_shot(goal: str, components: list[str]) -> str:
     goal_l = (goal or "").lower()
+    if any(c in components for c in ("flow_diagram", "sequence_diagram")) or re.search(
+        r"\b(explain|how does|how it works|mechanism|lifecycle|under the hood|"
+        r"what happens when|event loop|pipeline)\b",
+        goal_l,
+    ):
+        return _PLANNER_FEW_SHOTS["mechanism_explainer"]
     if "faq" in components or re.search(r"\bfaq\b", goal_l):
         return _PLANNER_FEW_SHOTS["faq_guide"]
     if any(c in components for c in ("progress", "table", "chart")) or re.search(

@@ -67,6 +67,100 @@ def _normalize_str_list(raw: Any, *, item_limit: int = 20, item_chars: int = 400
     return out
 
 
+def _normalize_process_flow(raw: Any) -> dict[str, Any] | None:
+    """Sanitize process_flow for flow_diagram assembly; None when unusable."""
+    if not isinstance(raw, dict):
+        return None
+    nodes: list[dict[str, str]] = []
+    seen_ids: set[str] = set()
+    for i, item in enumerate(raw.get("nodes") or []):
+        if not isinstance(item, dict):
+            continue
+        nid = _strip_md(str(item.get("id") or item.get("label") or f"node_{i}"))[:60]
+        label = _strip_md(str(item.get("label") or item.get("id") or ""))[:120]
+        if not nid or not label or nid in seen_ids:
+            continue
+        seen_ids.add(nid)
+        entry: dict[str, str] = {"id": nid, "label": label}
+        detail = _strip_md(str(item.get("detail") or ""))[:400]
+        if detail:
+            entry["detail"] = detail
+        nodes.append(entry)
+        if len(nodes) >= 12:
+            break
+    if len(nodes) < 2:
+        return None
+    valid = {n["id"] for n in nodes}
+    edges: list[dict[str, str]] = []
+    seen_edges: set[tuple[str, str, str]] = set()
+    for item in raw.get("edges") or []:
+        if not isinstance(item, dict):
+            continue
+        src = _strip_md(str(item.get("source") or ""))[:60]
+        tgt = _strip_md(str(item.get("target") or ""))[:60]
+        if not src or not tgt or src not in valid or tgt not in valid:
+            continue
+        label = _strip_md(str(item.get("label") or ""))[:120]
+        key = (src, tgt, label)
+        if key in seen_edges:
+            continue
+        seen_edges.add(key)
+        edge: dict[str, str] = {"source": src, "target": tgt}
+        if label:
+            edge["label"] = label
+        edges.append(edge)
+        if len(edges) >= 20:
+            break
+    if not edges:
+        return None
+    return {"nodes": nodes, "edges": edges}
+
+
+def _normalize_interaction_sequence(raw: Any) -> dict[str, Any] | None:
+    """Sanitize interaction_sequence for sequence_diagram; None when unusable."""
+    if not isinstance(raw, dict):
+        return None
+    actors: list[str] = []
+    for item in raw.get("actors") or []:
+        name = _strip_md(str(item))[:60]
+        if name and name not in actors:
+            actors.append(name)
+        if len(actors) >= 8:
+            break
+    messages: list[dict[str, Any]] = []
+    for i, item in enumerate(raw.get("messages") or []):
+        if not isinstance(item, dict):
+            continue
+        src = _strip_md(str(item.get("source") or ""))[:60]
+        tgt = _strip_md(str(item.get("target") or ""))[:60]
+        label = _strip_md(str(item.get("label") or ""))[:120]
+        if not src or not tgt or not label:
+            continue
+        for actor in (src, tgt):
+            if actor not in actors:
+                actors.append(actor)
+        try:
+            order = int(item.get("order"))
+        except (TypeError, ValueError):
+            order = i
+        msg: dict[str, Any] = {
+            "source": src,
+            "target": tgt,
+            "label": label,
+            "order": order,
+        }
+        note = _strip_md(str(item.get("note") or ""))[:400]
+        if note:
+            msg["note"] = note
+        messages.append(msg)
+        if len(messages) >= 24:
+            break
+    if len(actors) < 2 or not messages:
+        return None
+    messages.sort(key=lambda m: int(m.get("order", 0)))
+    return {"actors": actors[:8], "messages": messages}
+
+
 def normalize_structured_content(raw: Any) -> dict[str, Any]:
     """Coerce planner/render input to the stable handoff schema (+ optional fields)."""
     if not isinstance(raw, dict):
@@ -137,6 +231,14 @@ def normalize_structured_content(raw: Any) -> dict[str, Any]:
         text = str(raw.get(key) or "").strip()
         if text:
             out[key] = text[:800]
+
+    # Diagram modules (dict shapes) — previously dropped, so flow/sequence never assembled.
+    process_flow = _normalize_process_flow(raw.get("process_flow"))
+    if process_flow:
+        out["process_flow"] = process_flow
+    interaction_sequence = _normalize_interaction_sequence(raw.get("interaction_sequence"))
+    if interaction_sequence:
+        out["interaction_sequence"] = interaction_sequence
 
     return out
 
@@ -228,8 +330,8 @@ def _format_llm_extraction_prompt(
         '  "metrics": ["Label | Value", ...],  // only numbers stated in the answer or evidence\n'
         '  "milestones": ["Period | Title | Detail", ...],  // only when dates appear\n'
         '  "priority_message": "the single most important gap/risk/warning, or \\"\\"",\n'
-        '  "process_flow": {"nodes": [{"id": "short_slug", "label": "...", "detail": "example or explanation"}], "edges": [{"source": "id", "target": "id", "label": "..."}]},  // → flow_diagram block. Only when the answer explains a mechanism/process with distinct steps or components that hand off to each other. Every edge source/target must be a node id you listed. Omit (empty nodes/edges) otherwise — do not invent steps.\n'
-        '  "interaction_sequence": {"actors": ["Name", ...], "messages": [{"source": "Name", "target": "Name", "label": "...", "order": 0, "note": "example or explanation"}]},  // → sequence_diagram block. Only for an ordered, multi-actor interaction (e.g. a protocol, an event loop, a request lifecycle). Every message source/target must be a listed actor. Omit otherwise — do not invent actors.\n'
+        '  "process_flow": {"nodes": [{"id": "short_slug", "label": "...", "detail": "concrete role or micro-example (not just restating the label)"}], "edges": [{"source": "id", "target": "id", "label": "..."}]},  // → flow_diagram. REQUIRED when the goal is to explain how a system/mechanism works (runtime, pipeline, architecture with handoffs). Nodes = distinct components; detail = what that part does with one concrete example. Every edge source/target must be a listed node id. Omit empty nodes/edges only when the answer is not mechanism-shaped — never invent steps.\n'
+        '  "interaction_sequence": {"actors": ["Name", ...], "messages": [{"source": "Name", "target": "Name", "label": "...", "order": 0, "note": "what happens at this step with a concrete example"}]},  // → sequence_diagram. Prefer ALSO filling this (alongside process_flow) when explaining a mechanism: one worked example as ordered messages between components/actors (e.g. call stack ↔ web APIs ↔ queues, request lifecycle). Every message source/target must be a listed actor. Omit only when there is no multi-step interaction to walk through.\n'
         '  "sections": [{"heading": "...", "bullets": ["..."], "body": "..."}],\n'
         '  "themes": ["topical theme", ...]  // 2-6 document topics — never structural labels like "Next Steps" or "Overview"\n'
         "}\n\n"
@@ -277,11 +379,15 @@ def format_combined_extract_plan_prompt(
         f"{hints_block}"
         "PLAN RULES:\n"
         "- Lead with the block that best answers the user's goal.\n"
+        "- For explain / how-it-works / mechanism goals: if process_flow is "
+        "filled, put flow_diagram FIRST (or right after a short summary). "
+        "If interaction_sequence is filled, include sequence_diagram as the "
+        "worked-example walkthrough near the top.\n"
         "- Every block_outline entry needs type, title, purpose, source_hint, width.\n"
         "- source_hint must name a structured_content field YOU filled with real "
         "data — never an empty one.\n"
         '- width: "full" for wide data (table/comparison/timeline/steps/chips/'
-        'summary), "half" for compact blocks.\n'
+        "summary/flow_diagram/sequence_diagram), \"half\" for compact blocks.\n"
         "- If you filled process_flow, add a block_outline entry with "
         'type "flow_diagram", source_hint "process_flow", width "full". '
         "If you filled interaction_sequence, add one with type "

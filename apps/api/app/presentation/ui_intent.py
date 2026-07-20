@@ -51,6 +51,8 @@ _DEFAULT_AFFORDANCE_ORDER = (
     "overview",
     "priority_alert",
     "topic_filter",
+    "mechanism_explainer",
+    "interaction_walkthrough",
     "concept_glossary",
     "highlights",
     "comparison_matrix",
@@ -74,6 +76,14 @@ _GOAL_LEAD_PATTERNS: tuple[tuple[re.Pattern[str], str], ...] = (
             re.I,
         ),
         "comparison_matrix",
+    ),
+    (
+        re.compile(
+            r"\b(explain|how does|how it works|mechanism|lifecycle|"
+            r"under the hood|what happens when)\b",
+            re.I,
+        ),
+        "mechanism_explainer",
     ),
     (
         re.compile(
@@ -224,7 +234,66 @@ def affordance_has_data(affordance: str, structured: dict[str, Any]) -> bool:
         return bool(_DATE_RE.search(blob))
     if affordance == "metrics":
         return structured_field_present(structured, "metrics")
+    if affordance == "mechanism_explainer":
+        return _process_flow_has_data(structured)
+    if affordance == "interaction_walkthrough":
+        return _interaction_sequence_has_data(structured)
     return False
+
+
+def _process_flow_has_data(structured: dict[str, Any]) -> bool:
+    pf = structured.get("process_flow")
+    if not isinstance(pf, dict):
+        return False
+    nodes = pf.get("nodes") or []
+    edges = pf.get("edges") or []
+    if not isinstance(nodes, list) or not isinstance(edges, list):
+        return False
+    valid_ids = {
+        str(n.get("id") or "").strip()
+        for n in nodes
+        if isinstance(n, dict) and str(n.get("id") or "").strip()
+    }
+    if len(valid_ids) < 2:
+        return False
+    for e in edges:
+        if not isinstance(e, dict):
+            continue
+        src = str(e.get("source") or "").strip()
+        tgt = str(e.get("target") or "").strip()
+        if src in valid_ids and tgt in valid_ids:
+            return True
+    return False
+
+
+def _interaction_sequence_has_data(structured: dict[str, Any]) -> bool:
+    seq = structured.get("interaction_sequence")
+    if not isinstance(seq, dict):
+        return False
+    actors = seq.get("actors") or []
+    messages = seq.get("messages") or []
+    if not isinstance(actors, list) or not isinstance(messages, list):
+        return False
+    actor_names = {str(a).strip() for a in actors if str(a).strip()}
+    # Messages may introduce actors; count unique names from both.
+    for m in messages:
+        if not isinstance(m, dict):
+            continue
+        src = str(m.get("source") or "").strip()
+        tgt = str(m.get("target") or "").strip()
+        label = str(m.get("label") or "").strip()
+        if src and tgt and label:
+            actor_names.add(src)
+            actor_names.add(tgt)
+    if len(actor_names) < 2:
+        return False
+    return any(
+        isinstance(m, dict)
+        and str(m.get("source") or "").strip()
+        and str(m.get("target") or "").strip()
+        and str(m.get("label") or "").strip()
+        for m in messages
+    )
 
 
 # _SOURCE_HINT_AFFORDANCE and KNOWN_SOURCE_HINTS come from app.blocks —
@@ -346,6 +415,14 @@ def _data_richness(affordance: str, structured: dict[str, Any]) -> float:
         return 2.0
     if affordance == "comparison_matrix" and _pipe_rows_present(structured):
         return 2.0
+    if affordance == "mechanism_explainer":
+        pf = structured.get("process_flow") or {}
+        nodes = pf.get("nodes") if isinstance(pf, dict) else None
+        return float(min(5, len(nodes) if isinstance(nodes, list) else 0))
+    if affordance == "interaction_walkthrough":
+        seq = structured.get("interaction_sequence") or {}
+        messages = seq.get("messages") if isinstance(seq, dict) else None
+        return float(min(5, len(messages) if isinstance(messages, list) else 0))
     return 1.0 if affordance_has_data(affordance, structured) else 0.0
 
 
@@ -364,7 +441,15 @@ def resolve_ui_intent(
     candidates = set(_workspace_affordances(workspace_packet))
     candidates.update(_hint_affordances(presentation_hints))
     # Always consider overview/highlights/self_check if data exists
-    for base in ("overview", "highlights", "self_check", "topic_filter", "ordered_guide"):
+    for base in (
+        "overview",
+        "highlights",
+        "self_check",
+        "topic_filter",
+        "ordered_guide",
+        "mechanism_explainer",
+        "interaction_walkthrough",
+    ):
         candidates.add(base)
     if interaction_boosts:
         candidates.update(a for a in interaction_boosts if a in _AFFORDANCE_SPEC)
@@ -402,10 +487,22 @@ def resolve_ui_intent(
         return (-scores.get(a, 0.0), default_idx)
 
     ordered = sorted(eligible, key=sort_key)
-    # Lead with the goal-implied affordance (compare/how-to/timeline/priority)
+    # Lead with the goal-implied affordance (explain/compare/how-to/timeline/priority)
     # when it has data; otherwise open on the scannable Overview.
     lead = _goal_lead_affordance(goal)
-    if lead and lead in ordered:
+    if lead == "mechanism_explainer":
+        # Prefer architecture flow; fall back to sequence walkthrough for multi-actor.
+        if "mechanism_explainer" in ordered:
+            ordered = ["mechanism_explainer"] + [
+                a for a in ordered if a != "mechanism_explainer"
+            ]
+        elif "interaction_walkthrough" in ordered:
+            ordered = ["interaction_walkthrough"] + [
+                a for a in ordered if a != "interaction_walkthrough"
+            ]
+        elif "overview" in ordered:
+            ordered = ["overview"] + [a for a in ordered if a != "overview"]
+    elif lead and lead in ordered:
         ordered = [lead] + [a for a in ordered if a != lead]
     elif "overview" in ordered:
         ordered = ["overview"] + [a for a in ordered if a != "overview"]

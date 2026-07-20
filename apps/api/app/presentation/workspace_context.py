@@ -27,7 +27,14 @@ _DEFAULT_AFFORDANCES = (
 _AFFORDANCE_RULES: tuple[tuple[tuple[str, ...], tuple[str, ...]], ...] = (
     (
         ("learn", "understand", "concept", "definition", "study", "course", "tutorial"),
-        ("concept_glossary", "ordered_guide", "self_check", "topic_filter"),
+        (
+            "mechanism_explainer",
+            "interaction_walkthrough",
+            "concept_glossary",
+            "ordered_guide",
+            "self_check",
+            "topic_filter",
+        ),
     ),
     (
         ("guide", "checklist", "steps", "how to", "howto", "update", "improve", "edit"),
@@ -59,7 +66,13 @@ _AFFORDANCE_RULES: tuple[tuple[tuple[str, ...], tuple[str, ...]], ...] = (
     ),
     (
         ("design", "architect", "system", "tradeoff", "trade-off"),
-        ("concept_glossary", "comparison_matrix", "ordered_guide", "self_check"),
+        (
+            "mechanism_explainer",
+            "concept_glossary",
+            "comparison_matrix",
+            "ordered_guide",
+            "self_check",
+        ),
     ),
     (
         ("research", "notes", "reference", "lookup"),
@@ -328,6 +341,8 @@ def _derive_answer_sections(blob: str, affordances: list[str]) -> list[str]:
         sections.append("Core concepts")
     if "comparison_matrix" in affordances:
         sections.append("Comparison")
+    if "mechanism_explainer" in affordances or "interaction_walkthrough" in affordances:
+        sections.append("How it works")
     if "ordered_guide" in affordances:
         sections.append("Steps / checklist")
     if "qualitative_levels" in affordances:
