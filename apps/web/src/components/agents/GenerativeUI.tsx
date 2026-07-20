@@ -825,7 +825,7 @@ export function GenerativeUISkeleton({
   return (
     <div
       className={cn(
-        "w-full max-w-[min(100%,60rem)] space-y-4 rounded-vercel-md border border-hairline bg-canvas p-3 shadow-[var(--elevation-2)] sm:p-4",
+        "mx-auto w-[794px] max-w-full min-h-[1123px] space-y-4 rounded-vercel-md border border-hairline bg-canvas p-3 shadow-[var(--elevation-2)] sm:p-6",
         className,
       )}
     >
@@ -960,7 +960,7 @@ export function GenerativeUIView({
   return (
     <div
       className={cn(
-        "w-full max-w-[min(100%,60rem)] space-y-4 rounded-vercel-md border border-hairline bg-canvas p-3 shadow-[var(--elevation-2)] sm:p-4",
+        "mx-auto w-[794px] max-w-full min-h-[1123px] space-y-4 rounded-vercel-md border border-hairline bg-canvas p-3 shadow-[var(--elevation-2)] sm:p-6",
         className,
       )}
     >
