@@ -61,6 +61,14 @@ BLOCK_SPECS: tuple[BlockSpec, ...] = (
     BlockSpec("metrics", "Metrics", "metrics", "metrics", width="promote"),
     BlockSpec("quote", "Quote", width="half"),
     BlockSpec("chart", "Chart", width="full"),
+    BlockSpec("flow_diagram", "How it works", "process_flow", "mechanism_explainer", width="full"),
+    BlockSpec(
+        "sequence_diagram",
+        "Sequence",
+        "interaction_sequence",
+        "interaction_walkthrough",
+        width="full",
+    ),
 )
 
 ALL_BLOCK_TYPES: tuple[str, ...] = tuple(s.type for s in BLOCK_SPECS)

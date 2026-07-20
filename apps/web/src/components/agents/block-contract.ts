@@ -16,7 +16,9 @@ export const BLOCK_CONTRACT = {
     "timeline",
     "metrics",
     "quote",
-    "chart"
+    "chart",
+    "flow_diagram",
+    "sequence_diagram"
   ],
   "source_hints": [
     "summary",
@@ -30,7 +32,9 @@ export const BLOCK_CONTRACT = {
     "priority_message",
     "themes",
     "milestones",
-    "metrics"
+    "metrics",
+    "process_flow",
+    "interaction_sequence"
   ],
   "widths": {
     "summary": "full",
@@ -46,7 +50,9 @@ export const BLOCK_CONTRACT = {
     "timeline": "full",
     "metrics": "promote",
     "quote": "half",
-    "chart": "full"
+    "chart": "full",
+    "flow_diagram": "full",
+    "sequence_diagram": "full"
   }
 } as const;
 

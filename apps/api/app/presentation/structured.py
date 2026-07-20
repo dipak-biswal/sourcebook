@@ -488,6 +488,8 @@ _BLOCK_MENU: dict[str, str] = {
     "chips": "theme filters (≥2 themes)",
     "timeline": "dated milestones",
     "metrics": "label | value stats",
+    "flow_diagram": "boxes/arrows diagram of a process or mechanism (only when the answer explains how something works step-by-step)",
+    "sequence_diagram": "lifeline diagram of ordered interactions between named actors (only for multi-actor/protocol/event-flow explanations)",
 }
 
 _SOURCE_HINT_BLOCK_TYPE: dict[str, str] = {
@@ -503,6 +505,8 @@ _SOURCE_HINT_BLOCK_TYPE: dict[str, str] = {
     "themes": "chips",
     "milestones": "timeline",
     "metrics": "metrics",
+    "process_flow": "flow_diagram",
+    "interaction_sequence": "sequence_diagram",
 }
 
 
@@ -594,7 +598,12 @@ def format_plan_layout_prompt(
         "- Group related blocks next to each other. Prefer 4-7 blocks; "
         "omit anything without data.\n"
         "- Every block_outline entry MUST include type, title, source_hint, and width.\n"
-        "- Use only source_hint values listed under AVAILABLE SOURCE FIELDS.\n\n"
+        "- Use only source_hint values listed under AVAILABLE SOURCE FIELDS.\n"
+        "- Only plan flow_diagram when the answer describes a mechanism/pipeline with "
+        "distinct steps that hand off to each other; only plan sequence_diagram for an "
+        "ordered, multi-actor interaction. Every diagram node id used in an edge must "
+        "exist in nodes. These are a visual restatement of what you already said, not "
+        "new research — do not invent actors or steps.\n\n"
         "OUTPUT (JSON only):\n"
         "{\n"
         '  "presentation_profile": "short_snake_case e.g. gap_analysis",\n'

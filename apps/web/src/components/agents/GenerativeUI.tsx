@@ -15,6 +15,7 @@ import { Link } from "react-router-dom";
 import { api } from "@/api";
 import { Button } from "@/components/ui/button";
 import { TopicCardCarousel } from "@/components/agents/CardCarousel";
+import { FlowDiagramBlock, SequenceDiagramBlock } from "@/components/agents/DiagramBlocks";
 import { citationViewerPath } from "@/lib/document-links";
 import {
   Table,
@@ -107,6 +108,8 @@ const FULL_WIDTH_TYPES = new Set([
   "chips",
   "key_points",
   "key_terms",
+  "flow_diagram",
+  "sequence_diagram",
 ]);
 
 function isFullWidth(block: GenUIBlock): boolean {
@@ -779,6 +782,10 @@ function GenerativeUIBlock({
       return <TermsBlock block={block} onCardExpand={onCardExpand} />;
     case "faq":
       return <FaqBlock block={block} onExpand={onFaqExpand} />;
+    case "flow_diagram":
+      return <FlowDiagramBlock block={block} onCardExpand={onCardExpand} />;
+    case "sequence_diagram":
+      return <SequenceDiagramBlock block={block} onCardExpand={onCardExpand} />;
     default:
       // A type in the contract but missing a case above means this renderer
       // is behind the backend registry — surface it in dev builds.
@@ -1051,7 +1058,10 @@ export function GenerativeUIView({
                 chipProps={b.type === "chips" ? chipProps : undefined}
                 onFaqExpand={b.type === "faq" ? onFaqExpand : undefined}
                 onCardExpand={
-                  b.type === "key_points" || b.type === "key_terms"
+                  b.type === "key_points" ||
+                  b.type === "key_terms" ||
+                  b.type === "flow_diagram" ||
+                  b.type === "sequence_diagram"
                     ? onCardExpand
                     : undefined
                 }

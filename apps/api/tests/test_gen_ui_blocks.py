@@ -160,3 +160,143 @@ def test_table_data_markdown_string():
     assert norm is not None
     assert norm["items"]
     assert any("React" in row for row in norm["items"])
+
+
+def test_flow_diagram_alias():
+    norm = _normalize_block_dict(
+        {
+            "type": "flowchart",
+            "nodes": [{"id": "a", "label": "Call function"}, {"id": "b", "label": "Push to stack"}],
+            "edges": [{"source": "a", "target": "b"}],
+        }
+    )
+    assert norm is not None
+    assert norm["type"] == "flow_diagram"
+    assert len(norm["nodes"]) == 2
+    assert len(norm["edges"]) == 1
+
+
+def test_flow_diagram_drops_edge_with_unknown_node():
+    norm = _normalize_block_dict(
+        {
+            "type": "flow_diagram",
+            "nodes": [{"id": "a", "label": "A"}, {"id": "b", "label": "B"}],
+            "edges": [
+                {"source": "a", "target": "b"},
+                {"source": "a", "target": "ghost"},
+            ],
+        }
+    )
+    assert norm is not None
+    assert len(norm["edges"]) == 1
+    assert norm["edges"][0]["target"] == "b"
+
+
+def test_flow_diagram_too_few_nodes_drops_block():
+    norm = _normalize_block_dict(
+        {
+            "type": "flow_diagram",
+            "nodes": [{"id": "a", "label": "A"}],
+            "edges": [],
+        }
+    )
+    assert norm is None
+
+
+def test_flow_diagram_no_edges_drops_block():
+    norm = _normalize_block_dict(
+        {
+            "type": "flow_diagram",
+            "nodes": [{"id": "a", "label": "A"}, {"id": "b", "label": "B"}],
+            "edges": [],
+        }
+    )
+    assert norm is None
+
+
+def test_flow_diagram_keeps_detail_for_expand():
+    norm = _normalize_block_dict(
+        {
+            "type": "flow_diagram",
+            "nodes": [
+                {"id": "a", "label": "A", "detail": "Example: foo()"},
+                {"id": "b", "label": "B"},
+            ],
+            "edges": [{"source": "a", "target": "b", "label": "calls"}],
+        }
+    )
+    assert norm is not None
+    assert norm["nodes"][0]["detail"] == "Example: foo()"
+    assert norm["edges"][0]["label"] == "calls"
+
+
+def test_sequence_diagram_alias():
+    norm = _normalize_block_dict(
+        {
+            "type": "uml_sequence",
+            "actors": ["Call Stack", "Web APIs"],
+            "messages": [
+                {"source": "Call Stack", "target": "Web APIs", "label": "setTimeout()", "order": 0}
+            ],
+        }
+    )
+    assert norm is not None
+    assert norm["type"] == "sequence_diagram"
+    assert norm["actors"] == ["Call Stack", "Web APIs"]
+    assert len(norm["messages"]) == 1
+
+
+def test_sequence_diagram_auto_adds_missing_actor():
+    norm = _normalize_block_dict(
+        {
+            "type": "sequence_diagram",
+            "actors": ["Call Stack"],
+            "messages": [
+                {"source": "Call Stack", "target": "Callback Queue", "label": "enqueue", "order": 0}
+            ],
+        }
+    )
+    assert norm is not None
+    assert "Callback Queue" in norm["actors"]
+
+
+def test_sequence_diagram_missing_order_gets_index_assigned():
+    norm = _normalize_block_dict(
+        {
+            "type": "sequence_diagram",
+            "actors": ["A", "B"],
+            "messages": [
+                {"source": "A", "target": "B", "label": "first"},
+                {"source": "B", "target": "A", "label": "second"},
+            ],
+        }
+    )
+    assert norm is not None
+    assert [m["order"] for m in norm["messages"]] == [0, 1]
+
+
+def test_sequence_diagram_self_message_preserved():
+    norm = _normalize_block_dict(
+        {
+            "type": "sequence_diagram",
+            "actors": ["Event Loop", "Call Stack"],
+            "messages": [
+                {"source": "Event Loop", "target": "Event Loop", "label": "tick", "order": 0},
+                {"source": "Event Loop", "target": "Call Stack", "label": "run", "order": 1},
+            ],
+        }
+    )
+    assert norm is not None
+    self_msg = next(m for m in norm["messages"] if m["label"] == "tick")
+    assert self_msg["source"] == self_msg["target"] == "Event Loop"
+
+
+def test_sequence_diagram_too_few_actors_drops_block():
+    norm = _normalize_block_dict(
+        {
+            "type": "sequence_diagram",
+            "actors": ["A"],
+            "messages": [{"source": "A", "target": "A", "label": "noop", "order": 0}],
+        }
+    )
+    assert norm is None

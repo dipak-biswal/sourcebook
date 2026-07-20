@@ -184,6 +184,96 @@ def test_assembled_blocks_carry_width_hint():
     assert by_type["key_points"].width == "half"
 
 
+def test_assemble_flow_diagram_from_process_flow():
+    structured = {
+        "process_flow": {
+            "nodes": [
+                {"id": "call_stack", "label": "Call Stack", "detail": "e.g. foo() runs"},
+                {"id": "web_api", "label": "Web APIs", "detail": ""},
+                {"id": "queue", "label": "Callback Queue", "detail": ""},
+            ],
+            "edges": [
+                {"source": "call_stack", "target": "web_api", "label": "setTimeout"},
+                {"source": "web_api", "target": "queue", "label": "callback ready"},
+                {"source": "queue", "target": "call_stack", "label": "event loop tick"},
+            ],
+        },
+    }
+    outline = [{"type": "flow_diagram", "title": "How it works", "source_hint": "process_flow"}]
+    blocks, dropped = assemble_blocks(outline, structured)
+    assert len(blocks) == 1
+    block = blocks[0]
+    assert block.type == "flow_diagram"
+    assert len(block.nodes) == 3
+    assert len(block.edges) == 3
+    assert block.nodes[0].detail == "e.g. foo() runs"
+    assert not dropped
+
+
+def test_assemble_flow_diagram_drops_edge_to_unknown_node():
+    structured = {
+        "process_flow": {
+            "nodes": [{"id": "a", "label": "A"}, {"id": "b", "label": "B"}],
+            "edges": [
+                {"source": "a", "target": "b"},
+                {"source": "a", "target": "missing"},
+            ],
+        },
+    }
+    outline = [{"type": "flow_diagram", "source_hint": "process_flow"}]
+    blocks, _ = assemble_blocks(outline, structured)
+    assert len(blocks) == 1
+    assert len(blocks[0].edges) == 1
+
+
+def test_assemble_flow_diagram_empty_is_dropped():
+    outline = [{"type": "flow_diagram", "source_hint": "process_flow"}]
+    blocks, dropped = assemble_blocks(outline, {"process_flow": {"nodes": [], "edges": []}})
+    assert not blocks
+    assert dropped and dropped[0]["type"] == "flow_diagram"
+
+
+def test_assemble_sequence_diagram_from_interaction_sequence():
+    structured = {
+        "interaction_sequence": {
+            "actors": ["Call Stack", "Web APIs", "Callback Queue", "Event Loop"],
+            "messages": [
+                {"source": "Call Stack", "target": "Web APIs", "label": "setTimeout()", "order": 0},
+                {"source": "Web APIs", "target": "Callback Queue", "label": "enqueue", "order": 1},
+                {
+                    "source": "Callback Queue",
+                    "target": "Call Stack",
+                    "label": "loop tick",
+                    "order": 2,
+                    "note": "Runs once stack is empty",
+                },
+            ],
+        },
+    }
+    outline = [{"type": "sequence_diagram", "title": "Sequence", "source_hint": "interaction_sequence"}]
+    blocks, dropped = assemble_blocks(outline, structured)
+    assert len(blocks) == 1
+    block = blocks[0]
+    assert block.type == "sequence_diagram"
+    assert len(block.actors) == 4
+    assert len(block.messages) == 3
+    assert block.messages[2].note == "Runs once stack is empty"
+    assert not dropped
+
+
+def test_assemble_sequence_diagram_too_few_actors_dropped():
+    structured = {
+        "interaction_sequence": {
+            "actors": ["Only One"],
+            "messages": [{"source": "Only One", "target": "Only One", "label": "noop", "order": 0}],
+        },
+    }
+    outline = [{"type": "sequence_diagram", "source_hint": "interaction_sequence"}]
+    blocks, dropped = assemble_blocks(outline, structured)
+    assert not blocks
+    assert dropped and dropped[0]["type"] == "sequence_diagram"
+
+
 def test_goal_aware_lead_block_for_comparison():
     structured = {
         "summary": "React is strong; cloud is thin.",

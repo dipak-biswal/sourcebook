@@ -73,6 +73,62 @@ STRUCTURED_CONTENT_SCHEMA: dict[str, Any] = {
         "metrics": _str_array(),
         "milestones": _str_array(),
         "priority_message": {"type": "string"},
+        "process_flow": {
+            "type": "object",
+            "properties": {
+                "nodes": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "id": {"type": "string"},
+                            "label": {"type": "string"},
+                            "detail": {"type": "string"},
+                        },
+                        "required": ["id", "label", "detail"],
+                        "additionalProperties": False,
+                    },
+                },
+                "edges": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "source": {"type": "string"},
+                            "target": {"type": "string"},
+                            "label": {"type": "string"},
+                        },
+                        "required": ["source", "target", "label"],
+                        "additionalProperties": False,
+                    },
+                },
+            },
+            "required": ["nodes", "edges"],
+            "additionalProperties": False,
+        },
+        "interaction_sequence": {
+            "type": "object",
+            "properties": {
+                "actors": _str_array(),
+                "messages": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "source": {"type": "string"},
+                            "target": {"type": "string"},
+                            "label": {"type": "string"},
+                            "order": {"type": "integer"},
+                            "note": {"type": "string"},
+                        },
+                        "required": ["source", "target", "label", "order", "note"],
+                        "additionalProperties": False,
+                    },
+                },
+            },
+            "required": ["actors", "messages"],
+            "additionalProperties": False,
+        },
         "sections": {
             "type": "array",
             "items": {
@@ -100,6 +156,8 @@ STRUCTURED_CONTENT_SCHEMA: dict[str, Any] = {
         "metrics",
         "milestones",
         "priority_message",
+        "process_flow",
+        "interaction_sequence",
         "sections",
         "themes",
     ],
@@ -161,6 +219,48 @@ RENDER_PAYLOAD_SCHEMA: dict[str, Any] = {
                         "type": "array",
                         "items": {"type": "integer"},
                     },
+                    "nodes": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "id": {"type": "string"},
+                                "label": {"type": "string"},
+                                "detail": {"type": "string"},
+                            },
+                            "required": ["id", "label", "detail"],
+                            "additionalProperties": False,
+                        },
+                    },
+                    "edges": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "source": {"type": "string"},
+                                "target": {"type": "string"},
+                                "label": {"type": "string"},
+                            },
+                            "required": ["source", "target", "label"],
+                            "additionalProperties": False,
+                        },
+                    },
+                    "actors": _str_array(),
+                    "messages": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "source": {"type": "string"},
+                                "target": {"type": "string"},
+                                "label": {"type": "string"},
+                                "order": {"type": "integer"},
+                                "note": {"type": "string"},
+                            },
+                            "required": ["source", "target", "label", "order", "note"],
+                            "additionalProperties": False,
+                        },
+                    },
                 },
                 "required": [
                     "type",
@@ -172,6 +272,10 @@ RENDER_PAYLOAD_SCHEMA: dict[str, Any] = {
                     "tags",
                     "width",
                     "source_indices",
+                    "nodes",
+                    "edges",
+                    "actors",
+                    "messages",
                 ],
                 "additionalProperties": False,
             },

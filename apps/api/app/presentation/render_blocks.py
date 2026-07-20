@@ -5,7 +5,15 @@ from __future__ import annotations
 import re
 from typing import Any
 
-from app.agents.gen_ui import FaqItem, GenUIBlock, KeyTerm, _normalize_block_dict
+from app.agents.gen_ui import (
+    DiagramEdge,
+    DiagramNode,
+    FaqItem,
+    GenUIBlock,
+    KeyTerm,
+    SequenceMessage,
+    _normalize_block_dict,
+)
 from app.blocks import FULL_WIDTH_TYPES, WIDTH_PROMOTE_TYPES
 
 
@@ -338,6 +346,88 @@ def _chips_from_themes(structured: dict[str, Any]) -> list[str]:
     return items[:8]
 
 
+def _diagram_nodes(raw: Any) -> list[DiagramNode]:
+    nodes: list[DiagramNode] = []
+    seen: set[str] = set()
+    if not isinstance(raw, list):
+        return nodes
+    for i, x in enumerate(raw):
+        if not isinstance(x, dict):
+            continue
+        nid = str(x.get("id") or x.get("label") or f"node_{i}").strip()
+        label = str(x.get("label") or x.get("id") or "").strip()
+        if not nid or not label or nid in seen:
+            continue
+        detail = str(x.get("detail") or "").strip() or None
+        nodes.append(
+            DiagramNode(id=nid, label=label[:120], detail=detail[:400] if detail else None)
+        )
+        seen.add(nid)
+    return nodes[:12]
+
+
+def _diagram_edges(raw: Any, valid_ids: set[str]) -> list[DiagramEdge]:
+    edges: list[DiagramEdge] = []
+    seen: set[tuple[str, str, str]] = set()
+    if not isinstance(raw, list):
+        return edges
+    for x in raw:
+        if not isinstance(x, dict):
+            continue
+        src = str(x.get("source") or "").strip()
+        tgt = str(x.get("target") or "").strip()
+        if not src or not tgt or src not in valid_ids or tgt not in valid_ids:
+            continue
+        label = str(x.get("label") or "").strip()[:120] or None
+        key = (src, tgt, label or "")
+        if key in seen:
+            continue
+        seen.add(key)
+        edges.append(DiagramEdge(source=src, target=tgt, label=label))
+    return edges[:20]
+
+
+def _sequence_actors_and_messages(
+    raw_actors: Any, raw_messages: Any
+) -> tuple[list[str], list[SequenceMessage]]:
+    actors: list[str] = []
+    if isinstance(raw_actors, list):
+        actors = [str(a).strip()[:60] for a in raw_actors if str(a).strip()]
+
+    messages: list[SequenceMessage] = []
+    if isinstance(raw_messages, list):
+        for i, x in enumerate(raw_messages[:24]):
+            if not isinstance(x, dict):
+                continue
+            src = str(x.get("source") or "").strip()[:60]
+            tgt = str(x.get("target") or "").strip()[:60]
+            label = str(x.get("label") or "").strip()
+            if not src or not tgt or not label:
+                continue
+            for actor in (src, tgt):
+                if actor not in actors:
+                    actors.append(actor)
+            try:
+                order = int(x.get("order"))
+            except (TypeError, ValueError):
+                order = i
+            note = str(x.get("note") or "").strip() or None
+            messages.append(
+                SequenceMessage(
+                    source=src,
+                    target=tgt,
+                    label=label[:120],
+                    order=order,
+                    note=note[:400] if note else None,
+                )
+            )
+
+    actors = actors[:8]
+    actor_set = set(actors)
+    messages = [m for m in messages if m.source in actor_set and m.target in actor_set]
+    return actors, messages
+
+
 def _levels_items(structured: dict[str, Any]) -> list[str]:
     items = _str_list(structured.get("levels"))
     if items:
@@ -461,6 +551,26 @@ def assemble_block(
         items = _str_list(structured.get("metrics"))
         if items:
             block = GenUIBlock(type="metrics", title=title or "Metrics", items=items)
+
+    elif btype == "flow_diagram" or hint == "process_flow":
+        pf = structured.get("process_flow") or {}
+        nodes = _diagram_nodes(pf.get("nodes"))
+        valid_ids = {n.id for n in nodes}
+        edges = _diagram_edges(pf.get("edges"), valid_ids)
+        if len(nodes) >= 2 and edges:
+            block = GenUIBlock(
+                type="flow_diagram", title=title or "How it works", nodes=nodes, edges=edges
+            )
+
+    elif btype == "sequence_diagram" or hint == "interaction_sequence":
+        seq = structured.get("interaction_sequence") or {}
+        actors, messages = _sequence_actors_and_messages(
+            seq.get("actors"), seq.get("messages")
+        )
+        if len(actors) >= 2 and messages:
+            block = GenUIBlock(
+                type="sequence_diagram", title=title or "Sequence", actors=actors, messages=messages
+            )
 
     if block is None:
         return None

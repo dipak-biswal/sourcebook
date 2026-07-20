@@ -8,6 +8,8 @@ from app.agents.visual_tools import _plan_layout_llm
 from app.presentation.context import PresentationContext
 from app.presentation.evidence import AgentEvidenceBundle, DocumentEvidenceHit
 from app.presentation.structured import (
+    _BLOCK_MENU,
+    _SOURCE_HINT_BLOCK_TYPE,
     build_plan_layout_input,
     extract_structured_content,
     format_plan_layout_prompt,
@@ -169,3 +171,26 @@ def test_plan_layout_prompt_uses_structured_input_not_raw_answer(monkeypatch):
         ),
         layout_hints="hints",
     )
+
+
+def test_block_menu_and_source_hint_map_include_diagram_types():
+    assert "flow_diagram" in _BLOCK_MENU
+    assert "sequence_diagram" in _BLOCK_MENU
+    assert _SOURCE_HINT_BLOCK_TYPE["process_flow"] == "flow_diagram"
+    assert _SOURCE_HINT_BLOCK_TYPE["interaction_sequence"] == "sequence_diagram"
+
+
+def test_plan_layout_prompt_includes_diagram_grounding_rules():
+    ctx_structured = extract_structured_content(SAMPLE_ANSWER, goal="Explain")
+    prompt = format_plan_layout_prompt(
+        build_plan_layout_input(
+            goal="Explain",
+            structured_content=ctx_structured,
+            evidence=AgentEvidenceBundle(document_hits=[]),
+            components=["key_points"],
+        ),
+        layout_hints="hints",
+    )
+    assert "flow_diagram" in prompt
+    assert "sequence_diagram" in prompt
+    assert "do not invent actors or steps" in prompt.lower()

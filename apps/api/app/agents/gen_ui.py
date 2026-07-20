@@ -25,6 +25,8 @@ BlockType = Literal[
     "comparison",
     "progress",
     "chart",
+    "flow_diagram",
+    "sequence_diagram",
 ]
 
 
@@ -80,6 +82,26 @@ class FaqItem(BaseModel):
     answer: str
 
 
+class DiagramNode(BaseModel):
+    id: str
+    label: str
+    detail: str | None = None  # example/explanatory text, shown on expand
+
+
+class DiagramEdge(BaseModel):
+    source: str  # DiagramNode.id
+    target: str  # DiagramNode.id
+    label: str | None = None
+
+
+class SequenceMessage(BaseModel):
+    source: str  # actor name
+    target: str  # actor name
+    label: str
+    order: int
+    note: str | None = None  # example/explanatory text, shown on expand
+
+
 class GenUIBlock(BaseModel):
     type: BlockType
     title: str | None = None
@@ -94,6 +116,12 @@ class GenUIBlock(BaseModel):
     # Structured rows for metrics/progress/chart — derived from items by the
     # engine (never model-supplied) so charts can render real values.
     measures: list[MeasureItem] | None = None
+    # flow_diagram: boxes/arrows describing a process or mechanism.
+    nodes: list[DiagramNode] | None = None
+    edges: list[DiagramEdge] | None = None
+    # sequence_diagram: lifelines + ordered messages between named actors.
+    actors: list[str] | None = None
+    messages: list[SequenceMessage] | None = None
     # 1-based indices into payload.sources (same numbers as [1], [2] in context)
     source_indices: list[int] = Field(default_factory=list)
 
@@ -308,6 +336,13 @@ def _normalize_block_dict(raw: Any) -> dict[str, Any] | None:
         "bars": "chart",
         "bar_chart": "chart",
         "graph": "chart",
+        "flowchart": "flow_diagram",
+        "flow": "flow_diagram",
+        "process_diagram": "flow_diagram",
+        "mechanism": "flow_diagram",
+        "sequence": "sequence_diagram",
+        "uml_sequence": "sequence_diagram",
+        "interaction_diagram": "sequence_diagram",
     }
     b["type"] = type_map.get(t, t if t in BLOCK_TYPE_SET else "summary")
 
@@ -461,12 +496,109 @@ def _normalize_block_dict(raw: Any) -> dict[str, Any] | None:
             if coerced:
                 b["items"] = coerced
 
+    if b["type"] == "flow_diagram":
+        nodes_out: list[dict[str, str]] = []
+        node_ids: set[str] = set()
+        raw_nodes = b.get("nodes")
+        if isinstance(raw_nodes, list):
+            for i, x in enumerate(raw_nodes):
+                if not isinstance(x, dict):
+                    continue
+                nid = str(x.get("id") or x.get("label") or f"node_{i}").strip()
+                label = str(x.get("label") or x.get("id") or "").strip()
+                if not nid or not label or nid in node_ids:
+                    continue
+                node: dict[str, str] = {"id": nid, "label": label[:120]}
+                detail = x.get("detail") or x.get("description") or x.get("example")
+                if detail:
+                    node["detail"] = _clean_display_text(str(detail).strip())[:400]
+                nodes_out.append(node)
+                node_ids.add(nid)
+
+        edges_out: list[dict[str, str]] = []
+        seen_edges: set[tuple[str, str, str]] = set()
+        raw_edges = b.get("edges")
+        if isinstance(raw_edges, list):
+            for x in raw_edges:
+                if not isinstance(x, dict):
+                    continue
+                src = str(x.get("source") or x.get("from") or "").strip()
+                tgt = str(x.get("target") or x.get("to") or "").strip()
+                if not src or not tgt or src not in node_ids or tgt not in node_ids:
+                    continue
+                label = str(x.get("label") or "").strip()[:120]
+                key = (src, tgt, label)
+                if key in seen_edges:
+                    continue
+                seen_edges.add(key)
+                edge: dict[str, str] = {"source": src, "target": tgt}
+                if label:
+                    edge["label"] = label
+                edges_out.append(edge)
+
+        if len(nodes_out) >= 2 and edges_out:
+            b["nodes"] = nodes_out
+            b["edges"] = edges_out
+        else:
+            b["nodes"] = None
+            b["edges"] = None
+
+    if b["type"] == "sequence_diagram":
+        actors_out: list[str] = []
+        raw_actors = b.get("actors")
+        if isinstance(raw_actors, list):
+            actors_out = [str(a).strip()[:60] for a in raw_actors if str(a).strip()]
+
+        messages_out: list[dict[str, Any]] = []
+        raw_messages = b.get("messages")
+        if isinstance(raw_messages, list):
+            for i, x in enumerate(raw_messages[:24]):
+                if not isinstance(x, dict):
+                    continue
+                src = str(x.get("source") or x.get("from") or "").strip()[:60]
+                tgt = str(x.get("target") or x.get("to") or "").strip()[:60]
+                label = str(x.get("label") or x.get("text") or "").strip()
+                if not src or not tgt or not label:
+                    continue
+                for actor in (src, tgt):
+                    if actor not in actors_out:
+                        actors_out.append(actor)
+                order = x.get("order")
+                try:
+                    order = int(order)
+                except (TypeError, ValueError):
+                    order = i
+                message: dict[str, Any] = {
+                    "source": src,
+                    "target": tgt,
+                    "label": label[:120],
+                    "order": order,
+                }
+                note = x.get("note") or x.get("detail") or x.get("example")
+                if note:
+                    message["note"] = _clean_display_text(str(note).strip())[:400]
+                messages_out.append(message)
+
+        actors_out = actors_out[:8]
+        messages_out = [
+            m for m in messages_out if m["source"] in actors_out and m["target"] in actors_out
+        ]
+
+        if len(actors_out) >= 2 and messages_out:
+            b["actors"] = actors_out
+            b["messages"] = messages_out
+        else:
+            b["actors"] = None
+            b["messages"] = None
+
     # Drop blocks with no renderable content
     has_content = bool(
         b.get("body")
         or b.get("items")
         or b.get("terms")
         or b.get("faqs")
+        or b.get("nodes")
+        or b.get("actors")
     )
     if b.get("items") and isinstance(b["items"], list):
         b["items"] = [

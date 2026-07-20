@@ -1,5 +1,6 @@
 import {
   AlertTriangle,
+  ArrowRightLeft,
   BarChart3,
   BookOpen,
   HelpCircle,
@@ -10,6 +11,7 @@ import {
   Table2,
   Tags,
   Timer,
+  Workflow,
   type LucideIcon,
 } from "lucide-react";
 
@@ -28,6 +30,8 @@ export const BLOCK_TYPE_ICONS: Record<string, LucideIcon> = {
   comparison: Table2,
   progress: BarChart3,
   chart: BarChart3,
+  flow_diagram: Workflow,
+  sequence_diagram: ArrowRightLeft,
 };
 
 export type GenUIMeasure = {
@@ -50,6 +54,20 @@ export type GenUIBlock = {
   source_indices?: number[] | null;
   /** Layout hint honored by the grid. Backend may set it; otherwise defaulted per type. */
   width?: "full" | "half" | null;
+  /** flow_diagram: boxes/arrows describing a process or mechanism. */
+  nodes?: { id: string; label: string; detail?: string | null }[] | null;
+  edges?: { source: string; target: string; label?: string | null }[] | null;
+  /** sequence_diagram: lifelines + ordered messages between named actors. */
+  actors?: string[] | null;
+  messages?:
+    | {
+        source: string;
+        target: string;
+        label: string;
+        order: number;
+        note?: string | null;
+      }[]
+    | null;
 };
 
 export type GenUISource = {
