@@ -21,6 +21,16 @@
   --elevation-2: 0px 1px 1px #00000005, 0px 2px 2px #0000000a,
     inset 0 0 0 1px #00000014;
   --elevation-card: 0 1px 2px #00000008, 0 4px 12px #0000000a;
+
+  /* Fixed (non theme-following) tones for the alternating carousel cards —
+     these stay literal black/white regardless of app light/dark mode. */
+  --carousel-dark-bg: #171717;
+  --carousel-dark-fg: #f5f5f5;
+  --carousel-dark-mute: #a3a3a3;
+  --carousel-light-bg: #ffffff;
+  --carousel-light-fg: #171717;
+  --carousel-light-mute: #6b6b6b;
+  --carousel-light-border: #e5e5e5;
 }
 
 [data-theme="dark"] {

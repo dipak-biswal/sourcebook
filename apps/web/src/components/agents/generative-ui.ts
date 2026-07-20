@@ -1,3 +1,35 @@
+import {
+  AlertTriangle,
+  BarChart3,
+  BookOpen,
+  HelpCircle,
+  Lightbulb,
+  ListOrdered,
+  MessageSquareQuote,
+  Sparkles,
+  Table2,
+  Tags,
+  Timer,
+  type LucideIcon,
+} from "lucide-react";
+
+/** Block type → icon, shared between BlockLabel and the card-carousel tiles. */
+export const BLOCK_TYPE_ICONS: Record<string, LucideIcon> = {
+  key_points: Lightbulb,
+  key_terms: BookOpen,
+  faq: HelpCircle,
+  steps: ListOrdered,
+  timeline: Timer,
+  chips: Tags,
+  table: Table2,
+  metrics: Sparkles,
+  callout: AlertTriangle,
+  quote: MessageSquareQuote,
+  comparison: Table2,
+  progress: BarChart3,
+  chart: BarChart3,
+};
+
 export type GenUIMeasure = {
   label: string;
   value: string;

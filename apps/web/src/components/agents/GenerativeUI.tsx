@@ -1,28 +1,20 @@
 import { useCallback, useState } from "react";
 import {
   AlertTriangle,
-  BarChart3,
-  BookOpen,
   Check,
   ChevronDown,
   ChevronRight,
   Copy,
   Download,
   FileText,
-  HelpCircle,
-  Lightbulb,
-  ListOrdered,
   Loader2,
-  MessageSquareQuote,
   Sparkles,
   StickyNote,
-  Table2,
-  Tags,
-  Timer,
 } from "lucide-react";
 import { Link } from "react-router-dom";
 import { api } from "@/api";
 import { Button } from "@/components/ui/button";
+import { TopicCardCarousel } from "@/components/agents/CardCarousel";
 import { citationViewerPath } from "@/lib/document-links";
 import {
   Table,
@@ -36,6 +28,7 @@ import { cn } from "@/lib/utils";
 import type { GenUIBlock, GenerativeUIPayload } from "./generative-ui";
 import { BLOCK_CONTRACT, KNOWN_BLOCK_TYPES } from "./block-contract";
 import {
+  BLOCK_TYPE_ICONS,
   coerceTableRows,
   generativeUIExportFilename,
   generativeUIToNoteBody,
@@ -102,6 +95,8 @@ function plainSummaryIsRedundant(
 }
 
 // Wide blocks carry more data and read better full-width; compact blocks pair up.
+// key_points/key_terms are included so their card carousel has room to peek —
+// harmless for the non-carousel (<3 item) fallback, which reads fine full-width too.
 const FULL_WIDTH_TYPES = new Set([
   "summary",
   "table",
@@ -110,6 +105,8 @@ const FULL_WIDTH_TYPES = new Set([
   "timeline",
   "steps",
   "chips",
+  "key_points",
+  "key_terms",
 ]);
 
 function isFullWidth(block: GenUIBlock): boolean {
@@ -160,22 +157,7 @@ function BlockLabel({
   className?: string;
 }) {
   const label = title || type.replace(/_/g, " ");
-  const icons: Record<string, typeof Sparkles> = {
-    key_points: Lightbulb,
-    key_terms: BookOpen,
-    faq: HelpCircle,
-    steps: ListOrdered,
-    timeline: Timer,
-    chips: Tags,
-    table: Table2,
-    metrics: Sparkles,
-    callout: AlertTriangle,
-    quote: MessageSquareQuote,
-    comparison: Table2,
-    progress: BarChart3,
-    chart: BarChart3,
-  };
-  const Icon = icons[type] ?? Sparkles;
+  const Icon = BLOCK_TYPE_ICONS[type] ?? Sparkles;
   return (
     <div className={cn("mb-2 flex items-center gap-1.5", className)}>
       <Icon className="h-3.5 w-3.5 shrink-0 text-mute" strokeWidth={1.5} />
@@ -426,7 +408,13 @@ function ChartBlock({ block }: { block: GenUIBlock }) {
   );
 }
 
-function KeyPointsBlock({ block }: { block: GenUIBlock }) {
+function KeyPointsBlock({
+  block,
+  onCardExpand,
+}: {
+  block: GenUIBlock;
+  onCardExpand?: (affordance: string, label: string) => void;
+}) {
   const items = block.items ?? [];
   if (!items.length && !block.body) return null;
   return (
@@ -435,14 +423,24 @@ function KeyPointsBlock({ block }: { block: GenUIBlock }) {
       {block.body && (
         <p className="mb-2 text-xs leading-relaxed text-body">{block.body}</p>
       )}
-      <ul className="space-y-1.5">
-        {items.map((item, j) => (
-          <li key={j} className="flex gap-2 text-xs leading-relaxed text-body">
-            <span className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-ink" />
-            {item}
-          </li>
-        ))}
-      </ul>
+      {items.length >= 3 ? (
+        <TopicCardCarousel
+          ariaLabel={block.title || "Key points"}
+          cards={items.map((item) => ({ title: item }))}
+          icon={BLOCK_TYPE_ICONS.key_points}
+          affordance="key_points_carousel"
+          onCardExpand={onCardExpand}
+        />
+      ) : (
+        <ul className="space-y-1.5">
+          {items.map((item, j) => (
+            <li key={j} className="flex gap-2 text-xs leading-relaxed text-body">
+              <span className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-ink" />
+              {item}
+            </li>
+          ))}
+        </ul>
+      )}
     </div>
   );
 }
@@ -639,9 +637,29 @@ function ComparisonBlock({ block }: { block: GenUIBlock }) {
   );
 }
 
-function TermsBlock({ block }: { block: GenUIBlock }) {
+function TermsBlock({
+  block,
+  onCardExpand,
+}: {
+  block: GenUIBlock;
+  onCardExpand?: (affordance: string, label: string) => void;
+}) {
   const terms = block.terms ?? [];
   if (!terms.length) return null;
+  if (terms.length >= 3) {
+    return (
+      <div>
+        <BlockLabel type="key_terms" title={block.title} />
+        <TopicCardCarousel
+          ariaLabel={block.title || "Key terms"}
+          cards={terms.map((t) => ({ title: t.term, description: t.definition }))}
+          icon={BLOCK_TYPE_ICONS.key_terms}
+          affordance="key_terms_carousel"
+          onCardExpand={onCardExpand}
+        />
+      </div>
+    );
+  }
   return (
     <div>
       <BlockLabel type="key_terms" title={block.title} />
@@ -716,6 +734,7 @@ function GenerativeUIBlock({
   block,
   chipProps,
   onFaqExpand,
+  onCardExpand,
 }: {
   block: GenUIBlock;
   chipProps?: {
@@ -723,6 +742,7 @@ function GenerativeUIBlock({
     onSelect: (tag: string | null) => void;
   };
   onFaqExpand?: (question: string) => void;
+  onCardExpand?: (affordance: string, label: string) => void;
 }) {
   switch (block.type) {
     case "summary":
@@ -746,7 +766,7 @@ function GenerativeUIBlock({
     case "chart":
       return <ChartBlock block={block} />;
     case "key_points":
-      return <KeyPointsBlock block={block} />;
+      return <KeyPointsBlock block={block} onCardExpand={onCardExpand} />;
     case "steps":
       return <StepsBlock block={block} />;
     case "timeline":
@@ -756,7 +776,7 @@ function GenerativeUIBlock({
     case "comparison":
       return <ComparisonBlock block={block} />;
     case "key_terms":
-      return <TermsBlock block={block} />;
+      return <TermsBlock block={block} onCardExpand={onCardExpand} />;
     case "faq":
       return <FaqBlock block={block} onExpand={onFaqExpand} />;
     default:
@@ -882,6 +902,18 @@ export function GenerativeUIView({
         action: "faq_expand",
         affordance: "self_check",
         label: question,
+      });
+    },
+    [workspaceId, runId],
+  );
+  const onCardExpand = useCallback(
+    (affordance: string, label: string) => {
+      reportVisualInteraction({
+        workspaceId,
+        runId,
+        action: "card_expand",
+        affordance,
+        label,
       });
     },
     [workspaceId, runId],
@@ -1018,6 +1050,11 @@ export function GenerativeUIView({
                 block={b}
                 chipProps={b.type === "chips" ? chipProps : undefined}
                 onFaqExpand={b.type === "faq" ? onFaqExpand : undefined}
+                onCardExpand={
+                  b.type === "key_points" || b.type === "key_terms"
+                    ? onCardExpand
+                    : undefined
+                }
               />
             </div>
           );
