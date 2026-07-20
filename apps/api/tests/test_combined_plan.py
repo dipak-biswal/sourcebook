@@ -12,6 +12,7 @@ from app.presentation.context import PresentationContext
 from app.presentation.evidence import AgentEvidenceBundle
 from app.presentation.handoff import (
     combined_extract_plan_enabled,
+    format_combined_extract_plan_prompt,
     resolve_structured_content,
 )
 from app.presentation.llm_json import PLAN_SCHEMA, chat_json
@@ -284,3 +285,22 @@ def test_plan_schema_enums_derive_from_registry():
     outline_props = PLAN_SCHEMA["properties"]["block_outline"]["items"]["properties"]
     assert outline_props["type"]["enum"] == list(ALL_BLOCK_TYPES)
     assert outline_props["source_hint"]["enum"] == list(KNOWN_SOURCE_HINTS)
+
+
+def test_combined_extract_plan_prompt_teaches_diagram_fields():
+    """
+    The combined extract+plan call is the default runtime path
+    (combined_extract_plan_enabled() is True out of the box) — its own
+    hand-written prompt, not structured.py's block menu, is what the model
+    actually sees. Both the extraction shape and the plan rules must mention
+    process_flow/interaction_sequence and their block types, or the model has
+    no way to know these exist.
+    """
+    prompt = format_combined_extract_plan_prompt(
+        "Some answer text long enough to matter here.",
+        goal="Explain the mechanism",
+    )
+    assert "process_flow" in prompt
+    assert "interaction_sequence" in prompt
+    assert "flow_diagram" in prompt
+    assert "sequence_diagram" in prompt

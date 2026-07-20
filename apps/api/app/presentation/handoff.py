@@ -222,6 +222,8 @@ def _format_llm_extraction_prompt(
         '  "metrics": ["Label | Value", ...],  // only numbers stated in the answer or evidence\n'
         '  "milestones": ["Period | Title | Detail", ...],  // only when dates appear\n'
         '  "priority_message": "the single most important gap/risk/warning, or \\"\\"",\n'
+        '  "process_flow": {"nodes": [{"id": "short_slug", "label": "...", "detail": "example or explanation"}], "edges": [{"source": "id", "target": "id", "label": "..."}]},  // → flow_diagram block. Only when the answer explains a mechanism/process with distinct steps or components that hand off to each other. Every edge source/target must be a node id you listed. Omit (empty nodes/edges) otherwise — do not invent steps.\n'
+        '  "interaction_sequence": {"actors": ["Name", ...], "messages": [{"source": "Name", "target": "Name", "label": "...", "order": 0, "note": "example or explanation"}]},  // → sequence_diagram block. Only for an ordered, multi-actor interaction (e.g. a protocol, an event loop, a request lifecycle). Every message source/target must be a listed actor. Omit otherwise — do not invent actors.\n'
         '  "sections": [{"heading": "...", "bullets": ["..."], "body": "..."}],\n'
         '  "themes": ["topical theme", ...]  // 2-6 document topics — never structural labels like "Next Steps" or "Overview"\n'
         "}\n\n"
@@ -274,6 +276,12 @@ def format_combined_extract_plan_prompt(
         "data — never an empty one.\n"
         '- width: "full" for wide data (table/comparison/timeline/steps/chips/'
         'summary), "half" for compact blocks.\n'
+        "- If you filled process_flow, add a block_outline entry with "
+        'type "flow_diagram", source_hint "process_flow", width "full". '
+        "If you filled interaction_sequence, add one with type "
+        '"sequence_diagram", source_hint "interaction_sequence", width "full". '
+        "Only ever include these when TASK 1 actually filled that field with "
+        "real nodes/edges or actors/messages.\n"
         "- Prefer 4-7 blocks; omit anything without data.\n\n"
         "OUTPUT (JSON only):\n"
         '{"structured_content": {...extraction shape above...},\n'
