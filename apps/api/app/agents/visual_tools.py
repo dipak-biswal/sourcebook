@@ -46,7 +46,13 @@ _MAX_AUTO_REPLANS = 1
 
 
 def _client() -> OpenAI:
-    return OpenAI(api_key=settings.openai_api_key, base_url=settings.openai_base_url)
+    # Explicit bounds — see app/agents/runner/llm.py for why.
+    return OpenAI(
+        api_key=settings.openai_api_key,
+        base_url=settings.openai_base_url,
+        timeout=60.0,
+        max_retries=2,
+    )
 
 
 def _merge_usage(a: dict[str, Any], b: dict[str, Any]) -> dict[str, Any]:

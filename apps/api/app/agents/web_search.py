@@ -92,7 +92,8 @@ def search_web(
         return payload
 
     try:
-        raw = DDGS().text(
+        # Explicit timeout — see app/agents/runner/llm.py for why.
+        raw = DDGS(timeout=10).text(
             query=search_query,
             region=region,
             max_results=limit,

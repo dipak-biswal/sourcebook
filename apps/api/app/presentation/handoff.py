@@ -166,7 +166,13 @@ def validate_handoff(structured: dict[str, Any] | None) -> tuple[bool, list[str]
 
 
 def _client() -> OpenAI:
-    return OpenAI(api_key=settings.openai_api_key, base_url=settings.openai_base_url)
+    # Explicit bounds — see app/agents/runner/llm.py for why.
+    return OpenAI(
+        api_key=settings.openai_api_key,
+        base_url=settings.openai_base_url,
+        timeout=60.0,
+        max_retries=2,
+    )
 
 
 def _format_evidence_block(evidence: Any) -> str:

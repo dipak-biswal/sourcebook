@@ -28,6 +28,11 @@ def _llm(model: str | None = None):
         base_url=settings.openai_base_url,
         temperature=0.1,
         stream_usage=True,
+        # Explicit bounds so a stalled connection fails fast with a catchable
+        # error instead of relying on library defaults (which can be absent
+        # or vary between versions) — a run should never hang indefinitely.
+        timeout=90.0,
+        max_retries=2,
     )
 
 
