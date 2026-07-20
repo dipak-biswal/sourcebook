@@ -356,6 +356,56 @@ def prune_runs(
     return {"status": "ok", **result}
 
 
+@router.post("/runs/{run_id}/cancel", response_model=AgentRunResponse)
+def cancel_agent_run(
+    run_id: uuid.UUID,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """
+    Cancel a run that is waiting for approval (or still marked running).
+
+    Clears pending_tool so the UI is no longer stuck on "awaiting you".
+    In-flight SSE work may finish writing a final step; the status stays cancelled.
+    """
+    run = _load_run(db, run_id, current_user.id)
+    if not run:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Run not found"
+        )
+    if run.status not in ("running", "waiting_approval"):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Run is already {run.status}",
+        )
+    from app.agents.runner.events import _append_step, _next_step_index
+
+    run.status = "cancelled"
+    run.pending_tool = None
+    run.error = None
+    if not (run.final_answer or "").strip() or (
+        run.final_answer or ""
+    ).startswith("Waiting for your approval"):
+        run.final_answer = "Run cancelled by user."
+    step_index = _next_step_index(db, run.id)
+    _append_step(
+        db,
+        run,
+        step_index=step_index,
+        type="final",
+        output={"status": "cancelled", "message": "Cancelled by user"},
+    )
+    from app.agents.run_storage import compact_run_if_terminal
+
+    compact_run_if_terminal(db, run)
+    db.commit()
+    db.refresh(run)
+    loaded = _load_run(db, run_id, current_user.id)
+    if not loaded:
+        raise HTTPException(status_code=500, detail="Run missing after cancel")
+    return _as_run_response(loaded, db)
+
+
 @router.delete("/runs/{run_id}", status_code=204)
 def delete_agent_run(
     run_id: uuid.UUID,

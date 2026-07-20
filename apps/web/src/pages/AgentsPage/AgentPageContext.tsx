@@ -42,6 +42,7 @@ export function AgentPageProvider({
   const [error, setError] = useState<string | null>(null);
   const [running, setRunning] = useState(false);
   const [approving, setApproving] = useState(false);
+  const [cancelling, setCancelling] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [savingNote, setSavingNote] = useState(false);
   const [liveGoal, setLiveGoal] = useState<string | null>(null);
@@ -498,6 +499,38 @@ export function AgentPageProvider({
     }
   }
 
+  async function onCancelRun() {
+    if (!selected || cancelling) return;
+    if (
+      !(await confirmAction(
+        "Cancel this run?",
+        "Stops waiting for approval and marks the run cancelled. You can still read the answer so far.",
+      ))
+    ) {
+      return;
+    }
+    setCancelling(true);
+    setError(null);
+    try {
+      const run = await api.cancelAgentRun(selected.id);
+      setSelected(run);
+      setLiveExecutionTrace(run.execution_trace ?? null);
+      setLiveSkeleton(null);
+      setActiveToolCalls([]);
+      setRunning(false);
+      await queryClient.invalidateQueries({
+        queryKey: ["agentRuns", effectiveWorkspaceId],
+      });
+      success("Run cancelled");
+    } catch (err) {
+      const msg = formatError(err);
+      setError(msg);
+      toastError("Cancel failed", msg);
+    } finally {
+      setCancelling(false);
+    }
+  }
+
   async function onDeleteRun(id: string) {
     if (!(await confirmAction("Delete this run?", "This cannot be undone."))) return;
     setError(null);
@@ -528,6 +561,7 @@ export function AgentPageProvider({
     error,
     running,
     approving,
+    cancelling,
     sidebarOpen,
     savingNote,
     loading,
@@ -545,6 +579,7 @@ export function AgentPageProvider({
     onGoalChange: setGoal,
     onRun,
     onApprove,
+    onCancelRun,
     onDeleteRun,
     onSaveLearningNote,
     onRefresh: () => {

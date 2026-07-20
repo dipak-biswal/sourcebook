@@ -468,6 +468,9 @@ export const api = {
   deleteAgentRun: (runId: string) =>
     request<void>(`/agents/runs/${runId}`, { method: "DELETE" }),
 
+  cancelAgentRun: (runId: string) =>
+    request<AgentRun>(`/agents/runs/${runId}/cancel`, { method: "POST" }),
+
   approveAgentRun: (runId: string, approve: boolean) =>
     request<AgentRun>(`/agents/runs/${runId}/approve`, {
       method: "POST",

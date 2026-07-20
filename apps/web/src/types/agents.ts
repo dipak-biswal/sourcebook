@@ -31,6 +31,8 @@ export type AgentPageContextValue = {
   onGoalChange: (v: string) => void;
   onRun: (e: React.SubmitEvent<HTMLFormElement>) => void;
   onApprove: (approve: boolean) => void;
+  onCancelRun: () => void;
+  cancelling: boolean;
   onDeleteRun: (id: string) => void;
   onSaveLearningNote: (title: string, body: string) => void;
   onRefresh: () => void;

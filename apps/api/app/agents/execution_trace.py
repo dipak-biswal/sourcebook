@@ -1550,14 +1550,29 @@ def _apply_run_overlays(
     return out
 
 
+def _child_finished(child: dict[str, Any]) -> bool:
+    """True when a child span will not produce more events (done or failed)."""
+    return child.get("state") in ("done", "error")
+
+
 def _phase_done(phase: dict[str, Any]) -> bool:
-    if phase.get("state") != "done":
-        return False
-    if phase.get("type") == "agent_turn":
-        return all(c.get("state") == "done" for c in phase.get("children") or [])
+    if phase.get("state") not in ("done", "error"):
+        # HITL pending stays open; other running/pending phases are not done.
+        if phase.get("type") == "hitl" and phase.get("pending"):
+            return False
+        if phase.get("state") == "running" or phase.get("state") == "pending":
+            return False
+        # Fall through for unexpected states only if children are settled.
     if phase.get("type") == "hitl" and phase.get("pending"):
         return False
-    return True
+    if phase.get("type") == "agent_turn":
+        # Soft tool errors (state=error) still count as finished children so
+        # later tail phases (HITL, presentation) remain visible while live.
+        children = phase.get("children") or []
+        if not children:
+            return phase.get("state") == "done"
+        return all(_child_finished(c) for c in children)
+    return phase.get("state") in ("done", "error")
 
 
 def _trim_children(children: list[dict[str, Any]], live: bool) -> list[dict[str, Any]]:
@@ -1568,7 +1583,8 @@ def _trim_children(children: list[dict[str, Any]], live: bool) -> list[dict[str,
         if child.get("type") == "tool" and child.get("state") == "pending":
             break
         visible.append(child)
-        if child.get("state") != "done":
+        # error = finished (failed); only stop early for still-running nodes
+        if not _child_finished(child) and child.get("state") != "done":
             break
     return visible
 
@@ -1582,7 +1598,9 @@ def _trim_phases(phases: list[dict[str, Any]], live: bool) -> list[dict[str, Any
         if p.get("type") == "agent_turn":
             p["children"] = _trim_children(p.get("children") or [], live=True)
             tools = [c for c in p.get("children") or [] if c.get("type") == "tool"]
-            tools_ready = not tools or all(t.get("state") == "done" for t in tools)
+            # Treat error as finished — a soft fetch_url 403 must not freeze
+            # the live trim before later HITL / presentation phases appear.
+            tools_ready = not tools or all(_child_finished(t) for t in tools)
             if tools and not tools_ready:
                 visible.append(p)
                 break
@@ -1679,8 +1697,24 @@ def _first_error_message(nodes: list[dict[str, Any]]) -> str | None:
     return None
 
 
+def _first_pending_hitl_id(nodes: list[dict[str, Any]]) -> str | None:
+    """Prefer HITL so approval UI is focused over soft tool errors (e.g. 403)."""
+    for node in nodes:
+        if node.get("type") == "hitl" and node.get("pending"):
+            return str(node.get("id"))
+        hit = _first_pending_hitl_id(node.get("children") or [])
+        if hit:
+            return hit
+    return None
+
+
 def _active_phase_id(phases: list[dict[str, Any]]) -> str | None:
-    # Surface an errored step first so the UI focuses the failure.
+    # Waiting for the user always wins — otherwise a recovered tool error
+    # (fetch_url 403, etc.) steals focus and hides the approval card.
+    hitl_id = _first_pending_hitl_id(phases)
+    if hitl_id:
+        return hitl_id
+    # Surface an errored step next so the UI focuses the failure.
     error_id = _first_error_id(phases)
     if error_id:
         return error_id
@@ -1854,9 +1888,11 @@ def _build_execution_trace_inner(
     if run.status == "failed":
         error_message = (run.error or "").strip() or "Run failed"
         _mark_trace_error(visible, error_message)
-    else:
-        # A tool may have errored while the run is still looping/retrying —
-        # surface it so the trace shows the failure instead of "loading".
+    elif run.status not in ("waiting_approval", "completed", "cancelled"):
+        # Soft tool failures (fetch_url 403, etc.) stay on the tool node, but
+        # only bubble to the trace banner while the run is still in flight —
+        # once we're waiting on HITL or finished, the top badge should not
+        # look like a blocked "step error" that hides the approval path.
         error_message = _first_error_message(visible)
 
     trace: dict[str, Any] = {
@@ -1876,6 +1912,12 @@ def _build_execution_trace_inner(
         trace["total_duration_ms"] = total_duration_ms
     if error_message:
         trace["error"] = error_message
+    # Soft tool failures that didn't kill the run — detail panel only.
+    soft = _first_error_message(visible)
+    if soft and soft != error_message:
+        trace["soft_error"] = soft
+    elif soft and run.status in ("waiting_approval", "completed", "cancelled"):
+        trace["soft_error"] = soft
     return trace
 
 

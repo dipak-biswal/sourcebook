@@ -24,7 +24,11 @@ MAX_CONTENT_BYTES = 2 * 1024 * 1024
 MAX_TEXT_CHARS = 8000
 MAX_REDIRECTS = 3
 _REDIRECT_STATUSES = {301, 302, 303, 307, 308}
-_USER_AGENT = "SourcebookAgent/1.0"
+# Browser-like UA: many publishers (Medium, etc.) return 403 to bot-like agents.
+_USER_AGENT = (
+    "Mozilla/5.0 (compatible; SourcebookBot/1.0; +https://github.com/dipak-biswal/sourcebook) "
+    "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"
+)
 
 _TITLE = re.compile(r"(?is)<title[^>]*>(.*?)</title>")
 
@@ -136,9 +140,21 @@ def fetch_url_content(
                         resp = None
                         continue
                     if r.status_code < 200 or r.status_code >= 300:
+                        hint = ""
+                        if r.status_code in (401, 403):
+                            hint = (
+                                " — page blocked automated access; try another "
+                                "URL from web_search or answer from snippets"
+                            )
+                        elif r.status_code == 404:
+                            hint = " — page not found; try a different URL"
+                        elif r.status_code >= 500:
+                            hint = " — remote server error; try later or another source"
                         return {
                             "url": original_url,
-                            "error": f"HTTP {r.status_code} from {current_url}",
+                            "error": f"HTTP {r.status_code} from {current_url}{hint}",
+                            "status_code": r.status_code,
+                            "recoverable": True,
                         }
                     content_type = (r.headers.get("content-type") or "").split(";")[0].strip().lower()
                     if content_type and not content_type.startswith(_ALLOWED_CONTENT_PREFIXES):

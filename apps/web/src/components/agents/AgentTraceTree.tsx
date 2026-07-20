@@ -758,8 +758,14 @@ export function AgentTraceTree({
             <span className="text-xs font-semibold text-ink">Execution trace</span>
             {isLive && (
               <Badge variant="warning" className="gap-1 text-[10px]">
-                <Loader2 className="h-2.5 w-2.5 animate-spin" />
-                {run?.status === "waiting_approval" ? "awaiting you" : "running"}
+                {run?.status === "waiting_approval" ? (
+                  <>awaiting you</>
+                ) : (
+                  <>
+                    <Loader2 className="h-2.5 w-2.5 animate-spin" />
+                    running
+                  </>
+                )}
               </Badge>
             )}
             {trace?.status === "failed" ? (
@@ -768,6 +774,9 @@ export function AgentTraceTree({
                 failed
               </Badge>
             ) : (
+              // Soft tool failures (fetch_url 403) while waiting_approval must
+              // not look like a hard block — use muted wording + soft_error.
+              run?.status !== "waiting_approval" &&
               trace?.error && (
                 <Badge variant="danger" className="gap-1 text-[10px]">
                   <AlertTriangle className="h-2.5 w-2.5" />
@@ -775,6 +784,12 @@ export function AgentTraceTree({
                 </Badge>
               )
             )}
+            {run?.status === "waiting_approval" && trace?.soft_error && (
+                <Badge variant="secondary" className="gap-1 text-[10px]">
+                  <AlertTriangle className="h-2.5 w-2.5" />
+                  tool note
+                </Badge>
+              )}
           </div>
           <div className="flex items-center gap-3">
             {totalDuration && (
@@ -828,10 +843,18 @@ export function AgentTraceTree({
         </div>
       </div>
 
-      {trace?.error && (
+      {trace?.error && run?.status !== "waiting_approval" && (
         <div className="flex items-start gap-2 border-b border-danger-border/40 bg-danger-soft/50 px-4 py-2 text-[11px] text-danger-text">
           <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
           <span className="min-w-0 break-words">{trace.error}</span>
+        </div>
+      )}
+      {run?.status === "waiting_approval" && trace?.soft_error && (
+        <div className="flex items-start gap-2 border-b border-hairline bg-canvas-soft px-4 py-2 text-[11px] text-mute">
+          <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+          <span className="min-w-0 break-words">
+            Tool note (run continued): {trace.soft_error}
+          </span>
         </div>
       )}
 

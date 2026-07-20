@@ -202,5 +202,8 @@ export type ExecutionTrace = {
   run_started_ms?: number | null;
   run_ended_ms?: number | null;
   total_duration_ms?: number | null;
+  /** Hard / in-flight failure shown as the red banner. */
   error?: string | null;
+  /** Soft tool failure that did not stop the run (e.g. fetch_url 403). */
+  soft_error?: string | null;
 };

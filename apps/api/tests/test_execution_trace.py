@@ -727,6 +727,53 @@ def test_tool_error_surfaces_in_trace_while_running():
     assert trace["active_phase_id"] == tool_node["id"]
 
 
+def test_pending_hitl_wins_focus_over_soft_tool_error():
+    """fetch_url 403 must not hide the approval UI when waiting on the user."""
+    run = _run_with_steps(
+        "Explain setTimeout",
+        [
+            {
+                "type": "tool_call",
+                "tool_name": "fetch_url",
+                "input": {"url": "https://medium.com/example"},
+            },
+            {
+                "type": "tool_result",
+                "tool_name": "fetch_url",
+                "output": {
+                    "url": "https://medium.com/example",
+                    "error": "HTTP 403 from https://medium.com/example",
+                    "recoverable": True,
+                },
+            },
+            {"type": "final", "output": "Answer from other sources."},
+            {
+                "type": "approval",
+                "tool_name": "generative_ui",
+                "output": {"status": "waiting_approval"},
+            },
+        ],
+    )
+    run.status = "waiting_approval"
+    run.pending_tool = {
+        "id": "pt1",
+        "name": "generative_ui",
+        "kind": "presentation",
+        "args": {},
+    }
+    trace = build_execution_trace(run, workspace_name="Docs")
+
+    # Tool node still errored in-tree, but banner is soft + focus is HITL.
+    error_nodes = [n for n in _walk_nodes(trace["phases"]) if n.get("state") == "error"]
+    assert error_nodes
+    assert "403" in (error_nodes[0].get("error") or "")
+    assert "error" not in trace or not trace.get("error")
+    assert trace.get("soft_error") and "403" in trace["soft_error"]
+    hitl = next(n for n in _walk_nodes(trace["phases"]) if n.get("type") == "hitl")
+    assert hitl.get("pending") is True
+    assert trace["active_phase_id"] == hitl["id"]
+
+
 def test_visual_summary_render_error_surfaces_on_stage():
     """render_ui failing inside the Visual Summary Agent marks its stage errored."""
     run = _run_with_steps(
