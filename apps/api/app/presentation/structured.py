@@ -475,7 +475,7 @@ _PLANNER_FEW_SHOTS: dict[str, str] = {
     "mechanism_explainer": (
         'EXAMPLE (mechanism_explainer):\n'
         '{"presentation_profile":"mechanism_explainer","components":'
-        '["summary","flow_diagram","sequence_diagram","key_terms","faq"],'
+        '["summary","flow_diagram","sequence_diagram"],'
         '"block_outline":['
         '{"type":"summary","title":"Overview","source_hint":"summary","width":"full",'
         '"purpose":"What the mechanism is in plain language"},'
@@ -483,13 +483,9 @@ _PLANNER_FEW_SHOTS: dict[str, str] = {
         '"width":"full","purpose":"Architecture: components and handoffs"},'
         '{"type":"sequence_diagram","title":"Worked example","source_hint":'
         '"interaction_sequence","width":"full",'
-        '"purpose":"Step-by-step walkthrough of one concrete run"},'
-        '{"type":"key_terms","title":"Core concepts","source_hint":"concepts",'
-        '"width":"full","purpose":"Terms learners must remember"},'
-        '{"type":"faq","title":"Common misconceptions","source_hint":"faq",'
-        '"width":"half","purpose":"Self-check questions"}'
+        '"purpose":"Step-by-step walkthrough of one concrete run"}'
         '],'
-        '"rationale":"Lead with mechanism diagrams for explain goals; glossary and FAQ support."}'
+        '"rationale":"Explain goals are teaching visuals: overview + flow + worked example only — no FAQ/steps/key_points."}'
     ),
 }
 

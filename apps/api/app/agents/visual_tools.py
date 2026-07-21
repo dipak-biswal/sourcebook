@@ -332,7 +332,10 @@ def _extract_and_plan_llm(
                 "(e.g. mechanism_explainer) — never the placeholder short_snake_case. "
                 "For explain/how-it-works goals: process_flow must be a linear handoff "
                 "chain of concrete components (not a star with an abstract hub node); "
-                "also fill interaction_sequence with one concrete worked example."
+                "also fill interaction_sequence with one concrete worked example. "
+                "layout_plan for explain goals is teaching-only: summary + flow_diagram "
+                "+ sequence_diagram (optional key_terms) — never key_points, faq, steps, "
+                "or chips."
             ),
             prompt=prompt,
             schema_name="extract_and_plan",

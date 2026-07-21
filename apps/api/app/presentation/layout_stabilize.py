@@ -19,6 +19,7 @@ from app.presentation.ui_intent import (
     _interaction_sequence_has_data,
     _process_flow_has_data,
     available_source_hints,
+    structured_field_present,
 )
 
 # Profiles models copy from few-shots / prompt templates by mistake.
@@ -143,108 +144,104 @@ def _ensure_diagram_entries(
     return out
 
 
-def _mechanism_block_order(
+# Explain / how-it-works visuals should teach the mechanism — not a generic
+# digest of every extractable field (key_points, FAQ, steps, chips, …).
+_MECHANISM_ALLOWED_TYPES = frozenset(
+    {
+        "summary",
+        "flow_diagram",
+        "sequence_diagram",
+        "key_terms",  # optional glossary only when concepts exist
+    }
+)
+_MECHANISM_ALLOWED_HINTS = frozenset(
+    {
+        "summary",
+        "process_flow",
+        "interaction_sequence",
+        "concepts",
+    }
+)
+_MECHANISM_HINT_ORDER = (
+    "summary",
+    "process_flow",
+    "interaction_sequence",
+    "concepts",
+)
+_MECHANISM_DEFAULTS: dict[str, dict[str, Any]] = {
+    "summary": {
+        "type": "summary",
+        "title": "Overview",
+        "purpose": "What this is in plain language",
+        "source_hint": "summary",
+        "width": "full",
+    },
+    "process_flow": {
+        "type": "flow_diagram",
+        "title": "How it works",
+        "purpose": "Architecture: components and handoffs",
+        "source_hint": "process_flow",
+        "width": "full",
+    },
+    "interaction_sequence": {
+        "type": "sequence_diagram",
+        "title": "Worked example",
+        "purpose": "Step-by-step walkthrough of one concrete run",
+        "source_hint": "interaction_sequence",
+        "width": "full",
+    },
+    "concepts": {
+        "type": "key_terms",
+        "title": "Core concepts",
+        "purpose": "Terms to remember",
+        "source_hint": "concepts",
+        "width": "full",
+    },
+}
+
+
+def _mechanism_teaching_outline(
     outline: list[dict[str, Any]],
-    skeleton_outline: list[dict[str, Any]] | None,
     structured: dict[str, Any],
 ) -> list[dict[str, Any]]:
     """
-    Stable order for mechanism UIs:
-    summary → flow_diagram → sequence_diagram → rest (skeleton order, then leftover).
-    Prefer skeleton titles/order when the same source_hint exists.
+    Keep only teaching blocks for explain goals:
+    overview → how-it-works flow → worked-example sequence → optional glossary.
+
+    Drops key_points, FAQ, steps, chips, callout, tables, etc. even if the
+    extractor filled them — those belong to other presentation modes.
     """
-    llm_by_hint = {_hint_key(e): e for e in outline if _hint_key(e)}
-    sk_list = [
-        e
-        for e in (skeleton_outline or [])
-        if isinstance(e, dict) and e.get("type") and _hint_key(e)
-    ]
     present = available_source_hints(structured)
-
-    # Overlay: skeleton structure + LLM title/purpose when both have the hint.
+    llm_by_hint = {_hint_key(e): e for e in outline if _hint_key(e)}
     ordered: list[dict[str, Any]] = []
-    seen_hints: set[str] = set()
 
-    def take(entry: dict[str, Any]) -> None:
-        hint = _hint_key(entry)
-        if hint and hint in seen_hints:
-            return
-        if hint and hint not in present and hint not in (
-            # free-form blocks without structured data
-        ):
-            # Only skip grounded hints that have no data
-            if hint in {
-                "summary",
-                "key_points",
-                "concepts",
-                "ordered_actions",
-                "matrix_rows",
-                "comparisons",
-                "levels",
-                "faq",
-                "priority_message",
-                "themes",
-                "milestones",
-                "metrics",
-                "process_flow",
-                "interaction_sequence",
-            }:
-                if hint not in present:
-                    return
-        llm = llm_by_hint.get(hint) if hint else None
-        merged = dict(entry)
+    for hint in _MECHANISM_HINT_ORDER:
+        if hint == "concepts":
+            # Only real glossary fields — not key_points reused as concept_glossary.
+            if not structured_field_present(structured, "concepts", "terms"):
+                continue
+            if "process_flow" not in present and "interaction_sequence" not in present:
+                continue
+        elif hint not in present:
+            continue
+        base = dict(_MECHANISM_DEFAULTS[hint])
+        llm = llm_by_hint.get(hint)
         if llm:
             if llm.get("title"):
-                merged["title"] = llm["title"]
+                base["title"] = llm["title"]
             if llm.get("purpose"):
-                merged["purpose"] = llm["purpose"]
+                base["purpose"] = llm["purpose"]
             if llm.get("width"):
-                merged["width"] = llm["width"]
-        ordered.append(merged)
-        if hint:
-            seen_hints.add(hint)
+                base["width"] = llm["width"]
+        ordered.append(base)
 
-    # Phase 1: fixed hero order when data exists
-    hero_hints = ("summary", "process_flow", "interaction_sequence")
-    hero_defaults = {
-        "summary": {
-            "type": "summary",
-            "title": "Overview",
-            "purpose": "What this is in plain language",
-            "source_hint": "summary",
-            "width": "full",
-        },
-        "process_flow": {
-            "type": "flow_diagram",
-            "title": "How it works",
-            "purpose": "Architecture: components and handoffs",
-            "source_hint": "process_flow",
-            "width": "full",
-        },
-        "interaction_sequence": {
-            "type": "sequence_diagram",
-            "title": "Worked example",
-            "purpose": "Step-by-step walkthrough of one concrete run",
-            "source_hint": "interaction_sequence",
-            "width": "full",
-        },
-    }
-    for hint in hero_hints:
-        if hint not in present:
-            continue
-        base = next((e for e in sk_list if _hint_key(e) == hint), None)
-        if base is None:
-            base = llm_by_hint.get(hint) or hero_defaults[hint]
-        take(base)
-
-    # Phase 2: remaining skeleton entries (stable)
-    for e in sk_list:
-        take(e)
-
-    # Phase 3: any LLM-only entries still grounded
-    for e in outline:
-        take(e)
-
+    # If extract failed entirely, still surface any allowed types from outline
+    if not ordered:
+        for e in outline:
+            btype = str(e.get("type") or "")
+            hint = _hint_key(e)
+            if btype in _MECHANISM_ALLOWED_TYPES or hint in _MECHANISM_ALLOWED_HINTS:
+                ordered.append(dict(e))
     return ordered
 
 
@@ -260,7 +257,7 @@ def stabilize_layout_plan(
 
     - Sanitize presentation_profile placeholders
     - Inject flow/sequence blocks when structured data exists
-    - For explain/mechanism goals: fixed hero order + skeleton-first remaining order
+    - For explain/mechanism goals: teaching-only outline (no FAQ/steps/key_points)
     """
     if not isinstance(plan, dict):
         plan = {}
@@ -282,10 +279,11 @@ def stabilize_layout_plan(
         structured
     )
     if lead == "mechanism_explainer" and has_mechanism_data:
-        outline = _mechanism_block_order(
-            outline,
-            _outline_entries(skeleton_plan),
-            structured,
+        outline = _mechanism_teaching_outline(outline, structured)
+        out["presentation_profile"] = sanitize_presentation_profile(
+            "mechanism_explainer",
+            goal=goal,
+            fallback="mechanism_explainer",
         )
 
     out["block_outline"] = outline

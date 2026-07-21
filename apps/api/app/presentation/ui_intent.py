@@ -491,15 +491,31 @@ def resolve_ui_intent(
     # when it has data; otherwise open on the scannable Overview.
     lead = _goal_lead_affordance(goal)
     if lead == "mechanism_explainer":
-        # Prefer architecture flow; fall back to sequence walkthrough for multi-actor.
-        if "mechanism_explainer" in ordered:
-            ordered = ["mechanism_explainer"] + [
-                a for a in ordered if a != "mechanism_explainer"
-            ]
-        elif "interaction_walkthrough" in ordered:
-            ordered = ["interaction_walkthrough"] + [
-                a for a in ordered if a != "interaction_walkthrough"
-            ]
+        # Teaching UI only: overview + mechanism diagrams (+ optional glossary).
+        # Do NOT append highlights/FAQ/steps/chips just because extract filled them —
+        # that turns "explain the event loop" into a generic digest.
+        teaching = [
+            a
+            for a in (
+                "overview",
+                "mechanism_explainer",
+                "interaction_walkthrough",
+                "concept_glossary",
+            )
+            if a in ordered
+        ]
+        # Prefer flow when present; sequence second; glossary last.
+        preferred = []
+        for a in (
+            "overview",
+            "mechanism_explainer",
+            "interaction_walkthrough",
+            "concept_glossary",
+        ):
+            if a in teaching and a not in preferred:
+                preferred.append(a)
+        if preferred:
+            ordered = preferred
         elif "overview" in ordered:
             ordered = ["overview"] + [a for a in ordered if a != "overview"]
     elif lead and lead in ordered:

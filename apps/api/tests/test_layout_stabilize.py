@@ -110,11 +110,68 @@ def test_stabilize_injects_diagrams_when_data_present():
     )
     assert out["presentation_profile"] == "mechanism_explainer"
     types = [b["type"] for b in out["block_outline"]]
-    assert "flow_diagram" in types
-    assert "sequence_diagram" in types
-    # Hero order: summary → flow → sequence before other content
-    assert types.index("summary") < types.index("flow_diagram")
-    assert types.index("flow_diagram") < types.index("sequence_diagram")
+    assert types == ["summary", "flow_diagram", "sequence_diagram"]
+    # Digest blocks must not appear on explain goals even if extract filled them
+    assert "key_points" not in types
+    assert "faq" not in types
+    assert "steps" not in types
+    assert "chips" not in types
+
+
+def test_mechanism_plan_strips_digest_blocks():
+    structured = {
+        "summary": "Event loop overview.",
+        "key_points": ["a", "b", "c"],
+        "faq": [{"question": "Q?", "answer": "A"}],
+        "ordered_actions": ["Step 1", "Step 2"],
+        "themes": ["js", "async"],
+        "concepts": ["Call stack — LIFO frames"],
+        "process_flow": {
+            "nodes": [
+                {"id": "a", "label": "Call Stack"},
+                {"id": "b", "label": "Web APIs"},
+            ],
+            "edges": [{"source": "a", "target": "b", "label": "async"}],
+        },
+        "interaction_sequence": {
+            "actors": ["Call Stack", "Web APIs"],
+            "messages": [
+                {
+                    "source": "Call Stack",
+                    "target": "Web APIs",
+                    "label": "setTimeout",
+                    "order": 0,
+                }
+            ],
+        },
+    }
+    plan = {
+        "presentation_profile": "mechanism_explainer",
+        "block_outline": [
+            {"type": "summary", "source_hint": "summary", "title": "Overview"},
+            {"type": "key_points", "source_hint": "key_points", "title": "Highlights"},
+            {"type": "faq", "source_hint": "faq", "title": "FAQ"},
+            {"type": "steps", "source_hint": "ordered_actions", "title": "Steps"},
+            {"type": "chips", "source_hint": "themes", "title": "Themes"},
+            {"type": "flow_diagram", "source_hint": "process_flow", "title": "Flow"},
+            {
+                "type": "sequence_diagram",
+                "source_hint": "interaction_sequence",
+                "title": "Seq",
+            },
+            {"type": "key_terms", "source_hint": "concepts", "title": "Terms"},
+        ],
+    }
+    out = stabilize_layout_plan(
+        plan, structured=structured, goal="explain event loop in javascript"
+    )
+    types = [b["type"] for b in out["block_outline"]]
+    assert types == [
+        "summary",
+        "flow_diagram",
+        "sequence_diagram",
+        "key_terms",
+    ]
 
 
 def test_stabilize_hub_topology_dropped_when_leaves_remain_connected():

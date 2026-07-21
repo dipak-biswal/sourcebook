@@ -337,12 +337,18 @@ def test_explain_goal_leads_with_mechanism_when_process_flow_present():
         },
         goal="explain eventloop",
     )
-    assert intent.block_order[0] == "mechanism_explainer"
-    assert "mechanism_explainer" in intent.eligible_affordances
+    # Teaching outline: overview + mechanism diagrams (no FAQ/steps/highlights).
+    assert intent.block_order[0] in ("overview", "mechanism_explainer")
+    assert "mechanism_explainer" in intent.block_order
+    assert "highlights" not in intent.block_order
+    assert "self_check" not in intent.block_order
+    assert "ordered_guide" not in intent.block_order
 
     plan = build_skeleton_layout_plan(intent, structured_content=structured)
     types = [b["type"] for b in plan.get("block_outline") or []]
     assert "flow_diagram" in types
+    assert "key_points" not in types
+    assert "faq" not in types
     assert types.index("flow_diagram") <= 2
 
 
