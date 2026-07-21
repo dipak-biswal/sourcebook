@@ -330,8 +330,8 @@ def _format_llm_extraction_prompt(
         '  "metrics": ["Label | Value", ...],  // only numbers stated in the answer or evidence\n'
         '  "milestones": ["Period | Title | Detail", ...],  // only when dates appear\n'
         '  "priority_message": "the single most important gap/risk/warning, or \\"\\"",\n'
-        '  "process_flow": {"nodes": [{"id": "short_slug", "label": "...", "detail": "concrete role or micro-example (not just restating the label)"}], "edges": [{"source": "id", "target": "id", "label": "..."}]},  // → flow_diagram. REQUIRED when the goal is to explain how a system/mechanism works (runtime, pipeline, architecture with handoffs). Nodes = distinct components; detail = what that part does with one concrete example. Every edge source/target must be a listed node id. Omit empty nodes/edges only when the answer is not mechanism-shaped — never invent steps.\n'
-        '  "interaction_sequence": {"actors": ["Name", ...], "messages": [{"source": "Name", "target": "Name", "label": "...", "order": 0, "note": "what happens at this step with a concrete example"}]},  // → sequence_diagram. Prefer ALSO filling this (alongside process_flow) when explaining a mechanism: one worked example as ordered messages between components/actors (e.g. call stack ↔ web APIs ↔ queues, request lifecycle). Every message source/target must be a listed actor. Omit only when there is no multi-step interaction to walk through.\n'
+        '  "process_flow": {"nodes": [{"id": "short_slug", "label": "...", "detail": "concrete role or micro-example (not just restating the label)"}], "edges": [{"source": "id", "target": "id", "label": "..."}]},  // → flow_diagram. REQUIRED when the goal is to explain how a system/mechanism works. Use a LINEAR chain of concrete components (hand-offs A→B→C), not a star with an abstract hub. For the JS event loop prefer nodes call_stack, web_apis, callback_queue, microtask_queue with edges that match the answer — do not add a separate event_loop hub node. detail = what that part does with one concrete example. Every edge source/target must be a listed node id. Omit only when the answer is not mechanism-shaped.\n'
+        '  "interaction_sequence": {"actors": ["Name", ...], "messages": [{"source": "Name", "target": "Name", "label": "...", "order": 0, "note": "what happens at this step with a concrete example"}]},  // → sequence_diagram. REQUIRED alongside process_flow for explain/how-it-works goals when the answer includes a concrete example (setTimeout, Promise, request lifecycle, etc.). Actors = the same components as process_flow nodes; messages = ordered steps of that example. Every message source/target must be a listed actor. Omit only when there is truly no multi-step interaction.\n'
         '  "sections": [{"heading": "...", "bullets": ["..."], "body": "..."}],\n'
         '  "themes": ["topical theme", ...]  // 2-6 document topics — never structural labels like "Next Steps" or "Overview"\n'
         "}\n\n"
@@ -379,10 +379,17 @@ def format_combined_extract_plan_prompt(
         f"{hints_block}"
         "PLAN RULES:\n"
         "- Lead with the block that best answers the user's goal.\n"
-        "- For explain / how-it-works / mechanism goals: if process_flow is "
-        "filled, put flow_diagram FIRST (or right after a short summary). "
-        "If interaction_sequence is filled, include sequence_diagram as the "
-        "worked-example walkthrough near the top.\n"
+        "- For explain / how-it-works / mechanism goals you MUST:\n"
+        "  (1) Fill process_flow as a LINEAR handoff chain of concrete components "
+        "(e.g. call_stack → web_apis → callback_queue → microtask_queue). "
+        "Do NOT invent a separate abstract hub node (e.g. 'event_loop') that only "
+        "points at others with no incoming edges — the loop is the process itself.\n"
+        "  (2) Fill interaction_sequence with ONE concrete worked example from the "
+        "answer (e.g. setTimeout / Promise path) as ordered messages between those "
+        "components.\n"
+        "  (3) Put summary, then flow_diagram, then sequence_diagram near the top.\n"
+        "  (4) presentation_profile must be mechanism_explainer (never the literal "
+        "string short_snake_case).\n"
         "- Every block_outline entry needs type, title, purpose, source_hint, width.\n"
         "- source_hint must name a structured_content field YOU filled with real "
         "data — never an empty one.\n"
@@ -397,9 +404,9 @@ def format_combined_extract_plan_prompt(
         "- Prefer 4-7 blocks; omit anything without data.\n\n"
         "OUTPUT (JSON only):\n"
         '{"structured_content": {...extraction shape above...},\n'
-        ' "layout_plan": {"presentation_profile": "short_snake_case", '
-        '"components": ["table", ...], "block_outline": [{"type": "...", '
-        '"title": "...", "purpose": "...", "source_hint": "...", '
+        ' "layout_plan": {"presentation_profile": "mechanism_explainer", '
+        '"components": ["summary", "flow_diagram", ...], "block_outline": '
+        '[{"type": "...", "title": "...", "purpose": "...", "source_hint": "...", '
         '"width": "full"}], "rationale": "1-3 sentences"}}'
     )
 

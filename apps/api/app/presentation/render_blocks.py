@@ -720,12 +720,16 @@ def payload_from_assembly(
     if not blocks:
         return None
 
+    from app.presentation.layout_stabilize import sanitize_presentation_profile
+
     summary = str(structured.get("summary") or "").strip()
     plain = summary or (blocks[0].body if blocks[0].body else goal[:200])
-    title = (
-        workspace_name.strip()
-        or str(layout_plan.get("presentation_profile") or "Visual summary").replace("_", " ").title()
+    profile = sanitize_presentation_profile(
+        str(layout_plan.get("presentation_profile") or ""),
+        goal=goal,
+        fallback="workspace_derived",
     )
+    title = workspace_name.strip() or profile.replace("_", " ").title() or "Visual summary"
     if goal and len(goal) < 80:
         title = goal[:80]
 
@@ -733,9 +737,7 @@ def payload_from_assembly(
         "type": "generative_ui",
         "title": title[:120],
         "plain_summary": plain[:600],
-        "presentation_profile": str(
-            layout_plan.get("presentation_profile") or "workspace_derived"
-        ),
+        "presentation_profile": profile,
         "blocks": [b.model_dump() for b in blocks],
         "source_files": list(source_files or []),
         "assembly_meta": {

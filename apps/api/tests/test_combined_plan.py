@@ -305,4 +305,7 @@ def test_combined_extract_plan_prompt_teaches_diagram_fields():
     assert "flow_diagram" in prompt
     assert "sequence_diagram" in prompt
     assert "explain" in prompt.lower() or "mechanism" in prompt.lower()
-    assert "flow_diagram FIRST" in prompt or "put flow_diagram" in prompt
+    assert "mechanism_explainer" in prompt
+    assert "LINEAR" in prompt or "linear" in prompt
+    # Must not teach the model to emit the placeholder as the profile value
+    assert '"presentation_profile": "short_snake_case"' not in prompt

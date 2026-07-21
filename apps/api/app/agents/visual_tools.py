@@ -27,6 +27,10 @@ from app.presentation.llm_json import (
     PLAN_SCHEMA,
     chat_json,
 )
+from app.presentation.layout_stabilize import (
+    stabilize_layout_plan,
+    stabilize_process_flow_topology,
+)
 from app.presentation.plan_validator import format_validator_notes, validate_layout_plan
 from app.presentation.structured import (
     build_plan_layout_input,
@@ -200,12 +204,14 @@ def _plan_layout_llm(
         system=(
             "You are the Visual Summary layout planner. Output valid JSON only. "
             "Decide which blocks to show, their order, titles, source_hint, and width. "
-            "Use only available source_hint fields from the prompt. Do not invent facts."
+            "Use only available source_hint fields from the prompt. Do not invent facts. "
+            "presentation_profile must be a real short snake_case id for this layout "
+            "(e.g. mechanism_explainer, gap_analysis) — never the placeholder short_snake_case."
         ),
         prompt=prompt,
         schema_name="layout_plan",
         schema=PLAN_SCHEMA,
-        temperature=0.2,
+        temperature=0.0,
     )
     raw = (resp.choices[0].message.content or "{}").strip()
     try:
@@ -321,11 +327,17 @@ def _extract_and_plan_llm(
             model=settings.visual_summary_model,
             system=(
                 "You extract structured facts from an agent answer and plan a "
-                "visual layout from them, in one JSON response. Never invent facts."
+                "visual layout from them, in one JSON response. Never invent facts. "
+                "presentation_profile must be a real short snake_case id "
+                "(e.g. mechanism_explainer) — never the placeholder short_snake_case. "
+                "For explain/how-it-works goals: process_flow must be a linear handoff "
+                "chain of concrete components (not a star with an abstract hub node); "
+                "also fill interaction_sequence with one concrete worked example."
             ),
             prompt=prompt,
             schema_name="extract_and_plan",
             schema=COMBINED_EXTRACT_PLAN_SCHEMA,
+            temperature=0.0,
         )
     except Exception:
         return None
@@ -338,6 +350,7 @@ def _extract_and_plan_llm(
     if not isinstance(parsed, dict):
         return None
     structured = normalize_structured_content(parsed.get("structured_content"))
+    structured = stabilize_process_flow_topology(structured)
     plan = parsed.get("layout_plan")
     if not isinstance(plan, dict) or not structured_content_has_substance(structured):
         return None
@@ -345,6 +358,12 @@ def _extract_and_plan_llm(
     plan.setdefault("components", components)
     plan.setdefault("block_outline", [])
     plan.setdefault("rationale", "")
+    plan = stabilize_layout_plan(
+        plan,
+        structured=structured,
+        skeleton_plan=skeleton.get("plan") if isinstance(skeleton, dict) else None,
+        goal=goal,
+    )
 
     usage = getattr(resp, "usage", None)
     prompt_tokens = int(getattr(usage, "prompt_tokens", 0) or 0)
@@ -549,6 +568,13 @@ def _plan_llm_with_repair_and_fallback(
     merged_usage = _merge_usage(merged_usage, llm["usage"])
     plan = llm["plan"]
     structured = llm.get("structured_content") or structured
+    structured = stabilize_process_flow_topology(structured)
+    plan = stabilize_layout_plan(
+        plan,
+        structured=structured,
+        skeleton_plan=skeleton_result.get("plan"),
+        goal=ctx.goal or "",
+    )
     ok, errors = validate_layout_plan(
         plan,
         goal=ctx.goal or "",
@@ -556,7 +582,12 @@ def _plan_llm_with_repair_and_fallback(
         requested_components=[],
         final_answer=ctx.final_answer or "",
     )
-    result = {**skeleton_result, **llm, "plan": plan}
+    result = {
+        **skeleton_result,
+        **llm,
+        "plan": plan,
+        "structured_content": structured,
+    }
     planner_source = first_source
 
     # One repair pass when validation fails
@@ -577,7 +608,15 @@ def _plan_llm_with_repair_and_fallback(
         replan_llm_output = second["llm_output"]
         merged_usage = _merge_usage(merged_usage, second["usage"])
         plan = second["plan"]
-        structured = second["structured_content"]
+        structured = stabilize_process_flow_topology(
+            second.get("structured_content") or structured
+        )
+        plan = stabilize_layout_plan(
+            plan,
+            structured=structured,
+            skeleton_plan=skeleton_result.get("plan"),
+            goal=ctx.goal or "",
+        )
         planner_source = "llm"
         ok, errors = validate_layout_plan(
             plan,
@@ -586,7 +625,12 @@ def _plan_llm_with_repair_and_fallback(
             requested_components=[],
             final_answer=ctx.final_answer or "",
         )
-        result = {**result, **second, "plan": plan}
+        result = {
+            **result,
+            **second,
+            "plan": plan,
+            "structured_content": structured,
+        }
 
     # Fallback: invalid plan, empty outline, or fully ungrounded
     if (
@@ -594,7 +638,20 @@ def _plan_llm_with_repair_and_fallback(
         or _outline_empty_or_ungrounded(plan, structured)
     ):
         planner_source = "skeleton"
-        plan = skeleton_result["plan"]
+        # Rebuild skeleton against the latest structured (may include combined extract)
+        intent = resolve_ui_intent(
+            structured_content=structured,
+            workspace_packet=ctx.workspace_packet,
+            goal=ctx.goal or "",
+            interaction_boosts=ctx.interaction_boosts,
+        )
+        sk_plan = build_skeleton_layout_plan(intent, structured_content=structured)
+        plan = stabilize_layout_plan(
+            sk_plan,
+            structured=structured,
+            skeleton_plan=sk_plan,
+            goal=ctx.goal or "",
+        )
         ok, errors = validate_layout_plan(
             plan,
             goal=ctx.goal or "",
@@ -606,6 +663,8 @@ def _plan_llm_with_repair_and_fallback(
             **result,
             **skeleton_result,
             "plan": plan,
+            "structured_content": structured,
+            "ui_intent": intent.to_dict(),
             # Keep LLM prompt/output for the trace when primary path ran
             "prompt": result.get("prompt") or skeleton_result.get("prompt"),
             "llm_output": result.get("llm_output") or skeleton_result.get("llm_output"),
@@ -613,10 +672,20 @@ def _plan_llm_with_repair_and_fallback(
             or skeleton_result.get("structured_input"),
         }
 
+    # Final stabilize pass (profile + diagram injection) even when validation passed
+    plan = stabilize_layout_plan(
+        plan,
+        structured=structured,
+        skeleton_plan=skeleton_result.get("plan"),
+        goal=ctx.goal or "",
+    )
+    structured = stabilize_process_flow_topology(structured)
+
     status = "passed" if ok else "failed"
     return {
         **result,
         "plan": plan,
+        "structured_content": structured,
         "usage": merged_usage,
         "validation_status": status,
         "validation_errors": errors if not ok else (errors or []),

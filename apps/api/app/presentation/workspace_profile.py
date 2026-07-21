@@ -106,7 +106,7 @@ def _format_profile_prompt(packet: WorkspaceContextPacket) -> str:
         '  "answer_sections": ["section name", ...],\n'
         '  "visual_affordances": ["affordance_id", ...],\n'
         '  "planner_example": {\n'
-        '    "presentation_profile": "short_snake_case",\n'
+        '    "presentation_profile": "domain_layout e.g. mechanism_explainer",\n'
         '    "components": ["steps", ...],\n'
         '    "block_outline": [{"type": "steps", "title": "...", '
         '"source_hint": "ordered_actions", "width": "full", "purpose": "..."}],\n'

@@ -631,7 +631,8 @@ def format_plan_layout_prompt(
         "new research — do not invent actors or steps.\n\n"
         "OUTPUT (JSON only):\n"
         "{\n"
-        '  "presentation_profile": "short_snake_case e.g. gap_analysis",\n'
+        '  "presentation_profile": "real id like gap_analysis or mechanism_explainer '
+        '(never the placeholder short_snake_case)",\n'
         '  "components": ["table", "progress", ...],\n'
         '  "block_outline": [\n'
         '    {"type": "table", "title": "...", "source_hint": "matrix_rows", '
