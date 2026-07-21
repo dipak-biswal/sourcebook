@@ -3,7 +3,7 @@
 chat_json prefers response_format=json_schema (strict) and falls back to
 json_object when the provider rejects it, so alternative OpenAI-compatible
 backends keep working. Schemas derive from the block registry — the enums
-below cannot drift from app.blocks.
+below cannot drift from app.visual_summary.blocks.registry.
 """
 
 from __future__ import annotations

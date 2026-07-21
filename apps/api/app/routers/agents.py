@@ -313,7 +313,7 @@ def list_agent_runs(
 ):
     _require_member(db, current_user.id, workspace_id)
     # Opportunistic storage hygiene for this workspace (cheap when nothing to drop).
-    from app.agents.run_storage import prune_agent_runs
+    from app.agents.storage.run_storage import prune_agent_runs
 
     try:
         pruned = prune_agent_runs(
@@ -347,7 +347,7 @@ def prune_runs(
     """Manually prune aged / excess agent runs for the current user."""
     if workspace_id is not None:
         _require_member(db, current_user.id, workspace_id)
-    from app.agents.run_storage import prune_agent_runs
+    from app.agents.storage.run_storage import prune_agent_runs
 
     result = prune_agent_runs(
         db, user_id=current_user.id, workspace_id=workspace_id
@@ -395,7 +395,7 @@ def cancel_agent_run(
         type="final",
         output={"status": "cancelled", "message": "Cancelled by user"},
     )
-    from app.agents.run_storage import compact_run_if_terminal
+    from app.agents.storage.run_storage import compact_run_if_terminal
 
     compact_run_if_terminal(db, run)
     db.commit()

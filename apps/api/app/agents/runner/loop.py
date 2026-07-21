@@ -8,7 +8,7 @@ import uuid
 from langchain_core.messages import AIMessage, BaseMessage, ToolMessage
 from sqlalchemy.orm import Session
 
-from app.agents.execution_trace import LiveTraceContext
+from app.agents.trace.execution_trace import LiveTraceContext
 from app.agents.runner.constants import WRITE_TOOLS
 from app.agents.runner.events import (
     EventCallback,
@@ -492,7 +492,7 @@ def _run_tool_loop(
             completion_tokens=completion_tokens_total,
             total_tokens=total_tokens_acc,
         )
-        from app.agents.run_storage import compact_run_if_terminal
+        from app.agents.storage.run_storage import compact_run_if_terminal
 
         compact_run_if_terminal(db, run)
         db.commit()
@@ -520,7 +520,7 @@ def _run_tool_loop(
                 completion_tokens=completion_tokens_total,
                 total_tokens=total_tokens_acc,
             )
-        from app.agents.run_storage import compact_run_if_terminal
+        from app.agents.storage.run_storage import compact_run_if_terminal
 
         compact_run_if_terminal(db, run)
         db.commit()

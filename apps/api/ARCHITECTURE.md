@@ -34,7 +34,7 @@ app/
 | GenUI models | `app.visual_summary.blocks.gen_ui` |
 | Block registry | `app.visual_summary.blocks.registry` (or shim `app.blocks`) |
 
-**Compatibility shims** remain at old paths (`app.presentation.*`, `app.agents.visual_tools`, …) so gradual migration stays green. Prefer the new paths in new code.
+Old paths (`app.presentation.*`, `app.agents.visual_tools`, …) have been removed — import from the packages above.
 
 ## Flow
 

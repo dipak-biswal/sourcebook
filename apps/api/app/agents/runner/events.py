@@ -8,7 +8,7 @@ from typing import Any
 
 from sqlalchemy.orm import Session
 
-from app.agents.execution_trace import (
+from app.agents.trace.execution_trace import (
     LiveTraceContext,
     build_execution_trace,
     emit_execution_trace,

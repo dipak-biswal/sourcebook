@@ -13,7 +13,7 @@ from langchain_openai import ChatOpenAI
 from pydantic import SecretStr
 from sqlalchemy.orm import Session
 
-from app.agents.execution_trace import LiveTraceContext
+from app.agents.trace.execution_trace import LiveTraceContext
 from app.agents.runner.events import EventCallback, _emit
 from app.agents.runner.messages import _content_str, _serialize_messages
 from app.config import settings

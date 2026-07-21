@@ -296,7 +296,7 @@ def _interaction_sequence_has_data(structured: dict[str, Any]) -> bool:
     )
 
 
-# _SOURCE_HINT_AFFORDANCE and KNOWN_SOURCE_HINTS come from app.blocks —
+# _SOURCE_HINT_AFFORDANCE and KNOWN_SOURCE_HINTS come from blocks.registry —
 # the block registry is the single source of truth for hints and ordering.
 
 
