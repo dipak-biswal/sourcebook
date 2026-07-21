@@ -330,8 +330,8 @@ def _format_llm_extraction_prompt(
         '  "metrics": ["Label | Value", ...],  // only numbers stated in the answer or evidence\n'
         '  "milestones": ["Period | Title | Detail", ...],  // only when dates appear\n'
         '  "priority_message": "the single most important gap/risk/warning, or \\"\\"",\n'
-        '  "process_flow": {"nodes": [{"id": "short_slug", "label": "...", "detail": "concrete role + one micro-example"}], "edges": [{"source": "id", "target": "id", "label": "..."}]},  // → flow_diagram. REQUIRED for explain/how-it-works. LINEAR hand-offs A→B→C, not a star hub. For the JS event loop ALWAYS use exactly these node ids when present in the answer: call_stack, web_apis, microtask_queue, callback_queue (labels: Call Stack, Web APIs, Microtask Queue, Callback Queue). Edges should teach the real path: call_stack→web_apis, web_apis→queues, queues→call_stack. NEVER add an event_loop hub node. detail must teach (not repeat the label). Omit only when not mechanism-shaped.\n'
-        '  "interaction_sequence": {"actors": ["Call Stack", "Web APIs", ...], "messages": [{"source": "Call Stack", "target": "Web APIs", "label": "setTimeout(...)", "order": 0, "note": "what the runtime does at this step"}]},  // → sequence_diagram. REQUIRED for explain goals with a concrete example. Prefer the SAME names as process_flow labels. orders start at 0 and increase. note = one teaching sentence (e.g. what happens when setTimeout fires). 4-6 messages for a worked example. Omit only when there is truly no multi-step interaction.\n'
+        '  "process_flow": {"nodes": [{"id": "short_slug", "label": "Part name from the answer", "detail": "what this part does + one concrete example"}], "edges": [{"source": "id", "target": "id", "label": "handoff"}]},  // → flow_diagram. REQUIRED for explain / how-it-works / learn-a-mechanism goals in ANY domain (science, software, business, history, cooking, …). Use the REAL components named in the answer as nodes. Prefer LINEAR hand-offs A→B→C (or a clear cycle) over a star with one abstract hub ("System", "Controller", "Loop"). detail teaches; do not only restate the label. Omit only when the answer is not mechanism-shaped.\n'
+        '  "interaction_sequence": {"actors": ["Part A", "Part B", ...], "messages": [{"source": "Part A", "target": "Part B", "label": "what happens", "order": 0, "note": "one teaching sentence for this step"}]},  // → sequence_diagram. REQUIRED for explain/learn goals when the answer has a concrete walkthrough (any domain: a reaction path, a request lifecycle, a market trade, a recipe step sequence, etc.). Prefer the SAME names as process_flow labels. orders start at 0. 4-6 messages. Omit only when there is truly no multi-step interaction.\n'
         '  "sections": [{"heading": "...", "bullets": ["..."], "body": "..."}],\n'
         '  "themes": ["topical theme", ...]  // 2-6 document topics — never structural labels like "Next Steps" or "Overview"\n'
         "}\n\n"
@@ -379,20 +379,18 @@ def format_combined_extract_plan_prompt(
         f"{hints_block}"
         "PLAN RULES:\n"
         "- Lead with the block that best answers the user's goal.\n"
-        "- For explain / how-it-works / mechanism goals you MUST:\n"
-        "  (1) Fill process_flow as a LINEAR handoff chain of concrete components "
-        "(e.g. call_stack → web_apis → callback_queue → microtask_queue). "
-        "Do NOT invent a separate abstract hub node (e.g. 'event_loop') that only "
-        "points at others with no incoming edges — the loop is the process itself.\n"
+        "- For explain / how-it-works / learn-a-concept goals (ANY subject) you MUST:\n"
+        "  (1) Fill process_flow with the concrete parts named in the answer as a "
+        "clear handoff chain (or small cycle). Domain-agnostic: cells, markets, "
+        "services, organs, pipeline stages — whatever the answer teaches. Do NOT "
+        "add an abstract hub that only points outward (\"System\", \"Controller\").\n"
         "  (2) Fill interaction_sequence with ONE concrete worked example from the "
-        "answer (e.g. setTimeout / Promise path) as ordered messages between those "
-        "components.\n"
-        "  (3) layout_plan block_outline MUST be teaching-only: summary, flow_diagram, "
-        "sequence_diagram, and optionally key_terms — in that order. Do NOT plan "
-        "key_points, faq, steps, chips, callout, table, or progress for explain goals "
-        "even if you extracted those fields (they are for other goal types).\n"
-        "  (4) presentation_profile must be mechanism_explainer (never the literal "
-        "string short_snake_case).\n"
+        "answer as ordered messages between those parts (walkthrough a single case).\n"
+        "  (3) layout_plan is teaching-only: summary, flow_diagram, sequence_diagram, "
+        "optional key_terms — in that order. Do NOT plan key_points, faq, steps, "
+        "chips, callout, table, or progress for explain/learn goals even if those "
+        "fields were extracted (they belong to other goal types).\n"
+        "  (4) presentation_profile must be mechanism_explainer (never short_snake_case).\n"
         "- Every block_outline entry needs type, title, purpose, source_hint, width.\n"
         "- source_hint must name a structured_content field YOU filled with real "
         "data — never an empty one.\n"

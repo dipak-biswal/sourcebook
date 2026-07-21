@@ -330,12 +330,11 @@ def _extract_and_plan_llm(
                 "visual layout from them, in one JSON response. Never invent facts. "
                 "presentation_profile must be a real short snake_case id "
                 "(e.g. mechanism_explainer) — never the placeholder short_snake_case. "
-                "For explain/how-it-works goals: process_flow must be a linear handoff "
-                "chain of concrete components (not a star with an abstract hub node); "
-                "also fill interaction_sequence with one concrete worked example. "
-                "layout_plan for explain goals is teaching-only: summary + flow_diagram "
-                "+ sequence_diagram (optional key_terms) — never key_points, faq, steps, "
-                "or chips."
+                "For explain/learn/how-it-works goals in ANY domain: process_flow uses "
+                "the real parts from the answer as a clear handoff chain (not a star "
+                "hub); interaction_sequence is one concrete walkthrough. layout_plan "
+                "is teaching-only: summary + flow_diagram + sequence_diagram "
+                "(optional key_terms) — never key_points, faq, steps, or chips."
             ),
             prompt=prompt,
             schema_name="extract_and_plan",

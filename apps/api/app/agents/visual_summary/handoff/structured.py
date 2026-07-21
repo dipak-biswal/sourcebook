@@ -529,7 +529,8 @@ def _planner_few_shot(goal: str, components: list[str]) -> str:
     goal_l = (goal or "").lower()
     if any(c in components for c in ("flow_diagram", "sequence_diagram")) or re.search(
         r"\b(explain|how does|how it works|mechanism|lifecycle|under the hood|"
-        r"what happens when|event loop|pipeline)\b",
+        r"what happens when|learn|teach|understand|walk me through|break down|"
+        r"visualize|pipeline)\b",
         goal_l,
     ):
         return _PLANNER_FEW_SHOTS["mechanism_explainer"]

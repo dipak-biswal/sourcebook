@@ -80,7 +80,8 @@ _GOAL_LEAD_PATTERNS: tuple[tuple[re.Pattern[str], str], ...] = (
     (
         re.compile(
             r"\b(explain|how does|how it works|mechanism|lifecycle|"
-            r"under the hood|what happens when)\b",
+            r"under the hood|what happens when|learn|teach|understand|"
+            r"walk me through|break down|visualize)\b",
             re.I,
         ),
         "mechanism_explainer",
@@ -493,7 +494,7 @@ def resolve_ui_intent(
     if lead == "mechanism_explainer":
         # Teaching UI only: overview + mechanism diagrams (+ optional glossary).
         # Do NOT append highlights/FAQ/steps/chips just because extract filled them —
-        # that turns "explain the event loop" into a generic digest.
+        # explain/learn goals should feel interactive, not like a bullet digest.
         teaching = [
             a
             for a in (

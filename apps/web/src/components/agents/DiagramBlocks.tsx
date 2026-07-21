@@ -219,11 +219,7 @@ function layoutFlowDiagram(nodes: FlowNode[], edges: FlowEdge[]): FlowLayout | n
 
   let roots = nodes.filter((n) => (inDegree.get(n.id) ?? 0) === 0).map((n) => n.id);
   if (!roots.length) {
-    // Prefer call_stack-like labels as teaching root
-    const preferred = nodes.find((n) =>
-      /stack/i.test(n.label) || /stack/i.test(n.id),
-    );
-    let best = preferred?.id ?? nodes[0].id;
+    let best = nodes[0].id;
     let bestOut = -1;
     for (const n of nodes) {
       const od = outDegree.get(n.id) ?? 0;

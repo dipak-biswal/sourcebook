@@ -200,61 +200,95 @@ def test_stabilize_hub_topology_dropped_when_leaves_remain_connected():
     )
 
 
-def test_event_loop_flow_canonicalized_for_teaching():
-    """Messy extract → stable Call Stack → Web APIs → queues teaching graph."""
+def test_domain_agnostic_flow_keeps_subject_labels():
+    """Biology-style extract is not rewritten into a JS event-loop template."""
     structured = {
         "process_flow": {
             "nodes": [
-                {"id": "q", "label": "Task Queue", "detail": "macrotasks"},
-                {"id": "s", "label": "Call Stack"},
-                {"id": "w", "label": "Web APIs", "detail": "timers"},
-                {"id": "m", "label": "Microtask Queue"},
-                {"id": "loop", "label": "Event Loop"},
+                {"id": "nucleus", "label": "Nucleus", "detail": "Holds DNA"},
+                {"id": "ribosome", "label": "Ribosome"},
+                {"id": "er", "label": "Endoplasmic reticulum"},
             ],
             "edges": [
-                {"source": "loop", "target": "s", "label": "check"},
-                {"source": "loop", "target": "q", "label": "pick"},
-                {"source": "s", "target": "w", "label": "async"},
+                {"source": "nucleus", "target": "ribosome", "label": "mRNA"},
+                {"source": "ribosome", "target": "er", "label": "protein"},
             ],
         },
         "interaction_sequence": {
-            "actors": ["Web APIs", "Call Stack"],
+            "actors": ["Nucleus", "Ribosome"],
             "messages": [
                 {
-                    "source": "Call Stack",
-                    "target": "Web APIs",
-                    "label": "setTimeout",
-                    "order": 2,
+                    "source": "Nucleus",
+                    "target": "Ribosome",
+                    "label": "mRNA export",
+                    "order": 3,
                 },
                 {
-                    "source": "Web APIs",
-                    "target": "Call Stack",
-                    "label": "callback",
-                    "order": 0,
+                    "source": "Ribosome",
+                    "target": "Nucleus",
+                    "label": "feedback",
+                    "order": 1,
                 },
             ],
         },
     }
     out = stabilize_process_flow_topology(
-        structured, goal="explain event loop in javascript"
+        structured, goal="explain protein synthesis"
     )
-    pf = out["process_flow"]
-    ids = [n["id"] for n in pf["nodes"]]
-    assert ids == [
-        "call_stack",
-        "web_apis",
-        "microtask_queue",
-        "callback_queue",
-    ]
-    assert "event_loop" not in ids and "loop" not in ids
-    # Canonical teaching edges present
-    pairs = {(e["source"], e["target"]) for e in pf["edges"]}
-    assert ("call_stack", "web_apis") in pairs
-    assert ("callback_queue", "call_stack") in pairs
-    # Sequence messages re-ordered and notes filled
+    labels = [n["label"] for n in out["process_flow"]["nodes"]]
+    assert "Nucleus" in labels and "Ribosome" in labels
+    assert "Call Stack" not in labels
+    # Details filled for empty nodes; messages sorted + notes
+    by_id = {n["id"]: n for n in out["process_flow"]["nodes"]}
+    assert by_id["ribosome"]["detail"]
     msgs = out["interaction_sequence"]["messages"]
     assert [m["order"] for m in msgs] == [0, 1]
+    assert msgs[0]["label"] == "feedback"
     assert all(m.get("note") for m in msgs)
+
+
+def test_learn_goal_is_teaching_outline_not_digest():
+    structured = {
+        "summary": "Photosynthesis converts light into chemical energy.",
+        "key_points": ["Light reactions", "Calvin cycle"],
+        "faq": [{"question": "Where?", "answer": "Chloroplast"}],
+        "process_flow": {
+            "nodes": [
+                {"id": "light", "label": "Light reactions"},
+                {"id": "calvin", "label": "Calvin cycle"},
+            ],
+            "edges": [{"source": "light", "target": "calvin", "label": "ATP/NADPH"}],
+        },
+        "interaction_sequence": {
+            "actors": ["Light reactions", "Calvin cycle"],
+            "messages": [
+                {
+                    "source": "Light reactions",
+                    "target": "Calvin cycle",
+                    "label": "supply energy",
+                    "order": 0,
+                    "note": "ATP and NADPH fuel carbon fixation.",
+                }
+            ],
+        },
+    }
+    plan = {
+        "presentation_profile": "mechanism_explainer",
+        "block_outline": [
+            {"type": "summary", "source_hint": "summary", "title": "Overview"},
+            {"type": "key_points", "source_hint": "key_points", "title": "Points"},
+            {"type": "faq", "source_hint": "faq", "title": "FAQ"},
+            {"type": "flow_diagram", "source_hint": "process_flow", "title": "Flow"},
+            {
+                "type": "sequence_diagram",
+                "source_hint": "interaction_sequence",
+                "title": "Walkthrough",
+            },
+        ],
+    }
+    out = stabilize_layout_plan(plan, structured=structured, goal="learn photosynthesis")
+    types = [b["type"] for b in out["block_outline"]]
+    assert types == ["summary", "flow_diagram", "sequence_diagram"]
 
 
 def test_payload_from_assembly_sanitizes_profile():

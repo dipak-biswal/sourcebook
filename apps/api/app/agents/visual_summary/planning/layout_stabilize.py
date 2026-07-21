@@ -144,8 +144,9 @@ def _ensure_diagram_entries(
     return out
 
 
-# Explain / how-it-works visuals should teach the mechanism — not a generic
+# Explain / learn visuals teach a process interactively — not a generic
 # digest of every extractable field (key_points, FAQ, steps, chips, …).
+# Domain-agnostic: any subject the user wants to learn.
 _MECHANISM_ALLOWED_TYPES = frozenset(
     {
         "summary",
@@ -298,135 +299,32 @@ def stabilize_layout_plan(
     return out
 
 
-# Known teaching roles for JS event-loop style mechanisms (label/id match).
-# Used only when the extract already named these components — rebuilds a stable
-# teaching graph so runs don't randomize topology.
-_EVENT_LOOP_ROLES: tuple[tuple[str, tuple[str, ...], str, str], ...] = (
-    (
-        "call_stack",
-        ("call stack", "callstack", "js stack", "stack"),
-        "Call Stack",
-        "Runs synchronous function frames (LIFO).",
-    ),
-    (
-        "web_apis",
-        ("web api", "webapis", "browser api", "host api"),
-        "Web APIs",
-        "Timers, fetch, DOM — work outside the JS thread.",
-    ),
-    (
-        "microtask_queue",
-        ("microtask", "promise queue", "job queue", "micro task"),
-        "Microtask Queue",
-        "Promises / queueMicrotask — drained before the next macrotask.",
-    ),
-    (
-        "callback_queue",
-        (
-            "callback queue",
-            "task queue",
-            "macrotask",
-            "message queue",
-            "event queue",
-            "macro task",
-        ),
-        "Callback Queue",
-        "setTimeout / I/O callbacks wait here until the stack is clear.",
-    ),
+# Abstract "controller" labels that often become star hubs and hide the real
+# learning components (domain-agnostic — not tied to any subject).
+_ABSTRACT_HUB_LABELS = frozenset(
+    {
+        "controller",
+        "orchestrator",
+        "coordinator",
+        "manager",
+        "system",
+        "main",
+        "core",
+        "engine",
+        "runtime",
+        "loop",
+        "event_loop",
+        "event loop",
+        "kernel",
+        "brain",
+    }
 )
-
-_EVENT_LOOP_EDGES: tuple[tuple[str, str, str], ...] = (
-    ("call_stack", "web_apis", "calls async API"),
-    ("web_apis", "microtask_queue", "promise settles"),
-    ("web_apis", "callback_queue", "timer / I/O done"),
-    ("microtask_queue", "call_stack", "run next microtask"),
-    ("callback_queue", "call_stack", "event loop picks task"),
-)
-
-
-def _blob(node: dict[str, Any]) -> str:
-    return f"{node.get('id') or ''} {node.get('label') or ''}".strip().lower()
-
-
-def _match_event_loop_role(node: dict[str, Any]) -> str | None:
-    blob = _blob(node)
-    if not blob:
-        return None
-    # Prefer more specific roles first (microtask before generic "queue")
-    for role_id, needles, _label, _detail in _EVENT_LOOP_ROLES:
-        if role_id.replace("_", " ") in blob or role_id in blob.replace("-", "_"):
-            return role_id
-        for n in needles:
-            if n in blob:
-                return role_id
-    return None
-
-
-def _looks_like_event_loop_flow(nodes: list[dict[str, Any]], goal: str = "") -> bool:
-    goal_l = (goal or "").lower()
-    if re.search(r"event\s*loop|eventloop", goal_l):
-        return True
-    roles = {_match_event_loop_role(n) for n in nodes}
-    roles.discard(None)
-    return len(roles) >= 3
-
-
-def _canonicalize_event_loop_flow(
-    nodes: list[dict[str, Any]],
-    edges: list[dict[str, Any]],
-) -> dict[str, Any] | None:
-    """
-    If extract named the classic event-loop components, rebuild a stable teaching
-    graph. Preserves node detail text when present.
-    """
-    by_role: dict[str, dict[str, Any]] = {}
-    for n in nodes:
-        role = _match_event_loop_role(n)
-        if not role or role in by_role:
-            continue
-        by_role[role] = n
-    if len(by_role) < 3:
-        return None
-
-    # Prefer full classic set when we have stack + web APIs + any queue
-    if "call_stack" not in by_role or "web_apis" not in by_role:
-        return None
-    if "microtask_queue" not in by_role and "callback_queue" not in by_role:
-        return None
-
-    out_nodes: list[dict[str, Any]] = []
-    for role_id, _needles, label, default_detail in _EVENT_LOOP_ROLES:
-        if role_id not in by_role:
-            # Fill missing queue side only if the other queue exists (optional)
-            if role_id in ("microtask_queue", "callback_queue") and (
-                "microtask_queue" in by_role or "callback_queue" in by_role
-            ):
-                # Don't invent the missing queue — skip
-                continue
-            continue
-        src = by_role[role_id]
-        detail = str(src.get("detail") or "").strip() or default_detail
-        out_nodes.append(
-            {
-                "id": role_id,
-                "label": str(src.get("label") or label).strip()[:120] or label,
-                "detail": detail[:400],
-            }
-        )
-
-    present = {n["id"] for n in out_nodes}
-    out_edges: list[dict[str, str]] = []
-    for src, tgt, label in _EVENT_LOOP_EDGES:
-        if src in present and tgt in present:
-            out_edges.append({"source": src, "target": tgt, "label": label})
-    if len(out_nodes) < 3 or len(out_edges) < 2:
-        return None
-    return {"nodes": out_nodes, "edges": out_edges}
 
 
 def _drop_hub_controller(
     nodes: list[dict[str, Any]], edges: list[dict[str, Any]]
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """Drop a pure star hub so the diagram shows real handoffs between parts."""
     ids = {str(n.get("id") or "").strip() for n in nodes if str(n.get("id") or "").strip()}
     indeg = {i: 0 for i in ids}
     outdeg = {i: 0 for i in ids}
@@ -440,13 +338,17 @@ def _drop_hub_controller(
     for n in nodes:
         nid = str(n.get("id") or "").strip()
         label = str(n.get("label") or "").strip().lower()
+        slug = nid.lower().replace("-", "_")
         if not nid:
             continue
+        abstract = (
+            label in _ABSTRACT_HUB_LABELS
+            or slug in _ABSTRACT_HUB_LABELS
+            or any(a in label for a in ("controller", "orchestrator", "coordinator"))
+        )
         if indeg.get(nid, 0) == 0 and outdeg.get(nid, 0) >= 3:
             hubs.append(nid)
-        elif indeg.get(nid, 0) == 0 and outdeg.get(nid, 0) >= 2 and (
-            "event loop" in label or nid in ("event_loop", "controller", "orchestrator")
-        ):
+        elif indeg.get(nid, 0) == 0 and outdeg.get(nid, 0) >= 2 and abstract:
             hubs.append(nid)
 
     if len(hubs) != 1:
@@ -459,8 +361,6 @@ def _drop_hub_controller(
         for e in edges
         if str(e.get("source") or "").strip() in rem_ids
         and str(e.get("target") or "").strip() in rem_ids
-        and str(e.get("source") or "").strip() != hub
-        and str(e.get("target") or "").strip() != hub
     ]
     if len(remaining_nodes) < 2 or not remaining_edges:
         return nodes, edges
@@ -580,14 +480,17 @@ def stabilize_process_flow_topology(
     goal: str = "",
 ) -> dict[str, Any]:
     """
-    Teaching-quality cleanup for process_flow (+ light sequence polish):
+    Domain-agnostic teaching cleanup for process_flow (+ sequence polish):
 
-    1. Drop abstract hub-only controller nodes (star graphs)
-    2. When extract clearly describes the JS event loop, rebuild a stable
-       canonical chain (Call Stack → Web APIs → queues → back to stack)
-    3. Topological node order for consistent frontend columns
-    4. Sort / annotate interaction_sequence for walkthroughs
+    1. Drop abstract hub-only controller nodes (star graphs hide real parts)
+    2. Topological node order for consistent frontend columns
+    3. Ensure each node has a short teaching detail
+    4. Sort / annotate interaction_sequence for step walkthroughs
+
+    Does **not** hardcode any subject (JS, biology, finance, …) — node labels
+    and edges come from the answer/extract; we only stabilize structure.
     """
+    del goal  # reserved for future goal-aware (still domain-agnostic) polish
     if not isinstance(structured, dict):
         return structured
     out = dict(structured)
@@ -597,16 +500,11 @@ def stabilize_process_flow_topology(
         edges = [e for e in (pf.get("edges") or []) if isinstance(e, dict)]
         if len(nodes) >= 2:
             nodes, edges = _drop_hub_controller(nodes, edges)
-            if _looks_like_event_loop_flow(nodes, goal):
-                canon = _canonicalize_event_loop_flow(nodes, edges)
-                if canon:
-                    nodes, edges = canon["nodes"], canon["edges"]
             nodes = _topo_sort_nodes(nodes, edges)
-            # Ensure details exist for teaching expand panels
             for n in nodes:
                 if not str(n.get("detail") or "").strip():
-                    label = str(n.get("label") or n.get("id") or "Component").strip()
-                    n["detail"] = f"Role of {label} in this mechanism."
+                    label = str(n.get("label") or n.get("id") or "Part").strip()
+                    n["detail"] = f"What {label} does in this process."
             out["process_flow"] = {"nodes": nodes, "edges": edges}
 
     out = _stabilize_interaction_sequence(out)
