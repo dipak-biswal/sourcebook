@@ -8,9 +8,9 @@ from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, Tool
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
-import app.agents.runner.finalize as finalize_mod
-import app.agents.runner.loop as loop_mod
-from app.agents.runner.loop import _run_tool_loop
+import app.agents.main.runner.finalize as finalize_mod
+import app.agents.main.runner.loop as loop_mod
+from app.agents.main.runner.loop import _run_tool_loop
 from app.db import Base
 from app.models import AgentRun, User, Workspace
 
@@ -50,7 +50,7 @@ def run_env(db_session, monkeypatch):
     monkeypatch.setattr(finalize_mod, "_synthesize_final_answer", lambda *a, **k: None)
     monkeypatch.setattr(finalize_mod, "should_offer_presentation", lambda **k: False)
     # search_documents runs in a thread pool — keep it off the sqlite session.
-    monkeypatch.setattr("app.agents.tools.factory.retrieve_chunks", lambda *a, **k: [])
+    monkeypatch.setattr("app.agents.main.tools.factory.retrieve_chunks", lambda *a, **k: [])
 
     events: list[tuple[str, dict]] = []
 

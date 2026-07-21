@@ -1,46 +1,47 @@
-# Agent & Visual Summary package layout
+# Agents package layout
 
-Backend code is split by **pipeline role**, not product vertical.
+All agent code lives under `app/agents/`, split by agent role:
 
 ```text
-app/
-├── agents/                    # Main workspace agent
-│   ├── profiles.py            # System prompts / tool allowlists
-│   ├── tool_policy.py
-│   ├── tools/                 # date, web_search, fetch_url, factory (build_tools)
-│   ├── runner/                # Tool loop, HITL, lifecycle, events
-│   ├── trace/                 # execution_trace
-│   └── storage/               # run compact / prune
+app/agents/
+├── __init__.py                 # re-exports run_agent, approve_agent_run
 │
-└── visual_summary/            # Visual Summary domain (after “View in UI”)
-    ├── tools.py               # plan_layout / render_ui LangChain tools + LLM plan
-    ├── pipeline.py            # Orchestrator entry from runner
-    ├── context.py             # PresentationContext
+├── main/                       # Main workspace agent
+│   ├── profiles.py             # system prompts / tool allowlists
+│   ├── tool_policy.py
+│   ├── tools/                  # date, web_search, fetch_url, factory
+│   ├── runner/                 # tool loop, HITL, lifecycle, events
+│   ├── trace/                  # execution_trace
+│   └── storage/                # run compact / prune
+│
+└── visual_summary/             # Visual Summary agent
+    ├── tools.py                # plan_layout / render_ui LangChain tools
+    ├── pipeline.py             # after “View in UI”
+    ├── context.py
     ├── llm_json.py
-    ├── blocks/                # registry + gen_ui models
-    ├── handoff/               # extract, structured, evidence
-    ├── planning/              # ui_intent, layout, stabilize, validator, planner
-    ├── render/                # assemble, engine, answer
-    └── workspace/             # workspace context, profile, interactions
+    ├── blocks/                 # registry + gen_ui models
+    ├── handoff/                # extract, structured, evidence
+    ├── planning/               # ui_intent, layout, stabilize, validator
+    ├── render/                 # assemble, engine, answer
+    └── workspace/              # workspace context, profile, interactions
 ```
 
-## Import conventions
+## Imports
 
 | Use case | Import from |
 |----------|-------------|
-| Start / approve a run | `app.agents.runner` |
-| Build main tools | `app.agents.tools` |
-| Visual plan / stabilize | `app.visual_summary.planning.*` |
-| GenUI models | `app.visual_summary.blocks.gen_ui` |
-| Block registry | `app.visual_summary.blocks.registry` (or shim `app.blocks`) |
-
-Old paths (`app.presentation.*`, `app.agents.visual_tools`, …) have been removed — import from the packages above.
+| Start / approve a run | `app.agents` or `app.agents.main.runner` |
+| Build main tools | `app.agents.main.tools` |
+| Visual pipeline | `app.agents.visual_summary.pipeline` |
+| Layout stabilize | `app.agents.visual_summary.planning.layout_stabilize` |
+| GenUI models | `app.agents.visual_summary.blocks.gen_ui` |
+| Block registry | `app.agents.visual_summary.blocks.registry` |
 
 ## Flow
 
 ```text
 routers/agents.py
-  → agents.runner (main tool loop + HITL)
-  → visual_summary.pipeline (after presentation approve)
+  → agents.main.runner          # main tool loop + HITL
+  → agents.visual_summary.pipeline   # after presentation approve
        → handoff → planning → render
 ```

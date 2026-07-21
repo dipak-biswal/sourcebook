@@ -10,7 +10,7 @@ from sqlalchemy.orm import Session
 from app.db import get_db
 from app.deps import get_current_user
 from app.models import AgentRun, AgentStep, Message, UsageEvent, User, WorkspaceMember
-from app.visual_summary.workspace.interactions import (
+from app.agents.visual_summary.workspace.interactions import (
     ACTION_TO_AFFORDANCE,
     ALLOWED_ACTIONS,
     log_visual_interaction,

@@ -1,11 +1,11 @@
 """Stabilize layout plans: profiles, diagram injection, mechanism order."""
 
-from app.visual_summary.planning.layout_stabilize import (
+from app.agents.visual_summary.planning.layout_stabilize import (
     sanitize_presentation_profile,
     stabilize_layout_plan,
     stabilize_process_flow_topology,
 )
-from app.visual_summary.render.assemble import payload_from_assembly
+from app.agents.visual_summary.render.assemble import payload_from_assembly
 
 
 def test_sanitize_rejects_short_snake_case_placeholder():

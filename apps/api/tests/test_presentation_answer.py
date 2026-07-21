@@ -4,15 +4,15 @@ import uuid
 from types import SimpleNamespace
 from unittest.mock import MagicMock
 
-from app.visual_summary.tools import _plan_layout_llm
-from app.visual_summary.render.answer import (
+from app.agents.visual_summary.tools import _plan_layout_llm
+from app.agents.visual_summary.render.answer import (
     PRESENTATION_ANSWER_MAX_CHARS,
     clip_presentation_answer,
     resolve_presentation_answer,
 )
-from app.visual_summary.context import PresentationContext
-from app.visual_summary.handoff.evidence import AgentEvidenceBundle
-from app.visual_summary.handoff.structured import extract_structured_content
+from app.agents.visual_summary.context import PresentationContext
+from app.agents.visual_summary.handoff.evidence import AgentEvidenceBundle
+from app.agents.visual_summary.handoff.structured import extract_structured_content
 
 
 def test_resolve_presentation_answer_prefers_longest_narrative():
@@ -83,7 +83,7 @@ def test_plan_layout_prompt_uses_structured_extract_not_raw_blob(monkeypatch):
 
     fake_client = MagicMock()
     fake_client.chat.completions.create = fake_create
-    monkeypatch.setattr("app.visual_summary.tools._client", lambda: fake_client)
+    monkeypatch.setattr("app.agents.visual_summary.tools._client", lambda: fake_client)
 
     _plan_layout_llm(ctx)
     prompt = captured[0]

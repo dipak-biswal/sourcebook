@@ -2,21 +2,21 @@
 
 import uuid
 
-from app.visual_summary.blocks.gen_ui import GenUIBlock
-from app.visual_summary.context import PresentationContext
-from app.visual_summary.render.engine import (
+from app.agents.visual_summary.blocks.gen_ui import GenUIBlock
+from app.agents.visual_summary.context import PresentationContext
+from app.agents.visual_summary.render.engine import (
     _attribute_block_sources,
     _ensure_requested_layout,
     _infer_qualitative_level,
     build_presentation,
 )
-from app.visual_summary.handoff.evidence import (
+from app.agents.visual_summary.handoff.evidence import (
     AgentEvidenceBundle,
     DocumentEvidenceHit,
     collect_evidence_from_steps,
     serialize_agent_evidence,
 )
-from app.visual_summary.blocks.gen_ui import SourceSnippet
+from app.agents.visual_summary.blocks.gen_ui import SourceSnippet
 
 
 # --- #6: evidence carries document_id end to end ---

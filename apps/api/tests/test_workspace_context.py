@@ -1,6 +1,6 @@
 """WorkspaceContextPacket derivation — no vertical enums in asserts."""
 
-from app.visual_summary.workspace.context import (
+from app.agents.visual_summary.workspace.context import (
     DERIVATION_VERSION,
     derive_workspace_context,
     format_main_agent_system_prompt,

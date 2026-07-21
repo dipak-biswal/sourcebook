@@ -9,8 +9,8 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session, joinedload
 
-from app.agents.profiles import get_profile, normalize_agent_type
-from app.agents.runner import (
+from app.agents.main.profiles import get_profile, normalize_agent_type
+from app.agents.main.runner import (
     _workspace_name_for_run,
     approve_agent_run,
     run_agent,
@@ -313,7 +313,7 @@ def list_agent_runs(
 ):
     _require_member(db, current_user.id, workspace_id)
     # Opportunistic storage hygiene for this workspace (cheap when nothing to drop).
-    from app.agents.storage.run_storage import prune_agent_runs
+    from app.agents.main.storage.run_storage import prune_agent_runs
 
     try:
         pruned = prune_agent_runs(
@@ -347,7 +347,7 @@ def prune_runs(
     """Manually prune aged / excess agent runs for the current user."""
     if workspace_id is not None:
         _require_member(db, current_user.id, workspace_id)
-    from app.agents.storage.run_storage import prune_agent_runs
+    from app.agents.main.storage.run_storage import prune_agent_runs
 
     result = prune_agent_runs(
         db, user_id=current_user.id, workspace_id=workspace_id
@@ -378,7 +378,7 @@ def cancel_agent_run(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"Run is already {run.status}",
         )
-    from app.agents.runner.events import _append_step, _next_step_index
+    from app.agents.main.runner.events import _append_step, _next_step_index
 
     run.status = "cancelled"
     run.pending_tool = None
@@ -395,7 +395,7 @@ def cancel_agent_run(
         type="final",
         output={"status": "cancelled", "message": "Cancelled by user"},
     )
-    from app.agents.storage.run_storage import compact_run_if_terminal
+    from app.agents.main.storage.run_storage import compact_run_if_terminal
 
     compact_run_if_terminal(db, run)
     db.commit()

@@ -1,6 +1,6 @@
 """Agent evidence bundle for presentation engine."""
 
-from app.visual_summary.handoff.evidence import collect_evidence_from_steps
+from app.agents.visual_summary.handoff.evidence import collect_evidence_from_steps
 
 
 def test_collect_evidence_from_search_and_web_steps():

@@ -2,7 +2,7 @@
 
 from langchain_core.messages import HumanMessage, ToolMessage
 
-from app.agents.tool_policy import (
+from app.agents.main.tool_policy import (
     format_date_context_message,
     messages_have_date_result,
     prepare_read_tool_calls,

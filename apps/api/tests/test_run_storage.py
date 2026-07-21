@@ -5,7 +5,7 @@ from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 from unittest.mock import MagicMock
 
-from app.agents.storage.run_storage import compact_json_value, compact_run_steps, prune_agent_runs
+from app.agents.main.storage.run_storage import compact_json_value, compact_run_steps, prune_agent_runs
 
 
 def test_compact_json_value_strips_heavy_keys():

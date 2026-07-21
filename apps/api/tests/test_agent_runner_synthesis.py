@@ -4,7 +4,7 @@ import json
 
 from langchain_core.messages import HumanMessage, SystemMessage, ToolMessage
 
-from app.agents.runner import (
+from app.agents.main.runner import (
     _hash_args,
     _tool_context_for_synthesis,
     _weak_final_answer,

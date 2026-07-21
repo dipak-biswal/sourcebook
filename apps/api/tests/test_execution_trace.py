@@ -1,6 +1,6 @@
 import uuid
 
-from app.agents.trace.execution_trace import (
+from app.agents.main.trace.execution_trace import (
     LiveTraceContext,
     build_execution_trace,
     emit_execution_trace,

@@ -1,6 +1,6 @@
 """Generative UI block type normalization."""
 
-from app.visual_summary.blocks.gen_ui import _normalize_block_dict
+from app.agents.visual_summary.blocks.gen_ui import _normalize_block_dict
 
 
 def test_metrics_alias():

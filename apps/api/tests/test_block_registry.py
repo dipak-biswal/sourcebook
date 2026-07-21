@@ -3,15 +3,15 @@
 from pathlib import Path
 from typing import get_args
 
-from app.visual_summary.blocks.gen_ui import BlockType
-from app.visual_summary.blocks.registry import (
+from app.agents.visual_summary.blocks.gen_ui import BlockType
+from app.agents.visual_summary.blocks.registry import (
     AFFORDANCE_SPEC,
     ALL_BLOCK_TYPES,
     BLOCK_TYPE_SET,
     KNOWN_SOURCE_HINTS,
     SOURCE_HINT_AFFORDANCE,
 )
-from app.visual_summary.planning.plan_validator import ALLOWED_BLOCK_TYPES
+from app.agents.visual_summary.planning.plan_validator import ALLOWED_BLOCK_TYPES
 
 
 def test_gen_ui_literal_matches_registry():

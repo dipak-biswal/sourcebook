@@ -13,7 +13,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from app.visual_summary.blocks.registry import web_contract  # noqa: E402
+from app.agents.visual_summary.blocks.registry import web_contract  # noqa: E402
 
 CONTRACT_PATH = (
     Path(__file__).resolve().parents[3]

@@ -4,13 +4,13 @@ import uuid
 from types import SimpleNamespace
 from unittest.mock import MagicMock
 
-from app.visual_summary.handoff.extract import (
+from app.agents.visual_summary.handoff.extract import (
     handoff_error_message,
     normalize_structured_content,
     resolve_structured_content,
     validate_handoff,
 )
-from app.visual_summary.handoff.structured import extract_structured_content
+from app.agents.visual_summary.handoff.structured import extract_structured_content
 
 SAMPLE = """\
 ## Summary
@@ -113,7 +113,7 @@ def test_normalize_drops_empty_diagram_modules():
 
 def test_resolve_structured_content_uses_heuristic_when_llm_disabled(monkeypatch):
     monkeypatch.setattr(
-        "app.visual_summary.handoff.extract.settings.visual_summary_llm_extractor", False
+        "app.agents.visual_summary.handoff.extract.settings.visual_summary_llm_extractor", False
     )
     structured, source = resolve_structured_content(SAMPLE, goal="Summarize")
     assert source == "heuristic"
@@ -136,17 +136,17 @@ def _mock_llm(monkeypatch, payload: dict, captured: list | None = None):
 
     fake_client = MagicMock()
     fake_client.chat.completions.create = fake_create
-    monkeypatch.setattr("app.visual_summary.handoff.extract._client", lambda: fake_client)
+    monkeypatch.setattr("app.agents.visual_summary.handoff.extract._client", lambda: fake_client)
     monkeypatch.setattr(
-        "app.visual_summary.handoff.extract.settings.visual_summary_llm_extractor", True
+        "app.agents.visual_summary.handoff.extract.settings.visual_summary_llm_extractor", True
     )
     monkeypatch.setattr(
-        "app.visual_summary.handoff.extract.settings.openai_api_key", "sk-test"
+        "app.agents.visual_summary.handoff.extract.settings.openai_api_key", "sk-test"
     )
     # These tests cover the standalone extraction path — combined mode would
     # defer extraction to the planner and skip the call being mocked here.
     monkeypatch.setattr(
-        "app.visual_summary.handoff.extract.settings.visual_summary_combined_call", False
+        "app.agents.visual_summary.handoff.extract.settings.visual_summary_combined_call", False
     )
 
 
@@ -197,7 +197,7 @@ Here is the plan:
 
 
 def test_llm_extraction_prompt_includes_evidence(monkeypatch):
-    from app.visual_summary.handoff.evidence import AgentEvidenceBundle, DocumentEvidenceHit
+    from app.agents.visual_summary.handoff.evidence import AgentEvidenceBundle, DocumentEvidenceHit
 
     captured: list[str] = []
     _mock_llm(monkeypatch, {"summary": "Grounded overview of the workspace docs."}, captured)
@@ -229,7 +229,7 @@ def test_resolve_structured_content_upgrades_thin_via_llm(monkeypatch):
     }
 
     monkeypatch.setattr(
-        "app.visual_summary.handoff.extract.extract_structured_content",
+        "app.agents.visual_summary.handoff.extract.extract_structured_content",
         lambda answer, goal="": {
             "summary": "",
             "key_points": [],
@@ -249,7 +249,7 @@ def test_resolve_structured_content_upgrades_thin_via_llm(monkeypatch):
 
     fake_client = MagicMock()
     fake_client.chat.completions.create = lambda **kwargs: _FakeResp()
-    monkeypatch.setattr("app.visual_summary.handoff.extract._client", lambda: fake_client)
+    monkeypatch.setattr("app.agents.visual_summary.handoff.extract._client", lambda: fake_client)
 
     structured, source = resolve_structured_content(thin, goal="Explain docs")
     assert source == "llm"

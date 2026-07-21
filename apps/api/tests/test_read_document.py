@@ -6,7 +6,7 @@ import pytest
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
-from app.agents.tools import build_tools
+from app.agents.main.tools import build_tools
 from app.db import Base
 from app.models import Chunk, Document, User, Workspace
 

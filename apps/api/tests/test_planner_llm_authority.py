@@ -5,11 +5,11 @@ import uuid
 from types import SimpleNamespace
 from unittest.mock import MagicMock
 
-from app.visual_summary.tools import _plan_with_validation
-from app.visual_summary.context import PresentationContext
-from app.visual_summary.handoff.evidence import AgentEvidenceBundle
-from app.visual_summary.render.assemble import assemble_blocks
-from app.visual_summary.planning.ui_intent import available_source_hints
+from app.agents.visual_summary.tools import _plan_with_validation
+from app.agents.visual_summary.context import PresentationContext
+from app.agents.visual_summary.handoff.evidence import AgentEvidenceBundle
+from app.agents.visual_summary.render.assemble import assemble_blocks
+from app.agents.visual_summary.planning.ui_intent import available_source_hints
 
 STRUCTURED = {
     "summary": "Developer with React and Python experience across two products.",
@@ -55,7 +55,7 @@ def _fake_llm(plan: dict, monkeypatch, calls: list | None = None):
 
     fake_client = MagicMock()
     fake_client.chat.completions.create = fake_create
-    monkeypatch.setattr("app.visual_summary.tools._client", lambda: fake_client)
+    monkeypatch.setattr("app.agents.visual_summary.tools._client", lambda: fake_client)
 
 
 def test_available_source_hints_lists_present_fields_only():
@@ -102,7 +102,7 @@ def test_planner_valid_grounded_plan_used_verbatim(monkeypatch):
     }
     _fake_llm(llm_plan, monkeypatch)
     monkeypatch.setattr(
-        "app.visual_summary.tools.settings.visual_summary_llm_planner", True
+        "app.agents.visual_summary.tools.settings.visual_summary_llm_planner", True
     )
 
     result = _plan_with_validation(_ctx())
@@ -149,9 +149,9 @@ def test_planner_absent_source_hint_falls_back_to_skeleton(monkeypatch):
 
     fake_client = MagicMock()
     fake_client.chat.completions.create = fake_create
-    monkeypatch.setattr("app.visual_summary.tools._client", lambda: fake_client)
+    monkeypatch.setattr("app.agents.visual_summary.tools._client", lambda: fake_client)
     monkeypatch.setattr(
-        "app.visual_summary.tools.settings.visual_summary_llm_planner", True
+        "app.agents.visual_summary.tools.settings.visual_summary_llm_planner", True
     )
 
     result = _plan_with_validation(_ctx())
@@ -178,9 +178,9 @@ def test_planner_invalid_json_falls_back_to_skeleton(monkeypatch):
 
     fake_client = MagicMock()
     fake_client.chat.completions.create = lambda **kwargs: _FakeResp()
-    monkeypatch.setattr("app.visual_summary.tools._client", lambda: fake_client)
+    monkeypatch.setattr("app.agents.visual_summary.tools._client", lambda: fake_client)
     monkeypatch.setattr(
-        "app.visual_summary.tools.settings.visual_summary_llm_planner", True
+        "app.agents.visual_summary.tools.settings.visual_summary_llm_planner", True
     )
 
     result = _plan_with_validation(_ctx())
@@ -224,7 +224,7 @@ def test_prompt_includes_available_fields_whitelist(monkeypatch):
     }
     _fake_llm(good_plan, monkeypatch, calls=calls)
     monkeypatch.setattr(
-        "app.visual_summary.tools.settings.visual_summary_llm_planner", True
+        "app.agents.visual_summary.tools.settings.visual_summary_llm_planner", True
     )
 
     _plan_with_validation(_ctx())

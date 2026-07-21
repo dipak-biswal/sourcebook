@@ -2,8 +2,8 @@
 
 from types import SimpleNamespace
 
-from app.visual_summary.workspace.interactions import boosts_from_interaction_rows
-from app.visual_summary.planning.ui_intent import (
+from app.agents.visual_summary.workspace.interactions import boosts_from_interaction_rows
+from app.agents.visual_summary.planning.ui_intent import (
     DEFAULT_SCORING,
     UiIntentScoringConfig,
     resolve_ui_intent,
