@@ -1,6 +1,6 @@
 """Phase B — layout plan validation."""
 
-from app.presentation.plan_validator import format_validator_notes, validate_layout_plan
+from app.visual_summary.planning.plan_validator import format_validator_notes, validate_layout_plan
 
 STRUCTURED = {
     "summary": "Full-stack developer with React and FastAPI experience.",

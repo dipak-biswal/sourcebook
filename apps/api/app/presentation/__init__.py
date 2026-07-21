@@ -1,5 +1,5 @@
 """Generative UI presentation layer (planner + engine)."""
 
-from app.presentation.engine import build_presentation
+from app.visual_summary.render.engine import build_presentation
 
 __all__ = ["build_presentation"]

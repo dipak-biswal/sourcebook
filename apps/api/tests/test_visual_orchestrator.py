@@ -7,15 +7,15 @@ import pytest
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
-import app.agents.visual_tools as visual_tools_mod
+import app.visual_summary.tools as visual_tools_mod
 from app.agents.runner.lifecycle import _run_visual_summary_agent
-from app.agents.runner.visual import _run_visual_pipeline
-from app.agents.visual_tools import build_visual_tools
+from app.visual_summary.pipeline import _run_visual_pipeline
+from app.visual_summary.tools import build_visual_tools
 from app.config import settings
 from app.db import Base
 from app.models import AgentRun, AgentStep, User, Workspace
-from app.presentation.context import PresentationContext
-from app.presentation.evidence import AgentEvidenceBundle
+from app.visual_summary.context import PresentationContext
+from app.visual_summary.handoff.evidence import AgentEvidenceBundle
 
 FINAL_ANSWER = (
     "React and FastAPI are the core stack; RAG search shipped this quarter.\n\n"
@@ -171,9 +171,9 @@ def test_pipeline_token_usage_counts_embedded_llm_tokens(
         }
         return payload, result
 
-    monkeypatch.setattr("app.agents.runner.visual.run_plan_layout", fake_plan)
+    monkeypatch.setattr("app.visual_summary.pipeline.run_plan_layout", fake_plan)
     monkeypatch.setattr(
-        "app.agents.runner.visual.run_render_ui",
+        "app.visual_summary.pipeline.run_render_ui",
         lambda *a, **k: {
             "status": "rendered",
             "spec": {"type": "generative_ui", "title": "T", "plain_summary": "s", "blocks": []},

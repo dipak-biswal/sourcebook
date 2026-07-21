@@ -2,7 +2,7 @@
 
 from unittest.mock import MagicMock, patch
 
-from app.agents.web_search import normalize_web_search_query, search_web
+from app.agents.tools.web_search import normalize_web_search_query, search_web
 
 
 def test_search_web_requires_query():
@@ -38,7 +38,7 @@ def test_normalize_web_search_query_leaves_historical_queries():
     assert normalized == "Python 3.10 release notes 2020"
 
 
-@patch("app.agents.web_search.DDGS")
+@patch("app.agents.tools.web_search.DDGS")
 def test_search_web_normalizes_results(mock_ddgs_cls):
     mock_ddgs_cls.return_value.text.return_value = [
         {
@@ -65,7 +65,7 @@ def test_search_web_normalizes_results(mock_ddgs_cls):
     assert "LLM APIs" in out["results"][0]["snippet"]
 
 
-@patch("app.agents.web_search.DDGS")
+@patch("app.agents.tools.web_search.DDGS")
 def test_search_web_handles_errors(mock_ddgs_cls):
     mock_ddgs_cls.return_value.text.side_effect = RuntimeError("rate limited")
     out = search_web("test query")

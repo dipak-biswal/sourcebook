@@ -4,10 +4,10 @@ import uuid
 from types import SimpleNamespace
 from unittest.mock import MagicMock
 
-from app.agents.visual_tools import _plan_layout_llm
-from app.presentation.context import PresentationContext
-from app.presentation.evidence import AgentEvidenceBundle, DocumentEvidenceHit
-from app.presentation.structured import (
+from app.visual_summary.tools import _plan_layout_llm
+from app.visual_summary.context import PresentationContext
+from app.visual_summary.handoff.evidence import AgentEvidenceBundle, DocumentEvidenceHit
+from app.visual_summary.handoff.structured import (
     _BLOCK_MENU,
     _SOURCE_HINT_BLOCK_TYPE,
     build_plan_layout_input,
@@ -154,7 +154,7 @@ def test_plan_layout_prompt_uses_structured_input_not_raw_answer(monkeypatch):
 
     fake_client = MagicMock()
     fake_client.chat.completions.create = fake_create
-    monkeypatch.setattr("app.agents.visual_tools._client", lambda: fake_client)
+    monkeypatch.setattr("app.visual_summary.tools._client", lambda: fake_client)
 
     result = _plan_layout_llm(ctx)
     prompt = captured[0]

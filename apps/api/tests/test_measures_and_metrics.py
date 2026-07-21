@@ -4,17 +4,17 @@ import uuid
 from types import SimpleNamespace
 from unittest.mock import MagicMock
 
-from app.agents.gen_ui import GenUIBlock, _normalize_block_dict, parse_measure_item
-from app.agents.visual_tools import build_visual_tools
+from app.visual_summary.blocks.gen_ui import GenUIBlock, _normalize_block_dict, parse_measure_item
+from app.visual_summary.tools import build_visual_tools
 from app.models import UsageEvent
-from app.presentation.context import PresentationContext
-from app.presentation.engine import (
+from app.visual_summary.context import PresentationContext
+from app.visual_summary.render.engine import (
     _attach_measures,
     _ground_metric_numbers,
     _normalize_qualitative_progress,
     build_presentation,
 )
-from app.presentation.evidence import AgentEvidenceBundle, DocumentEvidenceHit
+from app.visual_summary.handoff.evidence import AgentEvidenceBundle, DocumentEvidenceHit
 from app.routers.usage import summarize_visual_pipeline
 
 

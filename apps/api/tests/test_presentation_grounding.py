@@ -1,7 +1,7 @@
 """Presentation engine anti-hallucination helpers."""
 
-from app.agents.gen_ui import GenUIBlock
-from app.presentation.engine import (
+from app.visual_summary.blocks.gen_ui import GenUIBlock
+from app.visual_summary.render.engine import (
     _looks_like_placeholder,
     _phrase_grounded,
     _sanitize_blocks_for_grounding,

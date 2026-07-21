@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from app.agents.date_tools import DATE_TOOL_NAMES
+from app.agents.tools.date import DATE_TOOL_NAMES
 
 GENERAL_TOOL_NAMES = frozenset(
     {

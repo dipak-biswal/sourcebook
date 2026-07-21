@@ -12,7 +12,7 @@ from langchain_core.messages import BaseMessage, HumanMessage, ToolMessage
 from sqlalchemy.orm import Session
 
 from app.agents.runner.events import EventCallback, _append_step, _emit
-from app.agents.runner.visual import (
+from app.visual_summary.pipeline import (
     _accumulate_visual_tool_tokens,
     _apply_render_ui_result,
     _visual_tool_result_input,
@@ -25,7 +25,7 @@ from app.agents.tool_policy import (
     sort_read_calls_for_execution,
 )
 from app.models import AgentRun
-from app.presentation.context import PresentationContext
+from app.visual_summary.context import PresentationContext
 
 
 def _is_main_agent_loop(*, finalize_mode: str, agent_type_override: str | None) -> bool:

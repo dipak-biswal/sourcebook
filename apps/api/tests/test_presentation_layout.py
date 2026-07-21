@@ -1,6 +1,6 @@
 """Layout intent parsing from user goals."""
 
-from app.presentation.layout import format_layout_requirements, layout_components_from_goal
+from app.visual_summary.planning.layout import format_layout_requirements, layout_components_from_goal
 
 
 def test_parses_kitchen_sink_goal():

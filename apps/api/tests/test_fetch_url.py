@@ -3,8 +3,8 @@
 import httpx
 import pytest
 
-import app.agents.fetch_url as fetch_url_mod
-from app.agents.fetch_url import (
+import app.agents.tools.fetch_url as fetch_url_mod
+from app.agents.tools.fetch_url import (
     MAX_CONTENT_BYTES,
     fetch_url_content,
     validate_fetch_url,

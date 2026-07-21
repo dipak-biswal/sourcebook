@@ -1,7 +1,7 @@
 """Qualitative progress bar normalization."""
 
-from app.agents.gen_ui import GenUIBlock
-from app.presentation.engine import _normalize_qualitative_progress
+from app.visual_summary.blocks.gen_ui import GenUIBlock
+from app.visual_summary.render.engine import _normalize_qualitative_progress
 
 
 def test_strips_ungrounded_percentage():

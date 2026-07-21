@@ -3,9 +3,9 @@
 import uuid
 from unittest.mock import MagicMock
 
-from app.agents.visual_tools import build_visual_tools
-from app.presentation.context import PresentationContext
-from app.presentation.evidence import AgentEvidenceBundle
+from app.visual_summary.tools import build_visual_tools
+from app.visual_summary.context import PresentationContext
+from app.visual_summary.handoff.evidence import AgentEvidenceBundle
 
 
 def _ctx() -> PresentationContext:

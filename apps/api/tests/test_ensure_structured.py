@@ -3,8 +3,8 @@
 import uuid
 from unittest.mock import patch
 
-from app.agents.visual_tools import _ensure_structured, _plan_layout_skeleton
-from app.presentation.context import PresentationContext
+from app.visual_summary.tools import _ensure_structured, _plan_layout_skeleton
+from app.visual_summary.context import PresentationContext
 
 
 def _ctx(**kwargs) -> PresentationContext:
@@ -31,7 +31,7 @@ def test_ensure_structured_uses_ctx_without_reextract():
     }
     ctx = _ctx(structured_content=existing, structured_source="llm")
     with patch(
-        "app.agents.visual_tools.extract_structured_content",
+        "app.visual_summary.tools.extract_structured_content",
         side_effect=AssertionError("must not re-extract"),
     ):
         out = _ensure_structured(ctx)
@@ -43,7 +43,7 @@ def test_ensure_structured_uses_ctx_without_reextract():
 def test_ensure_structured_extracts_once_when_missing():
     ctx = _ctx(structured_content=None)
     with patch(
-        "app.agents.visual_tools.extract_structured_content",
+        "app.visual_summary.tools.extract_structured_content",
         return_value={
             "summary": "From heuristic.",
             "key_points": ["One", "Two"],
@@ -71,7 +71,7 @@ def test_skeleton_does_not_reextract_when_ctx_set():
         structured_source="llm",
     )
     with patch(
-        "app.agents.visual_tools.extract_structured_content",
+        "app.visual_summary.tools.extract_structured_content",
         side_effect=AssertionError("skeleton must not re-extract"),
     ):
         result = _plan_layout_skeleton(ctx)

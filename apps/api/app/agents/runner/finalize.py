@@ -15,7 +15,7 @@ from app.agents.runner.synthesis import (
     _weak_final_answer,
 )
 from app.models import AgentRun
-from app.presentation.planner import should_offer_presentation
+from app.visual_summary.planning.planner import should_offer_presentation
 
 
 def _finalize_completed_run(

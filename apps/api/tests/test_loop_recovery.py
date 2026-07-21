@@ -50,7 +50,7 @@ def run_env(db_session, monkeypatch):
     monkeypatch.setattr(finalize_mod, "_synthesize_final_answer", lambda *a, **k: None)
     monkeypatch.setattr(finalize_mod, "should_offer_presentation", lambda **k: False)
     # search_documents runs in a thread pool — keep it off the sqlite session.
-    monkeypatch.setattr("app.agents.tools.retrieve_chunks", lambda *a, **k: [])
+    monkeypatch.setattr("app.agents.tools.factory.retrieve_chunks", lambda *a, **k: [])
 
     events: list[tuple[str, dict]] = []
 

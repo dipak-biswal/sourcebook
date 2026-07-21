@@ -4,9 +4,9 @@ import uuid
 from types import SimpleNamespace
 from unittest.mock import MagicMock
 
-from app.agents.visual_tools import _plan_layout_llm
-from app.presentation.context import PresentationContext
-from app.presentation.evidence import AgentEvidenceBundle
+from app.visual_summary.tools import _plan_layout_llm
+from app.visual_summary.context import PresentationContext
+from app.visual_summary.handoff.evidence import AgentEvidenceBundle
 
 
 def test_plan_layout_llm_returns_prompt_and_usage(monkeypatch):
@@ -30,7 +30,7 @@ def test_plan_layout_llm_returns_prompt_and_usage(monkeypatch):
 
     fake_client = MagicMock()
     fake_client.chat.completions.create = lambda **kwargs: _FakeResp()
-    monkeypatch.setattr("app.agents.visual_tools._client", lambda: fake_client)
+    monkeypatch.setattr("app.visual_summary.tools._client", lambda: fake_client)
 
     result = _plan_layout_llm(ctx)
     assert "STRUCTURED INPUT" in result["prompt"]

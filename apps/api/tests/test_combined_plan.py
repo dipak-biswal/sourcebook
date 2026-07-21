@@ -5,17 +5,17 @@ import uuid
 from types import SimpleNamespace
 from unittest.mock import MagicMock
 
-import app.agents.visual_tools as vt
-from app.blocks import ALL_BLOCK_TYPES, KNOWN_SOURCE_HINTS
+import app.visual_summary.tools as vt
+from app.visual_summary.blocks.registry import ALL_BLOCK_TYPES, KNOWN_SOURCE_HINTS
 from app.config import settings
-from app.presentation.context import PresentationContext
-from app.presentation.evidence import AgentEvidenceBundle
-from app.presentation.handoff import (
+from app.visual_summary.context import PresentationContext
+from app.visual_summary.handoff.evidence import AgentEvidenceBundle
+from app.visual_summary.handoff.extract import (
     combined_extract_plan_enabled,
     format_combined_extract_plan_prompt,
     resolve_structured_content,
 )
-from app.presentation.llm_json import PLAN_SCHEMA, chat_json
+from app.visual_summary.llm_json import PLAN_SCHEMA, chat_json
 
 ANSWER = (
     "React and FastAPI are the core stack; RAG search shipped this quarter.\n\n"
@@ -98,7 +98,7 @@ def test_combined_mode_skips_extraction_when_heuristic_has_substance(monkeypatch
         raise AssertionError("extraction LLM must not be called in combined mode")
 
     monkeypatch.setattr(
-        "app.presentation.handoff.extract_structured_content_llm", boom
+        "app.visual_summary.handoff.extract.extract_structured_content_llm", boom
     )
     structured, source = resolve_structured_content(ANSWER, goal="Summarize")
     assert source == "heuristic"
@@ -108,12 +108,12 @@ def test_combined_mode_skips_extraction_when_heuristic_has_substance(monkeypatch
 def test_combined_mode_still_rescues_thin_heuristic(monkeypatch):
     _combined_flags(monkeypatch)
     monkeypatch.setattr(
-        "app.presentation.handoff.extract_structured_content",
+        "app.visual_summary.handoff.extract.extract_structured_content",
         lambda answer, goal="": {"summary": "", "key_points": [], "faq": [],
                                  "sections": [], "themes": []},
     )
     monkeypatch.setattr(
-        "app.presentation.handoff.extract_structured_content_llm",
+        "app.visual_summary.handoff.extract.extract_structured_content_llm",
         lambda *a, **k: {
             "summary": "Expanded summary with substance.",
             "key_points": ["Point one", "Point two"],

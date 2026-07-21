@@ -4,13 +4,12 @@ from typing import Any
 from langchain_core.tools import tool
 from sqlalchemy.orm import Session
 
-from app.agents.date_tools import get_current_date
-from app.agents.fetch_url import fetch_url_content
 from app.agents.profiles import get_profile
 from app.agents.tool_policy import GENERAL_TOOL_ORDER
-from app.agents.visual_tools import build_visual_tools
-from app.presentation.context import PresentationContext
-from app.agents.web_search import search_web
+from app.agents.tools.date import get_current_date
+from app.agents.tools.fetch_url import fetch_url_content
+from app.agents.tools.web_search import search_web
+from app.visual_summary.context import PresentationContext
 from app.ingestion.retrieve import retrieve_chunks
 from app.models import Chunk, Document, Note
 
@@ -28,6 +27,9 @@ def build_tools(
     profile = get_profile(agent_type)
 
     if profile.agent_type == "visual_summary":
+        # Lazy import avoids circular import with visual_tools → tools.date.
+        from app.visual_summary.tools import build_visual_tools
+
         if presentation_context is None:
             raise ValueError("presentation_context is required for visual_summary tools")
         return build_visual_tools(

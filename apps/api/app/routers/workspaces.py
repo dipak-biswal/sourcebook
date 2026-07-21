@@ -11,7 +11,7 @@ from app.models import Document, User, Workspace, WorkspaceMember
 from app.workspaces.delete import purge_workspace
 
 logger = get_logger("sourcebook.workspaces")
-from app.presentation.workspace_context import (
+from app.visual_summary.workspace.context import (
     derive_workspace_context,
     format_workspace_context_for_agent,
 )

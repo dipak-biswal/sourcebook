@@ -3,12 +3,12 @@
 import uuid
 from unittest.mock import MagicMock
 
-from app.agents.visual_tools import _plan_with_validation
-from app.presentation.context import PresentationContext
-from app.presentation.engine import build_presentation
-from app.presentation.evidence import AgentEvidenceBundle
-from app.presentation.render_blocks import assemble_blocks, payload_from_assembly
-from app.presentation.ui_intent import (
+from app.visual_summary.tools import _plan_with_validation
+from app.visual_summary.context import PresentationContext
+from app.visual_summary.render.engine import build_presentation
+from app.visual_summary.handoff.evidence import AgentEvidenceBundle
+from app.visual_summary.render.assemble import assemble_blocks, payload_from_assembly
+from app.visual_summary.planning.ui_intent import (
     build_skeleton_layout_plan,
     resolve_ui_intent,
 )
@@ -275,7 +275,7 @@ def test_assemble_sequence_diagram_too_few_actors_dropped():
 
 
 def test_available_source_hints_includes_diagram_fields():
-    from app.presentation.ui_intent import available_source_hints
+    from app.visual_summary.planning.ui_intent import available_source_hints
 
     structured = {
         "summary": "Event loop overview",
@@ -304,7 +304,7 @@ def test_available_source_hints_includes_diagram_fields():
 
 
 def test_explain_goal_leads_with_mechanism_when_process_flow_present():
-    from app.presentation.ui_intent import resolve_ui_intent
+    from app.visual_summary.planning.ui_intent import resolve_ui_intent
 
     structured = {
         "summary": "The event loop runs async callbacks when the stack is clear.",
@@ -374,7 +374,7 @@ def test_goal_aware_lead_block_for_comparison():
 
 def test_plan_layout_uses_code_skeleton_without_llm(monkeypatch):
     monkeypatch.setattr(
-        "app.agents.visual_tools.settings.visual_summary_llm_planner", False
+        "app.visual_summary.tools.settings.visual_summary_llm_planner", False
     )
     ctx = PresentationContext(
         workspace_id=uuid.uuid4(),

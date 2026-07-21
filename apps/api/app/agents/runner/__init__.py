@@ -5,21 +5,15 @@ Facade for the runner package — import from `app.agents.runner` as before:
 - lifecycle: run_agent, approve_agent_run
 - serialization: run_to_public_dict, step_to_dict
 - constants: WRITE_TOOLS, PRESENTATION_TOOL, EventCallback
+
+Submodule imports (e.g. ``from app.agents.runner.constants import …``) must not
+pull lifecycle/loop eagerly — keep this package init lazy to avoid circular
+imports with ``visual_summary.pipeline``.
 """
 
-from app.agents.runner.constants import PRESENTATION_TOOL, WRITE_TOOLS
-from app.agents.runner.events import (
-    EventCallback,
-    _workspace_name_for_run,
-    run_to_public_dict,
-    step_to_dict,
-)
-from app.agents.runner.lifecycle import approve_agent_run, run_agent
-from app.agents.runner.messages import _hash_args
-from app.agents.runner.synthesis import (
-    _tool_context_for_synthesis,
-    _weak_final_answer,
-)
+from __future__ import annotations
+
+from typing import Any
 
 __all__ = [
     "EventCallback",
@@ -34,3 +28,27 @@ __all__ = [
     "_weak_final_answer",
     "_workspace_name_for_run",
 ]
+
+
+def __getattr__(name: str) -> Any:
+    if name in ("PRESENTATION_TOOL", "WRITE_TOOLS"):
+        from app.agents.runner import constants as _c
+
+        return getattr(_c, name)
+    if name in ("EventCallback", "run_to_public_dict", "step_to_dict", "_workspace_name_for_run"):
+        from app.agents.runner import events as _e
+
+        return getattr(_e, name)
+    if name in ("run_agent", "approve_agent_run"):
+        from app.agents.runner import lifecycle as _l
+
+        return getattr(_l, name)
+    if name == "_hash_args":
+        from app.agents.runner.messages import _hash_args
+
+        return _hash_args
+    if name in ("_tool_context_for_synthesis", "_weak_final_answer"):
+        from app.agents.runner import synthesis as _s
+
+        return getattr(_s, name)
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

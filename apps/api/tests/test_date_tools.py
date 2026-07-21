@@ -1,6 +1,6 @@
 from datetime import datetime, timezone
 
-from app.agents.date_tools import current_date_payload, get_current_date
+from app.agents.tools.date import current_date_payload, get_current_date
 
 
 def test_current_date_payload_returns_month_and_year():

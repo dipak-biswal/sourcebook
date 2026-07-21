@@ -26,14 +26,14 @@ from app.agents.runner.llm import (
 )
 from app.agents.runner.messages import _content_str, _hash_args, _serialize_messages
 from app.agents.runner.read_tools import _process_read_tool_calls
-from app.agents.runner.visual import (
+from app.visual_summary.pipeline import (
     _finalize_visual_summary_run,
     _visual_tool_call_input,
 )
 from app.agents.tools import build_tools
 from app.config import settings
 from app.models import AgentRun
-from app.presentation.context import PresentationContext
+from app.visual_summary.context import PresentationContext
 
 
 def _run_tool_loop(

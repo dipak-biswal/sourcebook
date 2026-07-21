@@ -26,18 +26,18 @@ from app.agents.runner.events import (
 )
 from app.agents.runner.loop import _run_tool_loop
 from app.agents.runner.messages import _deserialize_messages
-from app.agents.runner.visual import (
+from app.visual_summary.pipeline import (
     _is_presentation_pending,
     _presentation_context_for_run,
     _run_visual_pipeline,
     _visual_summary_handoff_message,
 )
 from app.agents.tools import build_tools
-from app.agents.visual_tools import VISUAL_SUMMARY_AGENT_LABEL
+from app.visual_summary.tools import VISUAL_SUMMARY_AGENT_LABEL
 from app.config import settings
 from app.models import AgentRun
-from app.presentation.handoff import handoff_error_message, validate_handoff
-from app.presentation.workspace_context import (
+from app.visual_summary.handoff.extract import handoff_error_message, validate_handoff
+from app.visual_summary.workspace.context import (
     format_main_agent_system_prompt,
     resolve_workspace_context,
 )

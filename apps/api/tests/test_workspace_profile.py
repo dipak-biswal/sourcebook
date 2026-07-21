@@ -9,13 +9,13 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
 from app.models import Base, Workspace
-from app.presentation.structured import format_plan_layout_prompt
-from app.presentation.workspace_context import (
+from app.visual_summary.handoff.structured import format_plan_layout_prompt
+from app.visual_summary.workspace.context import (
     derive_workspace_context,
     packet_from_dict,
     resolve_workspace_context,
 )
-from app.presentation.workspace_profile import (
+from app.visual_summary.workspace.profile import (
     context_fingerprint,
     sanitize_planner_example,
 )
@@ -84,13 +84,13 @@ def _mock_profiler(monkeypatch, payload: dict, calls: list | None = None):
     fake_client = MagicMock()
     fake_client.chat.completions.create = fake_create
     monkeypatch.setattr(
-        "app.presentation.workspace_profile._client", lambda: fake_client
+        "app.visual_summary.workspace.profile._client", lambda: fake_client
     )
     monkeypatch.setattr(
-        "app.presentation.workspace_profile.settings.workspace_llm_profiler", True
+        "app.visual_summary.workspace.profile.settings.workspace_llm_profiler", True
     )
     monkeypatch.setattr(
-        "app.presentation.workspace_profile.settings.openai_api_key", "sk-test"
+        "app.visual_summary.workspace.profile.settings.openai_api_key", "sk-test"
     )
 
 
@@ -198,13 +198,13 @@ def test_profiler_failure_returns_heuristic_uncached(monkeypatch, db_session):
     fake_client = MagicMock()
     fake_client.chat.completions.create = MagicMock(side_effect=RuntimeError("down"))
     monkeypatch.setattr(
-        "app.presentation.workspace_profile._client", lambda: fake_client
+        "app.visual_summary.workspace.profile._client", lambda: fake_client
     )
     monkeypatch.setattr(
-        "app.presentation.workspace_profile.settings.workspace_llm_profiler", True
+        "app.visual_summary.workspace.profile.settings.workspace_llm_profiler", True
     )
     monkeypatch.setattr(
-        "app.presentation.workspace_profile.settings.openai_api_key", "sk-test"
+        "app.visual_summary.workspace.profile.settings.openai_api_key", "sk-test"
     )
 
     packet = resolve_workspace_context(db_session, ws.id)
@@ -275,7 +275,7 @@ def test_resolve_recomputes_budgets_from_fresh_evidence(monkeypatch, db_session)
     stale.derived.tool_policy.max_web_search = 1
     stale.derived.tool_policy.max_fetch_url = 2
 
-    import app.presentation.workspace_profile as profile_mod
+    import app.visual_summary.workspace.profile as profile_mod
 
     monkeypatch.setattr(
         profile_mod, "resolve_profiled_packet", lambda *a, **k: stale

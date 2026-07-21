@@ -5,10 +5,10 @@ import uuid
 from types import SimpleNamespace
 from unittest.mock import MagicMock
 
-from app.presentation.context import PresentationContext
-from app.presentation.engine import build_presentation
-from app.presentation.evidence import AgentEvidenceBundle, DocumentEvidenceHit
-from app.presentation.structured import extract_structured_content
+from app.visual_summary.context import PresentationContext
+from app.visual_summary.render.engine import build_presentation
+from app.visual_summary.handoff.evidence import AgentEvidenceBundle, DocumentEvidenceHit
+from app.visual_summary.handoff.structured import extract_structured_content
 
 SAMPLE_ANSWER = """\
 This workspace covers full-stack AI developer positioning.
@@ -90,7 +90,7 @@ def test_plan_driven_render_uses_slim_prompt_and_skips_rag(monkeypatch):
 
     fake_client = MagicMock()
     fake_client.chat.completions.create = fake_create
-    monkeypatch.setattr("app.presentation.engine._client", lambda: fake_client)
+    monkeypatch.setattr("app.visual_summary.render.engine._client", lambda: fake_client)
 
     db = MagicMock()
     db.commit = MagicMock()

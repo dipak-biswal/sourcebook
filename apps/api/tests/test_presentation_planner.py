@@ -1,6 +1,6 @@
 """Presentation planner human-in-the-loop gates."""
 
-from app.presentation.planner import should_offer_presentation
+from app.visual_summary.planning.planner import should_offer_presentation
 
 
 def test_should_offer_presentation_for_substantive_answer():
