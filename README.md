@@ -37,7 +37,7 @@ Honest snapshot of the product as of the current codebase.
 | **Product UI polish** | Light/dark theme; toasts, confirms, empty states, skeletons; onboarding checklist hooks |
 | **Document storage** | S3-compatible object storage (**R2/B2**) behind a storage interface; local filesystem fallback |
 | **Ops** | Structured logging + `X-Request-ID`; health endpoints; `DEV_MODE` panel; Swagger at `/docs`; production safety guards |
-| **Deployment** | Live: web on **Vercel**, API on **Render**, Redis on **Upstash** (docker-compose is local-only) |
+| **Deployment** | Live: web on **Vercel**, API on **Render**, Redis on **Upstash** |
 | **Tests** | Backend unit tests for agents, presentation, handoff, plan validator, gen UI, web search, tools, workspace delete, etc. |
 
 ### Pending (documented, not built yet)
@@ -191,7 +191,6 @@ sourcebook/
 │           ├── api.ts               # API client + SSE streaming
 │           └── App.tsx
 ├── docs/                            # Product plans (visual summary, workspace context, execution)
-├── docker-compose.yml               # Postgres + Redis (local only; not used by Render)
 └── README.md
 ```
 
@@ -210,7 +209,7 @@ sourcebook/
 
 - Python 3.12+ and [uv](https://github.com/astral-sh/uv)
 - Node.js 20+ (for web)
-- Docker (Postgres + Redis) **or** equivalent services reachable on your network
+- **Postgres** (with `pgvector` if you use embeddings) and **Redis**, reachable from the API
 - OpenAI API key (or other OpenAI-compatible endpoint)
 
 ---
@@ -221,12 +220,7 @@ You typically need **four** things: **Postgres, Redis, API, Worker**, plus **Web
 
 ### 1. Infrastructure
 
-```bash
-cd /path/to/sourcebook
-docker compose up -d postgres redis
-```
-
-If Postgres/Redis run on another machine (e.g. Windows Docker), point env URLs at that host IP.
+Run Postgres and Redis yourself (local install, managed cloud, or any host). Point `DATABASE_URL` and `REDIS_URL` at them in `.env` — there is no project `docker-compose` stack.
 
 ### 2. API env
 
