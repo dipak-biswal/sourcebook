@@ -207,33 +207,29 @@ sourcebook/
 
 ## Prerequisites
 
-- Python 3.12+ and [uv](https://github.com/astral-sh/uv)
-- Node.js 20+ (for web)
-- **Postgres** (with `pgvector` if you use embeddings) and **Redis**, reachable from the API
+- Python 3.12+ and [uv](https://github.com/astral-sh/uv) (API / worker)
+- Node.js 20+ (web)
+- **Deployed Postgres** (e.g. Render Postgres with `pgvector`) and **deployed Redis** (e.g. Upstash) — no local Docker stack in this repo
 - OpenAI API key (or other OpenAI-compatible endpoint)
 
 ---
 
-## Quick start (local)
+## Quick start (local app against deployed data)
 
-You typically need **four** things: **Postgres, Redis, API, Worker**, plus **Web**.
+Run **API + worker + web** on your machine; point them at the **same** managed Postgres/Redis you use in production (or a dedicated staging instance).
 
-### 1. Infrastructure
-
-Run Postgres and Redis yourself (local install, managed cloud, or any host). Point `DATABASE_URL` and `REDIS_URL` at them in `.env` — there is no project `docker-compose` stack.
-
-### 2. API env
+### 1. API env
 
 ```bash
 cd apps/api
 cp ../../.env.example .env   # or create apps/api/.env
 ```
 
-Minimum useful `.env`:
+Minimum useful `.env` (use your real hosted URLs — not localhost Docker):
 
 ```env
-DATABASE_URL=postgresql+psycopg://sourcebook:sourcebook@127.0.0.1:5432/sourcebook
-REDIS_URL=redis://127.0.0.1:6379/0
+DATABASE_URL=postgresql+psycopg://USER:PASSWORD@YOUR_HOST/sourcebook
+REDIS_URL=redis://default:PASSWORD@YOUR_UPSTASH_HOST:6379
 
 OPENAI_API_KEY=sk-...
 OPENAI_BASE_URL=https://api.openai.com/v1
