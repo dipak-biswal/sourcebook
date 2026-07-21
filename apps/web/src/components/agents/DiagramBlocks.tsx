@@ -171,13 +171,14 @@ function FigureChrome({ children }: { children: ReactNode }) {
 type FlowNode = { id: string; label: string; detail?: string | null };
 type FlowEdge = { source: string; target: string; label?: string | null };
 
-const NODE_W = 188;
-const NODE_H = 72;
-const COL_GAP = 72;
-const ROW_GAP = 24;
-const LANE_GAP = 28;
-const LANE_H = 30;
-const COL_PAD_Y = 28;
+const NODE_W = 168;
+const NODE_H = 76;
+const COL_GAP = 56;
+const ROW_GAP = 28;
+const LANE_GAP = 32;
+const LANE_H = 32;
+const COL_PAD_Y = 32;
+const PAD_X = 12;
 
 type PositionedNode = FlowNode & {
   column: number;
@@ -208,15 +209,21 @@ function layoutFlowDiagram(nodes: FlowNode[], edges: FlowEdge[]): FlowLayout | n
   const inDegree = new Map<string, number>(nodes.map((n) => [n.id, 0]));
   const outDegree = new Map<string, number>(nodes.map((n) => [n.id, 0]));
   const adj = new Map<string, string[]>(nodes.map((n) => [n.id, []]));
+  const rev = new Map<string, string[]>(nodes.map((n) => [n.id, []]));
   for (const e of validEdges) {
     inDegree.set(e.target, (inDegree.get(e.target) ?? 0) + 1);
     outDegree.set(e.source, (outDegree.get(e.source) ?? 0) + 1);
     adj.get(e.source)?.push(e.target);
+    rev.get(e.target)?.push(e.source);
   }
 
   let roots = nodes.filter((n) => (inDegree.get(n.id) ?? 0) === 0).map((n) => n.id);
   if (!roots.length) {
-    let best = nodes[0].id;
+    // Prefer call_stack-like labels as teaching root
+    const preferred = nodes.find((n) =>
+      /stack/i.test(n.label) || /stack/i.test(n.id),
+    );
+    let best = preferred?.id ?? nodes[0].id;
     let bestOut = -1;
     for (const n of nodes) {
       const od = outDegree.get(n.id) ?? 0;
@@ -228,6 +235,7 @@ function layoutFlowDiagram(nodes: FlowNode[], edges: FlowEdge[]): FlowLayout | n
     roots = [best];
   }
 
+  // Longest-path layering: more stable columns for teaching pipelines.
   const column = new Map<string, number>();
   const queue: string[] = [];
   for (const r of roots) {
@@ -239,8 +247,10 @@ function layoutFlowDiagram(nodes: FlowNode[], edges: FlowEdge[]): FlowLayout | n
     if (id === undefined) break;
     const col = column.get(id) ?? 0;
     for (const next of adj.get(id) ?? []) {
-      if (!column.has(next)) {
-        column.set(next, col + 1);
+      const nextCol = col + 1;
+      const prev = column.get(next);
+      if (prev === undefined || nextCol > prev) {
+        column.set(next, nextCol);
         queue.push(next);
       }
     }
@@ -249,12 +259,32 @@ function layoutFlowDiagram(nodes: FlowNode[], edges: FlowEdge[]): FlowLayout | n
     if (!column.has(n.id)) column.set(n.id, 0);
   }
 
-  const byColumn = new Map<number, string[]>();
+  // Teaching preference: ≤5 components → one node per column (readable chain).
+  // Use topological order from original node list when columns would stack.
+  let byColumn = new Map<number, string[]>();
   for (const n of nodes) {
     const c = column.get(n.id) ?? 0;
     if (!byColumn.has(c)) byColumn.set(c, []);
     byColumn.get(c)?.push(n.id);
   }
+  const maxStacked = Math.max(
+    ...Array.from(byColumn.values()).map((v) => v.length),
+    1,
+  );
+  if (nodes.length <= 5 && maxStacked > 1) {
+    // Re-assign sequential columns in longest-path order, preserving stack root first.
+    const ordered = [...nodes].sort(
+      (a, b) => (column.get(a.id) ?? 0) - (column.get(b.id) ?? 0),
+    );
+    ordered.forEach((n, i) => column.set(n.id, i));
+    byColumn = new Map();
+    for (const n of ordered) {
+      const c = column.get(n.id) ?? 0;
+      if (!byColumn.has(c)) byColumn.set(c, []);
+      byColumn.get(c)?.push(n.id);
+    }
+  }
+
   const row = new Map<string, number>();
   for (const ids of byColumn.values()) {
     ids.forEach((id, i) => row.set(id, i));
@@ -270,7 +300,7 @@ function layoutFlowDiagram(nodes: FlowNode[], edges: FlowEdge[]): FlowLayout | n
       ...n,
       column: col,
       row: r,
-      x: col * (NODE_W + COL_GAP),
+      x: PAD_X + col * (NODE_W + COL_GAP),
       y: COL_PAD_Y + r * (NODE_H + ROW_GAP),
     };
   });
@@ -285,14 +315,15 @@ function layoutFlowDiagram(nodes: FlowNode[], edges: FlowEdge[]): FlowLayout | n
         .slice(0, 1)[0] ?? `Zone ${index + 1}`;
     return {
       index,
-      x: index * (NODE_W + COL_GAP),
+      x: PAD_X + index * (NODE_W + COL_GAP),
       label,
     };
   });
 
   const diagramHeight =
-    COL_PAD_Y + maxRows * (NODE_H + ROW_GAP) - ROW_GAP;
-  const diagramWidth = (maxCol + 1) * (NODE_W + COL_GAP) - COL_GAP;
+    COL_PAD_Y + maxRows * (NODE_H + ROW_GAP) - ROW_GAP + 8;
+  const diagramWidth =
+    PAD_X * 2 + (maxCol + 1) * (NODE_W + COL_GAP) - COL_GAP;
 
   const forwardEdges: LaidOutEdge[] = [];
   const backEdgesRaw: FlowEdge[] = [];
@@ -367,21 +398,30 @@ export function FlowDiagramBlock({
     () => layoutFlowDiagram(block.nodes ?? [], block.edges ?? []),
     [block.nodes, block.edges],
   );
+  // Walk left→right by column so teaching steps follow the pipeline.
+  const walkNodes = useMemo(() => {
+    if (!layout) return [];
+    return [...layout.nodes].sort(
+      (a, b) => a.column - b.column || a.row - b.row,
+    );
+  }, [layout]);
   if (!layout) return null;
 
   const arrowId = `flow-arrow-${markerId}`;
-  const walkNodes = layout.nodes;
-  const active = walkNodes[Math.min(step, walkNodes.length - 1)];
+  const active = walkNodes[Math.min(step, Math.max(walkNodes.length - 1, 0))];
   const activeId = active?.id ?? null;
 
   return (
     <div>
       <DiagramLabel type="flow_diagram" title={block.title} />
       <FigureChrome>
+        <p className="mb-2 text-[11px] text-mute">
+          Click a component or use steps to walk the mechanism.
+        </p>
         <div className="overflow-x-auto pb-1">
           <div
-            className="relative"
-            style={{ width: layout.width, height: layout.height }}
+            className="relative mx-auto"
+            style={{ width: layout.width, height: layout.height, minWidth: layout.width }}
           >
             <svg
               className="pointer-events-none absolute inset-0 overflow-visible"
@@ -402,7 +442,7 @@ export function FlowDiagramBlock({
                   rx={12}
                   className={cn(
                     ZONE_BAND_FILLS[col.index % ZONE_BAND_FILLS.length],
-                    "opacity-50",
+                    "opacity-40",
                   )}
                 />
               ))}
@@ -410,6 +450,10 @@ export function FlowDiagramBlock({
                 const isBack = i >= layout.forwardEdges.length;
                 const touchesActive =
                   e.source === activeId || e.target === activeId;
+                const labelW = Math.min(
+                  120,
+                  Math.max(48, (e.label?.length ?? 0) * 5.5 + 12),
+                );
                 return (
                   <g key={`${isBack ? "b" : "f"}-${i}`}>
                     <path
@@ -430,21 +474,24 @@ export function FlowDiagramBlock({
                     {e.label && (
                       <g>
                         <rect
-                          x={e.labelX - 28}
+                          x={e.labelX - labelW / 2}
                           y={e.labelY - 10}
-                          width={56}
-                          height={14}
+                          width={labelW}
+                          height={16}
                           rx={4}
-                          className="fill-canvas"
-                          opacity={0.9}
+                          className="fill-canvas stroke-hairline"
+                          strokeWidth={1}
+                          opacity={0.95}
                         />
                         <text
                           x={e.labelX}
-                          y={e.labelY}
+                          y={e.labelY + 2}
                           textAnchor="middle"
-                          className="fill-mute text-[10px]"
+                          className="fill-mute text-[9px]"
                         >
-                          {e.label}
+                          {e.label.length > 22
+                            ? `${e.label.slice(0, 20)}…`
+                            : e.label}
                         </text>
                       </g>
                     )}

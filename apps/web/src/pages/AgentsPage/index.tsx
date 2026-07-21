@@ -66,9 +66,8 @@ function AgentsPageInner() {
             <AgentRunForm />
           </div>
 
-          {/* Wider than the form column above so the A4-sized visual-summary
-              canvas (794px + padding) has room without being clipped. */}
-          <div className="mx-auto max-w-4xl">
+          {/* Wider than the form column so teaching diagrams have room. */}
+          <div className="mx-auto max-w-5xl">
             <AgentRunDisplay />
           </div>
         </main>

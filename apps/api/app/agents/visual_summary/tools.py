@@ -353,7 +353,7 @@ def _extract_and_plan_llm(
     if not isinstance(parsed, dict):
         return None
     structured = normalize_structured_content(parsed.get("structured_content"))
-    structured = stabilize_process_flow_topology(structured)
+    structured = stabilize_process_flow_topology(structured, goal=goal)
     plan = parsed.get("layout_plan")
     if not isinstance(plan, dict) or not structured_content_has_substance(structured):
         return None
@@ -571,7 +571,7 @@ def _plan_llm_with_repair_and_fallback(
     merged_usage = _merge_usage(merged_usage, llm["usage"])
     plan = llm["plan"]
     structured = llm.get("structured_content") or structured
-    structured = stabilize_process_flow_topology(structured)
+    structured = stabilize_process_flow_topology(structured, goal=ctx.goal or "")
     plan = stabilize_layout_plan(
         plan,
         structured=structured,
@@ -612,7 +612,8 @@ def _plan_llm_with_repair_and_fallback(
         merged_usage = _merge_usage(merged_usage, second["usage"])
         plan = second["plan"]
         structured = stabilize_process_flow_topology(
-            second.get("structured_content") or structured
+            second.get("structured_content") or structured,
+            goal=ctx.goal or "",
         )
         plan = stabilize_layout_plan(
             plan,
@@ -682,7 +683,7 @@ def _plan_llm_with_repair_and_fallback(
         skeleton_plan=skeleton_result.get("plan"),
         goal=ctx.goal or "",
     )
-    structured = stabilize_process_flow_topology(structured)
+    structured = stabilize_process_flow_topology(structured, goal=ctx.goal or "")
 
     status = "passed" if ok else "failed"
     return {

@@ -825,7 +825,7 @@ export function GenerativeUISkeleton({
   return (
     <div
       className={cn(
-        "mx-auto w-[794px] max-w-full min-h-[1123px] space-y-4 rounded-vercel-md border border-hairline bg-canvas p-3 shadow-[var(--elevation-2)] sm:p-6",
+        "mx-auto w-full max-w-4xl space-y-4 rounded-vercel-md border border-hairline bg-canvas p-4 shadow-[var(--elevation-2)] sm:p-6",
         className,
       )}
     >
@@ -960,7 +960,8 @@ export function GenerativeUIView({
   return (
     <div
       className={cn(
-        "mx-auto w-[794px] max-w-full min-h-[1123px] space-y-4 rounded-vercel-md border border-hairline bg-canvas p-3 shadow-[var(--elevation-2)] sm:p-6",
+        // Teaching canvas: wide enough for diagrams, content-height (no empty A4 slab).
+        "mx-auto w-full max-w-4xl space-y-5 rounded-vercel-md border border-hairline bg-canvas p-4 shadow-[var(--elevation-2)] sm:p-6",
         className,
       )}
     >
@@ -968,7 +969,7 @@ export function GenerativeUIView({
         <div className="min-w-0">
           <div className="flex items-center gap-1.5">
             <Sparkles className="h-4 w-4 shrink-0 text-ink" strokeWidth={1.5} />
-            <h3 className="text-sm font-semibold tracking-tight text-ink">
+            <h3 className="text-base font-semibold tracking-tight text-ink sm:text-lg">
               {payload.title}
             </h3>
           </div>

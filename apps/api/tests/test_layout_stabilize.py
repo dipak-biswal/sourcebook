@@ -200,6 +200,63 @@ def test_stabilize_hub_topology_dropped_when_leaves_remain_connected():
     )
 
 
+def test_event_loop_flow_canonicalized_for_teaching():
+    """Messy extract → stable Call Stack → Web APIs → queues teaching graph."""
+    structured = {
+        "process_flow": {
+            "nodes": [
+                {"id": "q", "label": "Task Queue", "detail": "macrotasks"},
+                {"id": "s", "label": "Call Stack"},
+                {"id": "w", "label": "Web APIs", "detail": "timers"},
+                {"id": "m", "label": "Microtask Queue"},
+                {"id": "loop", "label": "Event Loop"},
+            ],
+            "edges": [
+                {"source": "loop", "target": "s", "label": "check"},
+                {"source": "loop", "target": "q", "label": "pick"},
+                {"source": "s", "target": "w", "label": "async"},
+            ],
+        },
+        "interaction_sequence": {
+            "actors": ["Web APIs", "Call Stack"],
+            "messages": [
+                {
+                    "source": "Call Stack",
+                    "target": "Web APIs",
+                    "label": "setTimeout",
+                    "order": 2,
+                },
+                {
+                    "source": "Web APIs",
+                    "target": "Call Stack",
+                    "label": "callback",
+                    "order": 0,
+                },
+            ],
+        },
+    }
+    out = stabilize_process_flow_topology(
+        structured, goal="explain event loop in javascript"
+    )
+    pf = out["process_flow"]
+    ids = [n["id"] for n in pf["nodes"]]
+    assert ids == [
+        "call_stack",
+        "web_apis",
+        "microtask_queue",
+        "callback_queue",
+    ]
+    assert "event_loop" not in ids and "loop" not in ids
+    # Canonical teaching edges present
+    pairs = {(e["source"], e["target"]) for e in pf["edges"]}
+    assert ("call_stack", "web_apis") in pairs
+    assert ("callback_queue", "call_stack") in pairs
+    # Sequence messages re-ordered and notes filled
+    msgs = out["interaction_sequence"]["messages"]
+    assert [m["order"] for m in msgs] == [0, 1]
+    assert all(m.get("note") for m in msgs)
+
+
 def test_payload_from_assembly_sanitizes_profile():
     structured = {
         "summary": "Overview text for the event loop.",
