@@ -14,6 +14,12 @@ from langchain_core.messages import (
 )
 from sqlalchemy.orm import Session
 
+from app.agents.context.phase import (
+    is_questions_pending,
+    reject_context_phase,
+    resume_after_context_answers,
+    start_context_phase_if_needed,
+)
 from app.agents.main.trace.execution_trace import LiveTraceContext
 from app.agents.main.profiles import agent_system_prompt, get_profile
 from app.agents.main.runner.constants import WRITE_TOOLS
@@ -80,14 +86,6 @@ def run_agent(
 
     packet = resolve_workspace_context(db, workspace_id, user_id=user_id)
     run._workspace_context = packet  # type: ignore[attr-defined]
-    system = format_main_agent_system_prompt(
-        agent_system_prompt(profile.system_prompt),
-        packet,
-    )
-    messages: list[BaseMessage] = [
-        SystemMessage(content=system),
-        HumanMessage(content=goal),
-    ]
     _emit(
         on_event,
         "run_start",
@@ -108,6 +106,26 @@ def run_agent(
     trace_live = LiveTraceContext()
     run._trace_live = trace_live  # type: ignore[attr-defined]
     _refresh_execution_trace(db, run, on_event, trace_live)
+
+    # Pre-main Workspace Context Agent: pause for HITL questions when gaps exist.
+    if start_context_phase_if_needed(
+        db,
+        run,
+        packet=packet,
+        max_steps=cap_steps,
+        on_event=on_event,
+        trace_live=trace_live,
+    ):
+        return run
+
+    system = format_main_agent_system_prompt(
+        agent_system_prompt(profile.system_prompt),
+        packet,
+    )
+    messages: list[BaseMessage] = [
+        SystemMessage(content=system),
+        HumanMessage(content=goal),
+    ]
     return _run_tool_loop(
         db,
         run,
@@ -227,14 +245,18 @@ def approve_agent_run(
     run: AgentRun,
     *,
     approve: bool,
+    answers: dict | None = None,
     on_event: EventCallback = None,
 ) -> AgentRun:
     """
-    Approve or reject a pending write tool.
+    Approve or reject a pending HITL pause.
 
-    On approve: execute the write, append the tool result, then **resume**
-    the LLM tool loop so the agent can continue (confirm, next steps, etc.).
-    On reject: mark cancelled (no resume).
+    Handles three kinds:
+    - questions (context agent): merge answers → start main tool loop
+    - presentation: start Visual Summary agent
+    - write tools: execute write, then resume main loop
+
+    On reject: cancel (or complete text-only for presentation).
     """
     if run.status != "waiting_approval" or not run.pending_tool:
         raise ValueError("Run is not waiting for approval")
@@ -248,6 +270,19 @@ def approve_agent_run(
     call_id = pending.get("id") or str(uuid.uuid4())
     checkpoint = pending.get("checkpoint") if isinstance(pending.get("checkpoint"), dict) else {}
     step_index = _next_step_index(db, run.id)
+
+    # ── Context agent questions ──────────────────────────────────────────
+    if is_questions_pending(pending):
+        if not approve:
+            return reject_context_phase(db, run, on_event=on_event)
+        return resume_after_context_answers(
+            db,
+            run,
+            answers=answers if isinstance(answers, dict) else {},
+            on_event=on_event,
+            run_tool_loop=_run_tool_loop,
+            trace_live=trace_live,
+        )
 
     if not approve:
         _append_step(

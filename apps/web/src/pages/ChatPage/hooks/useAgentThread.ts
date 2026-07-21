@@ -13,7 +13,10 @@ import {
   upsertTraceStep,
   makeLlmEndPatch,
 } from "@/hooks/useAgentStream";
-import { isPresentationPending } from "@/components/agents/agent-utils";
+import {
+  isPresentationPending,
+  isQuestionsPending,
+} from "@/components/agents/agent-utils";
 import type { AgentThreadItem } from "@/types/chat";
 
 export function useAgentThread(
@@ -262,10 +265,16 @@ export function useAgentThread(
     }
   }
 
-  async function onApproveAgent(asstId: string, runId: string, approve: boolean) {
+  async function onApproveAgent(
+    asstId: string,
+    runId: string,
+    approve: boolean,
+    answers?: Record<string, string | string[]>,
+  ) {
     if (approving) return;
     const threadItem = agentThread.find((item) => item.id === asstId);
     const presentationPending = isPresentationPending(threadItem?.run?.pending_tool);
+    const questionsPending = isQuestionsPending(threadItem?.run?.pending_tool);
     setApproving(true);
     setError(null);
     if (!presentationPending) {
@@ -276,14 +285,25 @@ export function useAgentThread(
                 ...item,
                 pending: true,
                 content: approve
-                  ? "Approved — agent is continuing…"
-                  : "Rejecting…",
+                  ? questionsPending
+                    ? "Context saved — agent is running…"
+                    : "Approved — agent is continuing…"
+                  : questionsPending
+                    ? "Cancelling setup…"
+                    : "Rejecting…",
               }
             : item,
         ),
       );
     }
     try {
+      if (questionsPending && !approve) {
+        const run = await api.approveAgentRun(runId, false);
+        applyRunToThread(asstId, run);
+        void queryClient.invalidateQueries({ queryKey: ["agentRuns", workspaceId] });
+        success("Context setup cancelled");
+        return;
+      }
       if (presentationPending) {
         if (!approve) {
           const run = await api.approveAgentRun(runId, false);
@@ -469,10 +489,15 @@ export function useAgentThread(
             applyRunToThread(asstId, final);
             setAgentRunId(final.id);
             void queryClient.invalidateQueries({ queryKey: ["agentRuns", workspaceId] });
-            success("Action approved — agent continued");
+            success(
+              questionsPending
+                ? "Context saved — agent running"
+                : "Action approved — agent continued",
+            );
           },
           false,
         ),
+        questionsPending ? answers ?? {} : undefined,
       );
       if (run) {
         applyRunToThread(asstId, run);

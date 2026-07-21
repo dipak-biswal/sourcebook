@@ -75,7 +75,12 @@ export type ChatPageContextValue = {
   onChangeWorkspace: (id: string) => void;
   onSelectAgentRun: (id: string) => void;
   onSetMode: (mode: ChatMode) => void;
-  onApproveAgent: (asstId: string, runId: string, approve: boolean) => void;
+  onApproveAgent: (
+    asstId: string,
+    runId: string,
+    approve: boolean,
+    answers?: Record<string, string | string[]>,
+  ) => void;
   onSaveLearningNote: (title: string, body: string) => void;
   onDismissError: () => void;
   onRetryError: () => void;

@@ -88,6 +88,13 @@ class Settings(BaseSettings):
     # regex heuristic still gates handoff validation; a thin heuristic falls
     # back to a separate extraction call. Set False to restore two calls.
     visual_summary_combined_call: bool = True
+    # Workspace Context Agent: pre-main readiness + HITL questions.
+    # When False, runs skip the context gate and start main immediately.
+    context_agent_enabled: bool = True
+    # When True, a small LLM phrases the question form; templates are fallback.
+    context_agent_llm: bool = True
+    context_agent_model: str = ""  # empty → chat_model
+    context_agent_max_questions: int = 4
     rag_top_k: int = 5
     # Cosine floor: below this → no hits, no sources (off-topic questions).
     # Raise (e.g. 0.25) if off-topic still retrieves; lower if on-topic misses.

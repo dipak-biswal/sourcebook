@@ -471,20 +471,31 @@ export const api = {
   cancelAgentRun: (runId: string) =>
     request<AgentRun>(`/agents/runs/${runId}/cancel`, { method: "POST" }),
 
-  approveAgentRun: (runId: string, approve: boolean) =>
+  approveAgentRun: (
+    runId: string,
+    approve: boolean,
+    answers?: Record<string, string | string[]>,
+  ) =>
     request<AgentRun>(`/agents/runs/${runId}/approve`, {
       method: "POST",
-      body: JSON.stringify({ approve }),
+      body: JSON.stringify({
+        approve,
+        ...(answers != null ? { answers } : {}),
+      }),
     }),
 
   approveAgentRunStream: (
     runId: string,
     approve: boolean,
     handlers: AgentStreamHandlers = {},
+    answers?: Record<string, string | string[]>,
   ) =>
     streamAgentRun(
       `/agents/runs/${runId}/approve/stream`,
-      { approve },
+      {
+        approve,
+        ...(answers != null ? { answers } : {}),
+      },
       handlers,
     ),
 

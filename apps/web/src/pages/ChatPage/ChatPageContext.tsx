@@ -219,7 +219,9 @@ export function ChatPageProvider({ children }: { children: ReactNode }) {
     onNewAgent,
     onSend,
     onSendMessage: (text) => { void onSendMessage(text); },
-    onApproveAgent: (asstId, runId, approve) => { void agent.onApproveAgent(asstId, runId, approve); },
+    onApproveAgent: (asstId, runId, approve, answers) => {
+      void agent.onApproveAgent(asstId, runId, approve, answers);
+    },
     onSaveLearningNote: (title, body) => { void agent.onSaveLearningNote(title, body); },
     onInputChange: setInput,
     onToggleSessions: () => setSessionsOpen(true),

@@ -14,3 +14,5 @@ from app.config import settings
 def _no_live_llm(monkeypatch):
     monkeypatch.setattr(settings, "visual_summary_llm_extractor", False)
     monkeypatch.setattr(settings, "workspace_llm_profiler", False)
+    # Context agent LLM off → templates only; readiness still unit-tested.
+    monkeypatch.setattr(settings, "context_agent_llm", False)

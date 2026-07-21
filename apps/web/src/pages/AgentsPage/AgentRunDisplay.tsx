@@ -11,6 +11,7 @@ import { AgentTraceTree } from "@/components/agents/AgentTraceTree";
 import { AgentApprovalCard } from "@/components/agents/shared";
 import {
   isPresentationPending,
+  isQuestionsPending,
   toolDisplayName,
 } from "@/components/agents/agent-utils";
 import {
@@ -95,8 +96,13 @@ export function AgentRunDisplay() {
   const waitingApproval = selected?.status === "waiting_approval";
   const presentationPending =
     waitingApproval && isPresentationPending(selected.pending_tool);
+  const questionsPending =
+    waitingApproval && isQuestionsPending(selected.pending_tool);
   const writePending =
-    waitingApproval && !!selected.pending_tool && !presentationPending;
+    waitingApproval &&
+    !!selected.pending_tool &&
+    !presentationPending &&
+    !questionsPending;
   // Visual phase in flight: plan outline arrived, spec not yet rendered.
   const buildingVisual = (running || approving) && !!liveSkeleton;
   const [activeTab, setActiveTab] = useState<TabKey>(running ? "trace" : "answer");
@@ -173,7 +179,7 @@ export function AgentRunDisplay() {
             <AgentApprovalCard
               pendingTool={selected.pending_tool}
               approving={approving}
-              onApprove={() => onApprove(true)}
+              onApprove={(answers) => onApprove(true, answers)}
               onReject={() => onApprove(false)}
               className="border-warning-border bg-warning-soft"
             />
@@ -196,7 +202,9 @@ export function AgentRunDisplay() {
               <span className="text-[10px] text-mute">
                 {writePending
                   ? "Reject skips the write and continues; Cancel ends the run."
-                  : "Text only keeps the answer without a visual summary; Cancel ends the run."}
+                  : presentationPending
+                    ? "Text only keeps the answer without a visual summary; Cancel ends the run."
+                    : "Continue runs the agent with your answers; Skip uses current context; Cancel ends the run."}
               </span>
             </div>
           </div>
@@ -292,7 +300,7 @@ export function AgentRunDisplay() {
             executionTrace={liveExecutionTrace ?? selected?.execution_trace}
             running={running || approving}
             approving={approving}
-            onApprove={() => onApprove(true)}
+            onApprove={(answers) => onApprove(true, answers)}
             onReject={() => onApprove(false)}
           />
         )}

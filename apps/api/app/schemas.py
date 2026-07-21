@@ -141,6 +141,9 @@ class AgentRunResponse(BaseModel):
 
 class AgentApproveRequest(BaseModel):
     approve: bool = True
+    # When pending_tool.kind == "questions": map of question_id → answer
+    # (string for text fields, string or list[str] for checkbox option ids).
+    answers: dict[str, str | list[str]] | None = None
 
 
 class UpdateProfileRequest(BaseModel):

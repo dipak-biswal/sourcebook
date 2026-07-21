@@ -22,6 +22,7 @@ import { AgentPageContext } from "./agent-page-context";
 import {
   buildWorkspaceAgentExamples,
   isPresentationPending,
+  isQuestionsPending,
 } from "@/components/agents/agent-utils";
 
 const DEFAULT_MAX_STEPS = 5;
@@ -244,9 +245,13 @@ export function AgentPageProvider({
     }
   }
 
-  async function onApprove(approve: boolean) {
+  async function onApprove(
+    approve: boolean,
+    answers?: Record<string, string | string[]>,
+  ) {
     if (!selected || approving) return;
     const presentationPending = isPresentationPending(selected.pending_tool);
+    const questionsPending = isQuestionsPending(selected.pending_tool);
     setApproving(true);
     setError(null);
     if (!presentationPending || approve) {
@@ -254,6 +259,16 @@ export function AgentPageProvider({
       setLiveGoal(selected.goal);
     }
     try {
+      if (questionsPending && !approve) {
+        const run = await api.approveAgentRun(selected.id, false);
+        await queryClient.invalidateQueries({
+          queryKey: ["agentRuns", effectiveWorkspaceId],
+        });
+        setSelected(run);
+        setLiveExecutionTrace(run.execution_trace ?? null);
+        success("Context setup cancelled");
+        return;
+      }
       if (presentationPending && !approve) {
         const run = await api.approveAgentRun(selected.id, false);
         await queryClient.invalidateQueries({
@@ -459,6 +474,7 @@ export function AgentPageProvider({
           },
           false,
         ),
+        questionsPending ? answers ?? {} : undefined,
       );
       if (run) {
         setSelected(run);
@@ -466,7 +482,11 @@ export function AgentPageProvider({
           queryKey: ["agentRuns", effectiveWorkspaceId],
         });
         await queryClient.invalidateQueries({ queryKey: ["notes", effectiveWorkspaceId] });
-        success("Action approved — agent continued");
+        success(
+          questionsPending
+            ? "Context saved — agent running"
+            : "Action approved — agent continued",
+        );
       }
     } catch (err) {
       const msg = formatError(err);

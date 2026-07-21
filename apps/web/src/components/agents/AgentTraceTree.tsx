@@ -394,7 +394,7 @@ function HitlDetail({
   node: Extract<TracePhase, { type: "hitl" }> | TraceHitlEmbedChild;
   run: AgentRun | null | undefined;
   approving?: boolean;
-  onApprove?: () => void;
+  onApprove?: (answers?: Record<string, string | string[]>) => void;
   onReject?: () => void;
 }) {
   const output =
@@ -454,7 +454,7 @@ function TraceDetailBody(props: {
   node: TraceNode;
   run: AgentRun | null | undefined;
   approving?: boolean;
-  onApprove?: () => void;
+  onApprove?: (answers?: Record<string, string | string[]>) => void;
   onReject?: () => void;
 }) {
   const { node } = props;
@@ -516,7 +516,7 @@ function TraceDetailPanel({
   runStart: number | null | undefined;
   run: AgentRun | null | undefined;
   approving?: boolean;
-  onApprove?: () => void;
+  onApprove?: (answers?: Record<string, string | string[]>) => void;
   onReject?: () => void;
 }) {
   if (!node) {
@@ -662,7 +662,7 @@ export function AgentTraceTree({
   executionTrace?: ExecutionTrace | null;
   running?: boolean;
   approving?: boolean;
-  onApprove?: () => void;
+  onApprove?: (answers?: Record<string, string | string[]>) => void;
   onReject?: () => void;
 }) {
   const activeRowRef = useRef<HTMLButtonElement | null>(null);

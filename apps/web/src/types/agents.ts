@@ -30,7 +30,10 @@ export type AgentPageContextValue = {
   onSelectRun: (id: string) => void;
   onGoalChange: (v: string) => void;
   onRun: (e: React.SubmitEvent<HTMLFormElement>) => void;
-  onApprove: (approve: boolean) => void;
+  onApprove: (
+    approve: boolean,
+    answers?: Record<string, string | string[]>,
+  ) => void;
   onCancelRun: () => void;
   cancelling: boolean;
   onDeleteRun: (id: string) => void;

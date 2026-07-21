@@ -223,7 +223,9 @@ def approve_run(
             status_code=status.HTTP_404_NOT_FOUND, detail="Run not found"
         )
     try:
-        approve_agent_run(db, run, approve=body.approve)
+        approve_agent_run(
+            db, run, approve=body.approve, answers=body.answers
+        )
     except ValueError as e:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)
@@ -252,6 +254,7 @@ def approve_run_stream(
     rid = run_id
     uid = current_user.id
     approve = body.approve
+    answers = body.answers
 
     def work(session: Session, on_event) -> None:
         run = (
@@ -262,7 +265,13 @@ def approve_run_stream(
         )
         if not run:
             raise ValueError("Run not found")
-        approve_agent_run(session, run, approve=approve, on_event=on_event)
+        approve_agent_run(
+            session,
+            run,
+            approve=approve,
+            answers=answers,
+            on_event=on_event,
+        )
         loaded = (
             session.query(AgentRun)
             .options(joinedload(AgentRun.steps))

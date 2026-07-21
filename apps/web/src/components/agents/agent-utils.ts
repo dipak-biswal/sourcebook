@@ -116,6 +116,7 @@ const TOOL_LABELS: Record<string, string> = {
   get_current_date: "Current date",
   plan_layout: "Plan layout",
   render_ui: "Render UI",
+  ask_user: "Collect context",
 };
 
 export function toolDisplayName(toolName: string | null | undefined): string {
@@ -190,6 +191,79 @@ export function isPresentationPending(
   if (!pending) return false;
   return pending.name === "generative_ui" || pending.kind === "presentation";
 }
+
+/** Workspace Context Agent HITL form (checkbox + text questions). */
+export function isQuestionsPending(
+  pending: PendingTool | null | undefined,
+): boolean {
+  if (!pending) return false;
+  return pending.name === "ask_user" || pending.kind === "questions";
+}
+
+export type ContextQuestionOption = {
+  id: string;
+  label: string;
+};
+
+export type ContextQuestion = {
+  id: string;
+  prompt: string;
+  input: "text" | "checkbox";
+  required?: boolean;
+  placeholder?: string;
+  allow_multiple?: boolean;
+  options?: ContextQuestionOption[];
+};
+
+export function parseContextQuestions(
+  pending: PendingTool | null | undefined,
+): {
+  title: string;
+  subtitle: string;
+  questions: ContextQuestion[];
+} | null {
+  if (!isQuestionsPending(pending)) return null;
+  const args = pending?.args ?? {};
+  const raw = Array.isArray(args.questions) ? args.questions : [];
+  const questions: ContextQuestion[] = [];
+  for (const item of raw) {
+    if (!item || typeof item !== "object") continue;
+    const q = item as Record<string, unknown>;
+    const id = String(q.id ?? "").trim();
+    const prompt = String(q.prompt ?? "").trim();
+    if (!id || !prompt) continue;
+    const input = q.input === "checkbox" ? "checkbox" : "text";
+    const options: ContextQuestionOption[] = [];
+    if (Array.isArray(q.options)) {
+      for (const opt of q.options) {
+        if (!opt || typeof opt !== "object") continue;
+        const o = opt as Record<string, unknown>;
+        const oid = String(o.id ?? "").trim();
+        const label = String(o.label ?? oid).trim();
+        if (oid && label) options.push({ id: oid, label });
+      }
+    }
+    questions.push({
+      id,
+      prompt,
+      input,
+      required: Boolean(q.required),
+      placeholder: q.placeholder ? String(q.placeholder) : undefined,
+      allow_multiple: Boolean(q.allow_multiple),
+      options: options.length ? options : undefined,
+    });
+  }
+  if (!questions.length) return null;
+  return {
+    title: String(args.title ?? "A bit more context will improve the answer"),
+    subtitle: String(
+      args.subtitle ?? "Answer what you can — skip optional fields if unsure.",
+    ),
+    questions,
+  };
+}
+
+export type ContextAnswers = Record<string, string | string[]>;
 
 export function prettyJson(value: unknown): string {
   if (value == null) return "—";
