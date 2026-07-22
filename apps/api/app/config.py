@@ -115,6 +115,14 @@ class Settings(BaseSettings):
     # Local testing helpers (list users / set test passwords). NEVER enable in production.
     dev_mode: bool = True
 
+    # Comma-separated emails allowed to open Settings → Monitoring (all users
+    # if empty — intended for self-hosted single-operator deploys).
+    admin_emails: str = ""
+    # How long last_seen_at is considered "online" (minutes).
+    monitoring_online_minutes: int = 15
+    # Throttle last_seen_at writes on authenticated requests (seconds).
+    monitoring_seen_throttle_seconds: int = 300
+
     # Redis / RQ background ingest
     # Local Redis: redis://127.0.0.1:6379/0
     # Windows Docker host example: redis://192.168.31.50:6379/0

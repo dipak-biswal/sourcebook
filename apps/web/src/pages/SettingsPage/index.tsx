@@ -2,14 +2,15 @@ import { useState } from "react";
 import { AppHeader } from "@/components/layout/AppHeader";
 import { ErrorAlert } from "@/components/ui/error-alert";
 import { cn } from "@/lib/utils";
-import { LayoutGrid, Settings, User } from "lucide-react";
+import { Activity, LayoutGrid, Settings, User } from "lucide-react";
 import { SettingsPageProvider } from "./SettingsPageContext";
 import { useSettingsPage } from "./settings-page-context";
 import { SettingsProfileForm } from "./SettingsProfileForm";
 import { SettingsPasswordForm } from "./SettingsPasswordForm";
 import { SettingsWorkspaces } from "./SettingsWorkspaces";
+import { SettingsMonitoring } from "./SettingsMonitoring";
 
-type SettingsTab = "profile" | "workspace";
+type SettingsTab = "profile" | "workspace" | "monitoring";
 
 const TABS: {
   id: SettingsTab;
@@ -28,6 +29,12 @@ const TABS: {
     label: "Workspace",
     description: "Create and manage workspaces",
     icon: LayoutGrid,
+  },
+  {
+    id: "monitoring",
+    label: "Monitoring",
+    description: "Online users and activity",
+    icon: Activity,
   },
 ];
 
@@ -137,6 +144,18 @@ function SettingsPageInner() {
                     </p>
                   </div>
                   <SettingsWorkspaces />
+                </div>
+              )}
+
+              {tab === "monitoring" && (
+                <div className="space-y-4">
+                  <div className="mb-1 sm:hidden">
+                    <h2 className="text-sm font-semibold text-ink">Monitoring</h2>
+                    <p className="mt-0.5 text-xs text-mute">
+                      Online users and activity
+                    </p>
+                  </div>
+                  <SettingsMonitoring />
                 </div>
               )}
             </div>

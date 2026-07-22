@@ -14,6 +14,7 @@ from app.routers import (
     dev,
     health,
     ingest,
+    monitoring,
     notes,
     usage,
     workspaces,
@@ -68,6 +69,7 @@ app.include_router(chat.router)
 app.include_router(usage.router)
 app.include_router(agents.router)
 app.include_router(notes.router)
+app.include_router(monitoring.router)
 if settings.dev_mode:
     app.include_router(dev.router)
 

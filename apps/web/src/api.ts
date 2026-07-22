@@ -388,6 +388,9 @@ export const api = {
   /** Streaming chat (preferred for UI). */
   chatStream: streamChat,
 
+  monitoringUsers: () =>
+    request<MonitoringOverview>("/monitoring/users"),
+
   usageSummary: () => request<UsageSummary>("/usage/summary"),
 
   visualPipelineSummary: (workspaceId?: string) => {
@@ -617,6 +620,25 @@ export type UsageSummary = {
   by_kind: Record<string, number>;
   recent: UsageEventRow[];
   daily_totals: DailyTotal[];
+};
+
+/** Settings → Monitoring overview from /monitoring/users. */
+export type MonitoringUserRow = {
+  id: string;
+  email: string;
+  created_at?: string | null;
+  last_login_at?: string | null;
+  last_seen_at?: string | null;
+  online: boolean;
+};
+
+export type MonitoringOverview = {
+  total_users: number;
+  online_now: number;
+  active_today: number;
+  active_7d: number;
+  online_window_minutes: number;
+  users: MonitoringUserRow[];
 };
 
 /** Aggregated Visual Summary pipeline health from /usage/visual-summary. */

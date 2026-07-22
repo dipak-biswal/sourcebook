@@ -24,6 +24,13 @@ class User(Base):
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )
+    # Activity for Settings → Monitoring (login + authenticated API use).
+    last_login_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    last_seen_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
     memberships: Mapped[list["WorkspaceMember"]] = relationship(back_populates="user")
 
 
