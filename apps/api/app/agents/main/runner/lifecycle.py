@@ -149,10 +149,47 @@ def run_agent(
     ):
         return run
 
-    system = format_main_agent_system_prompt(
-        agent_system_prompt(profile.system_prompt),
-        packet,
+    # Direct main start (context agent disabled or skipped): still set run policy.
+    from app.agents.main.run_policy import (
+        apply_tool_policy_to_base_prompt,
+        format_run_tool_policy_block,
+        run_requires_date_tool,
     )
+
+    allow_web = bool(packet.derived.tool_policy.external_context_ok)
+    allow_fetch = allow_web
+    require_date = run_requires_date_tool(
+        allow_web=allow_web,
+        goal=goal,
+        snapshot=None,
+        curated_goal=goal,
+        allow_fetch_url=allow_fetch,
+    )
+    run._require_date_tool = require_date  # type: ignore[attr-defined]
+    run._allow_web = allow_web  # type: ignore[attr-defined]
+    run._allow_fetch_url = allow_fetch  # type: ignore[attr-defined]
+    base = apply_tool_policy_to_base_prompt(
+        agent_system_prompt(profile.system_prompt),
+        require_date=require_date,
+        allow_web=allow_web,
+        allow_fetch_url=allow_fetch,
+    )
+    system = format_main_agent_system_prompt(base, packet)
+    system = (
+        f"{system.rstrip()}\n\n"
+        f"{format_run_tool_policy_block(allow_web=allow_web, require_date=require_date, ready_doc_count=len(packet.evidence.documents_ready or []), allow_fetch_url=allow_fetch)}"
+    )
+    # Persist for resume / process restart consistency.
+    opts = dict(run.run_options or {}) if isinstance(run.run_options, dict) else {}
+    opts["tool_policy"] = {
+        "evidence_plan": "unknown",
+        "require_date": require_date,
+        "allow_web": allow_web,
+        "allow_web_search": allow_web,
+        "allow_fetch_url": allow_fetch,
+    }
+    run.run_options = opts
+    db.commit()
     messages: list[BaseMessage] = [
         SystemMessage(content=system),
         HumanMessage(content=goal),

@@ -9,6 +9,7 @@ from typing import Any
 from openai import OpenAI
 
 from app.agents.context.merge import CollectedContextSnapshot
+from app.agents.main.run_policy import evidence_constraint_lines
 from app.agents.visual_summary.llm_json import chat_json
 from app.agents.visual_summary.workspace.context import WorkspaceContextPacket
 from app.config import settings
@@ -35,8 +36,39 @@ _SYSTEM = (
     "2) curated_goal — a clear, self-contained restatement of what the agent "
     "should do this run (one short paragraph).\n"
     "3) rationale — one sentence on what you sharpened.\n"
-    "Do not invent facts. Stay domain-agnostic. JSON only."
+    "Respect evidence constraints: if web research is disallowed, say so without "
+    "naming tools. Do not invent facts. Stay domain-agnostic. JSON only."
 )
+
+
+def _append_policy_constraints(
+    addendum: str,
+    *,
+    snapshot: CollectedContextSnapshot | None,
+    policy_summary: dict[str, Any] | None,
+) -> str:
+    """Ensure HITL evidence constraints survive LLM rewrite of the brief."""
+    if not policy_summary:
+        return addendum
+    plan = str(policy_summary.get("evidence_plan") or "unknown")
+    allow_web = bool(policy_summary.get("allow_web_search", policy_summary.get("allow_web")))
+    allow_fetch = bool(policy_summary.get("allow_fetch_url", allow_web))
+    urls = list(snapshot.urls) if snapshot else []
+    constraints = evidence_constraint_lines(
+        evidence_plan=plan,
+        allow_web=allow_web,
+        allow_fetch_url=allow_fetch,
+        urls=urls,
+    )
+    if not constraints:
+        return addendum
+    text = (addendum or "").rstrip()
+    # Skip lines already present (case-insensitive substring).
+    lower = text.lower()
+    extra = [ln for ln in constraints if ln.lstrip("- ").lower() not in lower]
+    if not extra:
+        return text
+    return f"{text}\n" + "\n".join(extra) if text else "\n".join(extra)
 
 
 def _model_name() -> str:
@@ -51,6 +83,7 @@ def _heuristic_curation(
     packet: WorkspaceContextPacket,
     goal: str,
     snapshot: CollectedContextSnapshot | None,
+    policy_summary: dict[str, Any] | None = None,
 ) -> dict[str, str]:
     """Deterministic brief when LLM is off or fails."""
     lines = [
@@ -81,11 +114,25 @@ def _heuristic_curation(
             lines.append(f"- Must cover: {snapshot.must_cover}")
         for k, v in snapshot.extra.items():
             lines.append(f"- {k.replace('_', ' ')}: {v}")
+    if policy_summary:
+        plan = str(policy_summary.get("evidence_plan") or "unknown")
+        allow_web = bool(
+            policy_summary.get("allow_web_search", policy_summary.get("allow_web"))
+        )
+        allow_fetch = bool(policy_summary.get("allow_fetch_url", allow_web))
+        lines.extend(
+            evidence_constraint_lines(
+                evidence_plan=plan,
+                allow_web=allow_web,
+                allow_fetch_url=allow_fetch,
+                urls=list(snapshot.urls) if snapshot else None,
+            )
+        )
     lines.append(
         "- Prefer workspace documents when ready; use web only when policy allows "
         "and docs are insufficient."
     )
-    lines.append("- Be concise and cite sources.")
+    lines.append("- Be concise, ground claims in tool results, and cite sources.")
 
     curated_goal = (goal or "").strip()
     if snapshot and snapshot.topic_focus:
@@ -109,13 +156,16 @@ def curate_main_agent_prompt(
     packet: WorkspaceContextPacket,
     goal: str,
     snapshot: CollectedContextSnapshot | None,
+    policy_summary: dict[str, Any] | None = None,
 ) -> dict[str, str]:
     """
     Return {system_addendum, curated_goal, rationale, source}.
 
     Uses a cheap model when enabled; always has a heuristic fallback.
+    Evidence constraints from ``policy_summary`` are always appended so an
+    LLM rewrite cannot drop docs-only / no-web rules.
     """
-    base = _heuristic_curation(packet, goal, snapshot)
+    base = _heuristic_curation(packet, goal, snapshot, policy_summary=policy_summary)
     if not getattr(settings, "context_curator_enabled", True):
         return base
     if not settings.openai_api_key:
@@ -124,6 +174,15 @@ def curate_main_agent_prompt(
     snap_blob = ""
     if snapshot and not snapshot.is_empty():
         snap_blob = json.dumps(snapshot.to_dict(), ensure_ascii=False)
+
+    web_allowed = bool(packet.derived.tool_policy.external_context_ok)
+    if policy_summary is not None:
+        web_allowed = bool(
+            policy_summary.get("allow_web_search", policy_summary.get("allow_web", web_allowed))
+        )
+    fetch_allowed = web_allowed
+    if policy_summary is not None and "allow_fetch_url" in policy_summary:
+        fetch_allowed = bool(policy_summary.get("allow_fetch_url"))
 
     user = (
         f"USER PLAN / GOAL:\n{(goal or '').strip()}\n\n"
@@ -134,7 +193,9 @@ def curate_main_agent_prompt(
         f"AUDIENCE: {packet.derived.audience_phrase}\n"
         f"TONE: {packet.derived.tone}\n"
         f"READY DOCS: {', '.join((packet.evidence.documents_ready or [])[:12]) or '(none)'}\n"
-        f"WEB ALLOWED: {packet.derived.tool_policy.external_context_ok}\n\n"
+        f"WEB SEARCH ALLOWED: {web_allowed}\n"
+        f"FETCH URL ALLOWED: {fetch_allowed}\n"
+        f"EVIDENCE PLAN: {(policy_summary or {}).get('evidence_plan', 'unknown')}\n\n"
         f"HITL ANSWERS JSON:\n{snap_blob or '{}'}\n\n"
         "Produce system_addendum and curated_goal."
     )
@@ -165,6 +226,9 @@ def curate_main_agent_prompt(
         rationale = str(data.get("rationale") or "").strip()
         if not addendum or not curated:
             return base
+        addendum = _append_policy_constraints(
+            addendum, snapshot=snapshot, policy_summary=policy_summary
+        )
         return {
             "system_addendum": addendum[:4000],
             "curated_goal": curated[:2000],

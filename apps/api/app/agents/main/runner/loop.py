@@ -63,10 +63,38 @@ def _run_tool_loop(
     resolved_agent_type = agent_type_override or run.agent_type
     resolved_model = chat_model or settings.chat_model
     allow_web = True
+    allow_fetch = True
     if resolved_agent_type != "visual_summary":
         packet = getattr(run, "_workspace_context", None)
         if packet is not None:
             allow_web = bool(packet.derived.tool_policy.external_context_ok)
+            allow_fetch = allow_web
+        # Prefer explicit flags; else restore from run_options after HITL.
+        if getattr(run, "_allow_web", None) is not None:
+            allow_web = bool(run._allow_web)  # type: ignore[attr-defined]
+            if getattr(run, "_allow_fetch_url", None) is None:
+                allow_fetch = allow_web
+        if getattr(run, "_allow_fetch_url", None) is not None:
+            allow_fetch = bool(run._allow_fetch_url)  # type: ignore[attr-defined]
+        elif isinstance(run.run_options, dict) and getattr(run, "_allow_web", None) is None:
+            tp = run.run_options.get("tool_policy") or {}
+            if isinstance(tp, dict):
+                if "allow_web" in tp or "allow_web_search" in tp:
+                    allow_web = bool(tp.get("allow_web_search", tp.get("allow_web")))
+                if "allow_fetch_url" in tp:
+                    allow_fetch = bool(tp.get("allow_fetch_url"))
+                elif "allow_web" in tp or "allow_web_search" in tp:
+                    allow_fetch = allow_web
+        # Date requirement (default True for older runs / visual path).
+        if getattr(run, "_require_date_tool", None) is None:
+            if isinstance(run.run_options, dict):
+                tp = run.run_options.get("tool_policy") or {}
+                if isinstance(tp, dict) and "require_date" in tp:
+                    run._require_date_tool = bool(tp.get("require_date"))  # type: ignore[attr-defined]
+                else:
+                    run._require_date_tool = bool(allow_web or allow_fetch)  # type: ignore[attr-defined]
+            else:
+                run._require_date_tool = True  # type: ignore[attr-defined]
     tools = build_tools(
         db,
         workspace_id=run.workspace_id,
@@ -74,6 +102,7 @@ def _run_tool_loop(
         agent_type=resolved_agent_type,
         presentation_context=presentation_context,
         allow_web_search=allow_web,
+        allow_fetch_url=allow_fetch,
     )
     tool_by_name = {t.name: t for t in tools}
     model = _llm(resolved_model).bind_tools(tools)

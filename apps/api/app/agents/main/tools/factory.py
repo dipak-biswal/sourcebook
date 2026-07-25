@@ -22,8 +22,14 @@ def build_tools(
     agent_type: str = "general",
     presentation_context: PresentationContext | None = None,
     allow_web_search: bool = True,
+    allow_fetch_url: bool | None = None,
 ):
-    """Return tool callables bound to this request's db+tenant and agent profile."""
+    """Return tool callables bound to this request's db+tenant and agent profile.
+
+    ``allow_fetch_url`` defaults to ``allow_web_search`` so callers that only
+    pass the web flag keep prior behavior. HITL docs-only + user URLs can
+    enable fetch without open web search.
+    """
     profile = get_profile(agent_type)
 
     if profile.agent_type == "visual_summary":
@@ -39,9 +45,11 @@ def build_tools(
             ctx=presentation_context,
         )
 
+    fetch_ok = allow_web_search if allow_fetch_url is None else bool(allow_fetch_url)
     tool_names = set(profile.tool_names)
     if not allow_web_search:
         tool_names.discard("web_search")
+    if not fetch_ok:
         tool_names.discard("fetch_url")
 
     @tool

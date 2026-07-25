@@ -233,12 +233,19 @@ def _process_read_tool_calls(
         finalize_mode=finalize_mode,
         agent_type_override=agent_type_override,
     )
+    # Per-run policy set after plan-setup HITL (default True for legacy paths).
+    require_date = bool(getattr(run, "_require_date_tool", True))
     messages, read_calls, date_first = prepare_read_tool_calls(
         read_calls,
         messages=messages,
         is_main_agent=is_main,
+        require_date=require_date,
     )
-    if is_main and any(tc.get("name") != DATE_TOOL_NAME for tc in read_calls):
+    if (
+        is_main
+        and require_date
+        and any(tc.get("name") != DATE_TOOL_NAME for tc in read_calls)
+    ):
         model_requested_date = any(
             tc.get("name") == DATE_TOOL_NAME for tc in read_calls
         )
@@ -255,6 +262,7 @@ def _process_read_tool_calls(
             read_calls,
             messages=messages,
             is_main_agent=is_main,
+            require_date=require_date,
         )
 
     if emit_parallel_group:

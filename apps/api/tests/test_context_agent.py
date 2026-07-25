@@ -146,6 +146,24 @@ def test_curator_heuristic_brief(monkeypatch):
     assert out["source"] == "heuristic"
 
 
+def test_curator_keeps_docs_only_constraints(monkeypatch):
+    monkeypatch.setattr(settings, "context_curator_enabled", False)
+    packet = _rich_packet()
+    snap = CollectedContextSnapshot(
+        topic_focus="CAP theorem",
+        document_plan="Workspace documents",
+    )
+    policy = {
+        "evidence_plan": "docs",
+        "allow_web_search": False,
+        "allow_fetch_url": False,
+    }
+    out = curate_main_agent_prompt(
+        packet, "Explain CAP from my notes", snap, policy_summary=policy
+    )
+    assert "documents only" in out["system_addendum"].lower()
+
+
 def test_merge_answers_to_prompt_block():
     snap = answers_to_snapshot(
         {

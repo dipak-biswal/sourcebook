@@ -14,6 +14,12 @@ from app.agents.context.merge import answers_to_snapshot, format_collected_conte
 from app.agents.context.readiness import assess_readiness
 from app.agents.context.workspace_apply import apply_snapshot_to_workspace
 from app.agents.main.profiles import agent_system_prompt, get_profile
+from app.agents.main.run_policy import (
+    apply_snapshot_to_tool_policy,
+    apply_tool_policy_to_base_prompt,
+    format_run_tool_policy_block,
+    run_requires_date_tool,
+)
 from app.agents.main.runner.events import (
     EventCallback,
     _append_step,
@@ -231,8 +237,18 @@ def resume_after_context_answers(
         )
     packet: WorkspaceContextPacket = run._workspace_context  # type: ignore[attr-defined]
 
+    # Honor HITL evidence plan (docs-only vs web) before binding tools.
+    policy_summary = apply_snapshot_to_tool_policy(packet, snapshot)
+    allow_web = bool(policy_summary.get("allow_web_search", packet.derived.tool_policy.external_context_ok))
+    allow_fetch = bool(policy_summary.get("allow_fetch_url", allow_web))
+
     # Curator agent: build main-agent brief + curated goal from workspace context.
-    curated = curate_main_agent_prompt(packet, run.goal or "", snapshot)
+    curated = curate_main_agent_prompt(
+        packet,
+        run.goal or "",
+        snapshot,
+        policy_summary=policy_summary,
+    )
     step_index = _next_step_index(db, run.id)
     _append_step(
         db,
@@ -243,6 +259,7 @@ def resume_after_context_answers(
         input={
             "goal": (run.goal or "")[:300],
             "has_snapshot": not snapshot.is_empty(),
+            "tool_policy": policy_summary,
         },
         output={
             "status": "ok",
@@ -251,14 +268,34 @@ def resume_after_context_answers(
             "rationale": curated.get("rationale"),
             "curated_goal": (curated.get("curated_goal") or "")[:500],
             "system_addendum_preview": (curated.get("system_addendum") or "")[:400],
+            "tool_policy": policy_summary,
         },
         on_event=on_event,
     )
 
+    curated_goal = (curated.get("curated_goal") or run.goal or "").strip()
+    require_date = run_requires_date_tool(
+        allow_web=allow_web,
+        goal=run.goal or "",
+        snapshot=snapshot,
+        curated_goal=curated_goal,
+        allow_fetch_url=allow_fetch,
+    )
+    run._require_date_tool = require_date  # type: ignore[attr-defined]
+    run._allow_web = allow_web  # type: ignore[attr-defined]
+    run._allow_fetch_url = allow_fetch  # type: ignore[attr-defined]
+
     profile = get_profile(agent_type)
-    system = format_main_agent_system_prompt(
+    base = apply_tool_policy_to_base_prompt(
         agent_system_prompt(profile.system_prompt),
-        packet,
+        require_date=require_date,
+        allow_web=allow_web,
+        allow_fetch_url=allow_fetch,
+    )
+    system = format_main_agent_system_prompt(base, packet)
+    system = (
+        f"{system.rstrip()}\n\n"
+        f"{format_run_tool_policy_block(allow_web=allow_web, require_date=require_date, evidence_plan=str(policy_summary.get('evidence_plan') or 'unknown'), ready_doc_count=len(packet.evidence.documents_ready or []), allow_fetch_url=allow_fetch)}"
     )
     addendum = (curated.get("system_addendum") or "").strip()
     if addendum:
@@ -268,7 +305,7 @@ def resume_after_context_answers(
         system = f"{system.rstrip()}\n\n{collected_block}"
         run._collected_context = snapshot  # type: ignore[attr-defined]
 
-    human = (curated.get("curated_goal") or run.goal or "").strip()
+    human = curated_goal
     if snapshot.urls and "http" not in human.lower():
         human = f"{human}\n\n[User provided URLs: {', '.join(snapshot.urls)}]"
 
@@ -280,10 +317,17 @@ def resume_after_context_answers(
     run.status = "running"
     run.pending_tool = None
     run.final_answer = None
-    # Store curated goal for UI/debug without changing AgentRun.goal (audit trail).
+    # Store curated goal + tool policy for UI/debug without changing AgentRun.goal.
     opts = dict(run.run_options or {}) if isinstance(run.run_options, dict) else {}
     opts["curated_goal"] = human[:2000]
     opts["context_curator_source"] = curated.get("source")
+    opts["tool_policy"] = {
+        **policy_summary,
+        "require_date": require_date,
+        "allow_web": allow_web,
+        "allow_web_search": allow_web,
+        "allow_fetch_url": allow_fetch,
+    }
     run.run_options = opts
     db.commit()
 

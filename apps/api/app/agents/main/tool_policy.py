@@ -50,9 +50,14 @@ def prepare_read_tool_calls(
     *,
     messages: list[BaseMessage],
     is_main_agent: bool,
+    require_date: bool = True,
 ) -> tuple[list[BaseMessage], list[dict[str, Any]], bool]:
     """
-    Ensure the main agent has current-date context before other read tools.
+    Optionally ensure current-date context before other read tools.
+
+    When ``require_date`` is False (docs-only / non-time-sensitive runs), date
+    calls are still allowed if the model asked, but we never force ordering
+    that blocks document tools.
 
     Returns (messages, calls_to_run, run_date_before_others_sequentially).
     """
@@ -64,8 +69,18 @@ def prepare_read_tool_calls(
     other_calls = [tc for tc in read_calls if tc.get("name") != DATE_TOOL_NAME]
 
     updated_messages = list(messages)
+
+    if not require_date:
+        # Optional date: drop redundant date calls; never block other tools.
+        if has_date and date_calls:
+            return updated_messages, other_calls, False
+        if date_calls and other_calls:
+            # Model asked for date + others — still run date first if present.
+            return updated_messages, read_calls, True
+        return updated_messages, read_calls, False
+
     if other_calls and not has_date and not date_calls:
-        # Caller must invoke get_current_date and append HumanMessage before executing.
+        # Caller may auto-seed get_current_date before executing.
         return updated_messages, read_calls, False
 
     if has_date and date_calls:
