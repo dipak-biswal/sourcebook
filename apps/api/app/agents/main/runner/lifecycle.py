@@ -137,7 +137,8 @@ def run_agent(
     run._trace_live = trace_live  # type: ignore[attr-defined]
     _refresh_execution_trace(db, run, on_event, trace_live)
 
-    # Pre-main Workspace Context Agent: pause for HITL questions when gaps exist.
+    # Pre-main plan setup HITL (always when context_agent_always, else gap-only).
+    # No date/web tools run until the user answers or skips.
     if start_context_phase_if_needed(
         db,
         run,

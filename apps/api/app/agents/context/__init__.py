@@ -1,4 +1,8 @@
-"""Workspace Context Agent — pre-main readiness + HITL question collection.
+"""Workspace Context Agent — always-on plan HITL + workspace merge + curator.
+
+Flow: Run agent → plan follow-up questions (cheap LLM) → user answers →
+optional write into empty workspace Settings fields → prompt curator builds
+main-agent brief → main tool loop (date/web/docs/…) as usual.
 
 Collects missing run context (topic, audience, URLs, document plan) via a
 structured form when the workspace packet + goal are not enough, then frames

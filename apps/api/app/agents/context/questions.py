@@ -227,3 +227,78 @@ def default_form_title(gaps: list[Gap]) -> str:
 
 def default_form_subtitle() -> str:
     return "Answer what you can — skip optional fields if unsure."
+
+
+def always_plan_questions(
+    packet: WorkspaceContextPacket,
+    goal: str,
+    *,
+    max_questions: int = 4,
+) -> list[Question]:
+    """
+    Questions shown on every run (context_agent_always).
+
+    Focuses on the user's plan/goal, not only readiness gaps.
+    """
+    _ = packet
+    goal = (goal or "").strip()
+    out: list[Question] = [
+        _text(
+            "topic_scope",
+            "What should we focus on for this plan?",
+            required=True,
+            placeholder="e.g. main stages, audience outcome, or success criteria",
+        ),
+        _checkbox(
+            "level",
+            "What level should the answer target?",
+            [
+                {"id": "beginner", "label": "Beginner"},
+                {"id": "intermediate", "label": "Intermediate"},
+                {"id": "advanced", "label": "Advanced"},
+            ],
+            required=False,
+            allow_multiple=False,
+        ),
+        _checkbox(
+            "audience",
+            "Who is this for?",
+            [
+                {"id": "myself", "label": "Myself"},
+                {"id": "team", "label": "My team"},
+                {"id": "interview", "label": "Interview prep"},
+                {"id": "client", "label": "Client / stakeholder"},
+            ],
+            required=False,
+            allow_multiple=False,
+        ),
+        _checkbox(
+            "document_plan",
+            "Where should evidence come from?",
+            [
+                {"id": "upload", "label": "Workspace documents"},
+                {"id": "web", "label": "Web"},
+                {"id": "both", "label": "Both"},
+            ],
+            required=False,
+            allow_multiple=False,
+        ),
+        _text(
+            "must_cover",
+            "Any must-cover points or constraints? (optional)",
+            required=False,
+            placeholder="e.g. keep it practical, include a diagram",
+        ),
+        _text(
+            "urls",
+            "Any URLs to use? (optional)",
+            required=False,
+            placeholder="https://…",
+        ),
+    ]
+    # Prefer a short form: drop trailing optionals to respect max_questions.
+    if not goal or len(goal) >= 40:
+        # Goal already detailed — make topic_scope optional.
+        out[0]["required"] = False
+        out[0]["prompt"] = "Anything to refine about this plan? (optional)"
+    return out[: max(1, max_questions)]

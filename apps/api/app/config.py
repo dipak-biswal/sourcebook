@@ -91,10 +91,17 @@ class Settings(BaseSettings):
     # Workspace Context Agent: pre-main readiness + HITL questions.
     # When False, runs skip the context gate and start main immediately.
     context_agent_enabled: bool = True
+    # When True, ALWAYS pause for plan follow-ups before any main tools (1A).
+    # When False, only pause if readiness finds gaps (legacy).
+    context_agent_always: bool = True
     # When True, a small LLM phrases the question form; templates are fallback.
     context_agent_llm: bool = True
-    context_agent_model: str = ""  # empty → chat_model
+    # Cheap model for question generation (empty → chat_model).
+    context_agent_model: str = "gpt-4o-mini"
     context_agent_max_questions: int = 4
+    # After HITL, a small curator agent builds the main-agent brief/prompt.
+    context_curator_enabled: bool = True
+    context_curator_model: str = "gpt-4o-mini"  # empty → context_agent_model → chat
     rag_top_k: int = 5
     # Cosine floor: below this → no hits, no sources (off-topic questions).
     # Raise (e.g. 0.25) if off-topic still retrieves; lower if on-topic misses.

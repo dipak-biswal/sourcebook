@@ -9,6 +9,7 @@ from typing import Any
 from openai import OpenAI
 
 from app.agents.context.questions import (
+    always_plan_questions,
     default_form_subtitle,
     default_form_title,
     normalize_questions,
@@ -68,10 +69,10 @@ QUESTIONS_SCHEMA: dict[str, Any] = {
 }
 
 _SYSTEM = (
-    "You prepare a short form that collects missing context so a research/"
-    "teaching agent can run well. The workspace can be about ANY topic.\n"
+    "You prepare a short form that collects context BEFORE a research/"
+    "teaching agent runs. The workspace can be about ANY topic.\n"
     "Rules:\n"
-    "- Ask ONLY about the listed gaps — do not invent new product features.\n"
+    "- Base questions on the USER PLAN / GOAL first; use listed gaps if any.\n"
     "- Prefer checkboxes for closed choices (level, audience, document plan).\n"
     "- Prefer text for free detail (topic focus, URLs, constraints).\n"
     "- Max 4 questions. Keep prompts short and domain-agnostic.\n"
@@ -79,6 +80,14 @@ _SYSTEM = (
     "- For checkbox questions include 2–6 options with stable snake_case ids.\n"
     "- For text questions set options to [] and allow_multiple to false.\n"
     "Return JSON matching the schema only."
+)
+
+_ALWAYS_SYSTEM = (
+    "You prepare a short setup form that runs BEFORE any agent tools.\n"
+    "The user just entered a plan/goal. Ask 2–4 concise follow-ups that "
+    "sharpen the plan (focus, level, audience, sources, constraints).\n"
+    "Prefer checkboxes for closed choices; text for free detail.\n"
+    "Domain-agnostic. JSON only matching the schema."
 )
 
 
@@ -119,23 +128,34 @@ def generate_questions(
     gaps: list[Gap],
     *,
     max_questions: int | None = None,
+    always: bool = False,
 ) -> dict[str, Any]:
     """
     Return {title, subtitle, questions} for pending_tool.args.
 
     Uses a small LLM when enabled; falls back to templates on any failure.
+    When ``always`` is True (plan-first HITL), always produce a form even if
+    readiness found no gaps.
     """
     cap = max_questions or int(getattr(settings, "context_agent_max_questions", 4) or 4)
-    templates = template_questions_for_gaps(
-        gaps, packet, goal, max_questions=cap
-    )
-    form = {
-        "title": default_form_title(gaps),
-        "subtitle": default_form_subtitle(),
-        "questions": templates,
-    }
+    if always and not gaps:
+        templates = always_plan_questions(packet, goal, max_questions=cap)
+        form = {
+            "title": "Set up this plan",
+            "subtitle": "Quick follow-ups before tools run — skip what you don't need.",
+            "questions": templates,
+        }
+    else:
+        templates = template_questions_for_gaps(
+            gaps, packet, goal, max_questions=cap
+        )
+        form = {
+            "title": default_form_title(gaps),
+            "subtitle": default_form_subtitle(),
+            "questions": templates,
+        }
 
-    if not gaps:
+    if not always and not gaps:
         return form
 
     use_llm = bool(getattr(settings, "context_agent_llm", True))
@@ -146,12 +166,24 @@ def generate_questions(
         client = OpenAI(
             api_key=settings.openai_api_key,
             base_url=settings.openai_base_url,
+            timeout=45.0,
+            max_retries=2,
         )
+        if always and not gaps:
+            prompt = (
+                f"USER PLAN / GOAL:\n{goal.strip()}\n\n"
+                f"WORKSPACE:\n{_packet_summary(packet)}\n\n"
+                "Produce a short setup form (title, subtitle, questions) for this plan."
+            )
+            system = _ALWAYS_SYSTEM
+        else:
+            prompt = _user_prompt(packet, goal, gaps)
+            system = _SYSTEM
         resp = chat_json(
             client,
             model=_model_name(),
-            system=_SYSTEM,
-            prompt=_user_prompt(packet, goal, gaps),
+            system=system,
+            prompt=prompt,
             schema_name="context_questions",
             schema=QUESTIONS_SCHEMA,
             temperature=0.2,

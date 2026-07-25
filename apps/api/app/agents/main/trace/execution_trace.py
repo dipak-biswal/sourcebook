@@ -104,6 +104,9 @@ TOOL_LABELS: dict[str, str] = {
     "render_ui": "Render UI",
     "mcp_drawio": "draw.io MCP",
     "get_current_date": "Current date",
+    "ask_user": "Plan setup",
+    "workspace_context": "Update workspace",
+    "prompt_curator": "Curate main prompt",
 }
 
 VISUAL_SUMMARY_AGENT_LABEL = "Visual Summary Agent"
@@ -1323,11 +1326,22 @@ def _parse_steps(
                 presentation_approvals.append(step)
             else:
                 waiting = _step_output_status(step) == "waiting_approval"
+                is_plan_setup = (
+                    step.tool_name == "ask_user"
+                    or (
+                        isinstance(step.output, dict)
+                        and step.output.get("kind") == "questions"
+                    )
+                )
                 tail.append(
                     {
                         "id": str(step.id),
                         "type": "hitl",
-                        "label": "Human approval",
+                        "label": (
+                            "Plan setup · answer questions"
+                            if is_plan_setup
+                            else "Human approval"
+                        ),
                         "state": "running" if waiting else "done",
                         "pending": waiting,
                         "building": False,
@@ -1363,6 +1377,48 @@ def _parse_steps(
                 tail[idx] = item
             else:
                 tail.append(item)
+            continue
+
+        if step.type == "context_check":
+            if current is not None:
+                active_turns().append(current)
+                current = None
+            tail.append(
+                {
+                    "id": str(step.id),
+                    "type": "hitl",
+                    "label": "Plan setup · questions",
+                    "state": "done",
+                    "pending": False,
+                    "building": False,
+                    "input": step.input,
+                    "output": step.output,
+                    **_step_timing(step),
+                }
+            )
+            continue
+
+        if step.type in ("context_merge", "context_curate"):
+            if current is not None:
+                active_turns().append(current)
+                current = None
+            label = (
+                "Update workspace context"
+                if step.type == "context_merge"
+                else "Curate main prompt"
+            )
+            tail.append(
+                {
+                    "id": str(step.id),
+                    "type": "tool",
+                    "label": label,
+                    "tool_name": step.tool_name or step.type,
+                    "state": "done",
+                    "input": step.input,
+                    "output": step.output,
+                    **_step_timing(step),
+                }
+            )
             continue
 
         if step.type == "synthesis":

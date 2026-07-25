@@ -8,9 +8,11 @@ from typing import Any, Callable
 from langchain_core.messages import HumanMessage, SystemMessage
 from sqlalchemy.orm import Session
 
+from app.agents.context.curator import curate_main_agent_prompt
 from app.agents.context.llm import generate_questions
 from app.agents.context.merge import answers_to_snapshot, format_collected_context
 from app.agents.context.readiness import assess_readiness
+from app.agents.context.workspace_apply import apply_snapshot_to_workspace
 from app.agents.main.profiles import agent_system_prompt, get_profile
 from app.agents.main.runner.events import (
     EventCallback,
@@ -26,7 +28,7 @@ from app.agents.visual_summary.workspace.context import (
     resolve_workspace_context,
 )
 from app.config import settings
-from app.models import AgentRun
+from app.models import AgentRun, Workspace
 
 CONTEXT_TOOL = "ask_user"
 
@@ -50,7 +52,10 @@ def start_context_phase_if_needed(
     trace_live: LiveTraceContext | None = None,
 ) -> bool:
     """
-    If readiness finds gaps, pause the run with a questions form.
+    Pause for plan follow-up HITL before any main tools.
+
+    When ``context_agent_always`` is True (default / option 1A), always ask
+    plan setup questions. Otherwise only when readiness finds gaps.
 
     Returns True when the run is waiting for user input (caller should return).
     Returns False when main can start immediately.
@@ -58,11 +63,17 @@ def start_context_phase_if_needed(
     if not getattr(settings, "context_agent_enabled", True):
         return False
 
+    always = bool(getattr(settings, "context_agent_always", True))
     gaps = assess_readiness(packet, run.goal or "")
-    if not gaps:
+    if not always and not gaps:
         return False
 
-    form = generate_questions(packet, run.goal or "", gaps)
+    form = generate_questions(
+        packet,
+        run.goal or "",
+        gaps,
+        always=always,
+    )
     questions = form.get("questions") or []
     if not questions:
         return False
@@ -74,7 +85,7 @@ def start_context_phase_if_needed(
         "kind": "questions",
         "args": {
             "title": form.get("title")
-            or "A bit more context will improve the answer",
+            or "Set up this plan",
             "subtitle": form.get("subtitle")
             or "Answer what you can — skip optional fields if unsure.",
             "questions": questions,
@@ -82,13 +93,14 @@ def start_context_phase_if_needed(
         "checkpoint": {
             "phase": "context",
             "gaps": [g.id for g in gaps],
+            "always": always,
             "max_steps": max_steps,
             "agent_type": run.agent_type or "general",
         },
     }
     run.final_answer = (
-        "Before running, Sourcebook needs a bit more context. "
-        "Please answer the questions below (or skip to continue with what we have)."
+        "Before tools run, answer a few questions about this plan "
+        "(or skip to continue with what we have)."
     )
 
     _append_step(
@@ -100,11 +112,14 @@ def start_context_phase_if_needed(
         input={
             "gaps": [g.id for g in gaps],
             "reasons": [g.reason for g in gaps],
+            "always": always,
+            "goal": (run.goal or "")[:300],
         },
         output={
             "status": "waiting_input",
             "kind": "questions",
             "question_count": len(questions),
+            "always": always,
         },
         on_event=on_event,
     )
@@ -131,7 +146,7 @@ def start_context_phase_if_needed(
         status="waiting_approval",
         pending_tool=run.pending_tool,
         final_answer=run.final_answer,
-        message="waiting for context from user",
+        message="waiting for plan context from user",
     )
     if trace_live is not None:
         _refresh_execution_trace(db, run, on_event, trace_live)
@@ -147,7 +162,7 @@ def resume_after_context_answers(
     run_tool_loop: ToolLoopFn,
     trace_live: LiveTraceContext | None = None,
 ) -> AgentRun:
-    """User submitted (or skipped) context questions — start the main tool loop."""
+    """User submitted (or skipped) context questions — curate prompt, then main loop."""
     pending = dict(run.pending_tool or {})
     args = pending.get("args") if isinstance(pending.get("args"), dict) else {}
     questions = args.get("questions") if isinstance(args, dict) else []
@@ -180,26 +195,81 @@ def resume_after_context_answers(
         on_event=on_event,
     )
 
+    # Persist into workspace Settings when fields are empty.
+    workspace = db.get(Workspace, run.workspace_id)
+    workspace_update: dict[str, Any] = {"updated": False}
+    if workspace is not None and not snapshot.is_empty():
+        workspace_update = apply_snapshot_to_workspace(db, workspace, snapshot)
+        if workspace_update.get("updated"):
+            step_index = _next_step_index(db, run.id)
+            _append_step(
+                db,
+                run,
+                step_index=step_index,
+                type="context_merge",
+                tool_name="workspace_context",
+                input={"snapshot": snapshot.to_dict()},
+                output={
+                    "status": "merged",
+                    "workspace_id": str(workspace.id),
+                    "changes": {
+                        k: v
+                        for k, v in workspace_update.items()
+                        if k != "updated"
+                    },
+                },
+                on_event=on_event,
+            )
+            # Refresh packet after description/tags change.
+            run._workspace_context = resolve_workspace_context(  # type: ignore[attr-defined]
+                db, run.workspace_id, user_id=run.user_id
+            )
+
     if getattr(run, "_workspace_context", None) is None:
         run._workspace_context = resolve_workspace_context(  # type: ignore[attr-defined]
             db, run.workspace_id, user_id=run.user_id
         )
     packet: WorkspaceContextPacket = run._workspace_context  # type: ignore[attr-defined]
 
+    # Curator agent: build main-agent brief + curated goal from workspace context.
+    curated = curate_main_agent_prompt(packet, run.goal or "", snapshot)
+    step_index = _next_step_index(db, run.id)
+    _append_step(
+        db,
+        run,
+        step_index=step_index,
+        type="context_curate",
+        tool_name="prompt_curator",
+        input={
+            "goal": (run.goal or "")[:300],
+            "has_snapshot": not snapshot.is_empty(),
+        },
+        output={
+            "status": "ok",
+            "source": curated.get("source"),
+            "model": curated.get("model"),
+            "rationale": curated.get("rationale"),
+            "curated_goal": (curated.get("curated_goal") or "")[:500],
+            "system_addendum_preview": (curated.get("system_addendum") or "")[:400],
+        },
+        on_event=on_event,
+    )
+
     profile = get_profile(agent_type)
     system = format_main_agent_system_prompt(
         agent_system_prompt(profile.system_prompt),
         packet,
     )
+    addendum = (curated.get("system_addendum") or "").strip()
+    if addendum:
+        system = f"{system.rstrip()}\n\n{addendum}"
     collected_block = format_collected_context(snapshot)
     if collected_block:
         system = f"{system.rstrip()}\n\n{collected_block}"
         run._collected_context = snapshot  # type: ignore[attr-defined]
 
-    human = (run.goal or "").strip()
-    if snapshot.topic_focus:
-        human = f"{human}\n\n[User clarified focus: {snapshot.topic_focus}]"
-    if snapshot.urls:
+    human = (curated.get("curated_goal") or run.goal or "").strip()
+    if snapshot.urls and "http" not in human.lower():
         human = f"{human}\n\n[User provided URLs: {', '.join(snapshot.urls)}]"
 
     messages = [
@@ -210,6 +280,11 @@ def resume_after_context_answers(
     run.status = "running"
     run.pending_tool = None
     run.final_answer = None
+    # Store curated goal for UI/debug without changing AgentRun.goal (audit trail).
+    opts = dict(run.run_options or {}) if isinstance(run.run_options, dict) else {}
+    opts["curated_goal"] = human[:2000]
+    opts["context_curator_source"] = curated.get("source")
+    run.run_options = opts
     db.commit()
 
     _emit(
@@ -217,7 +292,7 @@ def resume_after_context_answers(
         "status",
         run_id=str(run.id),
         status="running",
-        message="starting main agent with collected context",
+        message="starting main agent with curated workspace context",
     )
     if trace_live is not None:
         _refresh_execution_trace(db, run, on_event, trace_live)
