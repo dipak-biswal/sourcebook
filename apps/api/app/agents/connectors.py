@@ -1,8 +1,7 @@
 """Agent connector catalog for the Agents page UI.
 
-Built-in tools ship with Sourcebook. MCP connectors (e.g. draw.io) are listed
-here so the UI can show what is available, configured, or coming soon — even
-before the MCP runtime is fully wired into the agent loop.
+Built-in tools power the agent loop. MCP connectors (e.g. draw.io) are listed
+separately so the UI can show MCP-only toggles next to Run agent.
 """
 
 from __future__ import annotations
@@ -32,6 +31,7 @@ def _builtin(
         "description": description,
         "kind": "builtin",
         "status": "available",
+        "enabled_by_default": True,
         "phase": phase,
         "tool_names": tool_names,
         "requires_approval": requires_approval,
@@ -54,6 +54,7 @@ def _pipeline(
         "description": description,
         "kind": "pipeline",
         "status": "available",
+        "enabled_by_default": True,
         "phase": "visual",
         "tool_names": tool_names,
         "requires_approval": False,
@@ -63,28 +64,22 @@ def _pipeline(
 
 
 def _mcp_drawio() -> dict[str, Any]:
-    """draw.io MCP — free local server via `npx @drawio/mcp`."""
-    enabled = bool(settings.mcp_enabled and settings.mcp_drawio_enabled)
-    # Runtime call path lands in a later PR; "configured" means env is ready.
-    if enabled:
-        status: ConnectorStatus = "configured"
-        description = (
-            "Generate diagrams via draw.io MCP (`npx @drawio/mcp`). "
-            "Configured — wiring into the visual agent is enabled for this deploy."
-        )
-    else:
-        status = "coming_soon"
-        description = (
-            "Generate and open diagrams with draw.io (Mermaid, CSV, .drawio). "
-            "Free local MCP: npx @drawio/mcp. Enable with MCP_ENABLED and "
-            "MCP_DRAWIO_ENABLED when ready."
-        )
+    """draw.io MCP — free local server via `npx @drawio/mcp`.
+
+    Always listed as *available* (no paid plan). Server flags only set whether
+    it is on by default for this deploy (`enabled_by_default`).
+    """
+    server_on = bool(settings.mcp_enabled and settings.mcp_drawio_enabled)
     return {
         "id": "mcp_drawio",
         "name": "draw.io",
-        "description": description,
+        "description": (
+            "Generate diagrams with draw.io MCP (Mermaid, CSV, .drawio). "
+            "Free — runs locally via npx @drawio/mcp."
+        ),
         "kind": "mcp",
-        "status": status,
+        "status": "available",
+        "enabled_by_default": server_on,
         "phase": "visual",
         "tool_names": ["mcp_drawio"],
         "requires_approval": False,
@@ -96,8 +91,8 @@ def _mcp_drawio() -> dict[str, Any]:
 
 
 def list_connectors() -> list[dict[str, Any]]:
-    """All connectors the Agents UI should surface (order = display order)."""
-    connectors: list[dict[str, Any]] = [
+    """Full catalog (built-ins + pipeline + MCP)."""
+    return [
         _builtin(
             id="docs_list",
             name="List documents",
@@ -169,22 +164,28 @@ def list_connectors() -> list[dict[str, Any]]:
         ),
         _mcp_drawio(),
     ]
-    return connectors
+
+
+def list_mcp_connectors() -> list[dict[str, Any]]:
+    """MCP-only connectors for the Agents page dropdown."""
+    return [c for c in list_connectors() if c["kind"] == "mcp"]
 
 
 def connectors_overview() -> dict[str, Any]:
     items = list_connectors()
+    mcp_items = [c for c in items if c["kind"] == "mcp"]
     counts = {
         "total": len(items),
         "available": sum(1 for c in items if c["status"] == "available"),
         "configured": sum(1 for c in items if c["status"] == "configured"),
         "coming_soon": sum(1 for c in items if c["status"] == "coming_soon"),
         "disabled": sum(1 for c in items if c["status"] == "disabled"),
-        "mcp": sum(1 for c in items if c["kind"] == "mcp"),
+        "mcp": len(mcp_items),
         "builtin": sum(1 for c in items if c["kind"] == "builtin"),
     }
     return {
         "mcp_enabled": bool(settings.mcp_enabled),
         "connectors": items,
+        "mcp_connectors": mcp_items,
         "counts": counts,
     }

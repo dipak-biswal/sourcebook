@@ -811,6 +811,8 @@ export type AgentConnector = {
   description: string;
   kind: "builtin" | "mcp" | "pipeline";
   status: "available" | "configured" | "coming_soon" | "disabled";
+  /** Server default for MCP toggles on the Agents page. */
+  enabled_by_default?: boolean;
   phase: "main" | "visual" | "both";
   tool_names: string[];
   requires_approval: boolean;
@@ -823,6 +825,8 @@ export type AgentConnector = {
 export type AgentConnectorsOverview = {
   mcp_enabled: boolean;
   connectors: AgentConnector[];
+  /** MCP-only subset for the Run agent dropdown. */
+  mcp_connectors?: AgentConnector[];
   counts: {
     total: number;
     available: number;

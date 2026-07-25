@@ -3,6 +3,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 import { useAgentPage } from "./agent-page-context";
+import { AgentMcpMenu } from "./AgentMcpMenu";
 
 export function AgentRunForm() {
   const {
@@ -45,18 +46,21 @@ export function AgentRunForm() {
         </p>
       )}
 
-      <Button
-        type="submit"
-        className="mt-3 rounded-[6px]"
-        disabled={running || !workspaceId || !goal.trim()}
-      >
-        {running ? (
-          <Loader2 className="h-4 w-4 animate-spin" />
-        ) : (
-          <Play className="h-4 w-4" strokeWidth={1.5} />
-        )}
-        {running ? "Running agent…" : "Run agent"}
-      </Button>
+      <div className="mt-3 flex flex-wrap items-center gap-2">
+        <Button
+          type="submit"
+          className="rounded-[6px]"
+          disabled={running || !workspaceId || !goal.trim()}
+        >
+          {running ? (
+            <Loader2 className="h-4 w-4 animate-spin" />
+          ) : (
+            <Play className="h-4 w-4" strokeWidth={1.5} />
+          )}
+          {running ? "Running agent…" : "Run agent"}
+        </Button>
+        <AgentMcpMenu disabled={running} />
+      </div>
 
       {!running && exampleGoals.length > 0 && (
         <div className="mt-4 border-t border-hairline pt-3">

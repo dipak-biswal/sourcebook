@@ -24,6 +24,9 @@ export type AgentPageContextValue = {
   loading: boolean;
   connectors: AgentConnectorsOverview | undefined;
   connectorsLoading: boolean;
+  /** MCP connector ids toggled on for the next run. */
+  enabledMcpIds: Set<string>;
+  onToggleMcp: (id: string) => void;
   liveGoal: string | null;
   liveExecutionTrace: ExecutionTrace | null;
   liveSteps: AgentStep[];

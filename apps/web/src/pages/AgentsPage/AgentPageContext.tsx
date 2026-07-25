@@ -1,4 +1,12 @@
-import { useCallback, useEffect, useMemo, useState, type ReactNode, type SubmitEvent } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+  type SubmitEvent,
+} from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { useQueryClient } from "@tanstack/react-query";
 import { api, type AgentStep, type AgentRun } from "@/api";
@@ -70,6 +78,31 @@ export function AgentPageProvider({
   const { data: runs = [] } = useAgentRuns(effectiveWorkspaceId);
   const { data: documents = [] } = useDocuments(effectiveWorkspaceId);
   const { data: connectors, isLoading: connectorsLoading } = useAgentConnectors();
+  const [enabledMcpIds, setEnabledMcpIds] = useState<Set<string>>(() => new Set());
+  const mcpDefaultsApplied = useRef(false);
+
+  // Seed MCP toggles from server defaults once catalog loads.
+  useEffect(() => {
+    if (!connectors || mcpDefaultsApplied.current) return;
+    const mcp =
+      connectors.mcp_connectors ??
+      connectors.connectors.filter((c) => c.kind === "mcp");
+    const next = new Set<string>();
+    for (const c of mcp) {
+      if (c.enabled_by_default) next.add(c.id);
+    }
+    setEnabledMcpIds(next);
+    mcpDefaultsApplied.current = true;
+  }, [connectors]);
+
+  const onToggleMcp = useCallback((id: string) => {
+    setEnabledMcpIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }, []);
   const effectiveSelectedId = selectedId;
   const selectedWorkspace = useMemo(
     () => workspaces.find((w) => w.id === effectiveWorkspaceId),
@@ -593,6 +626,8 @@ export function AgentPageProvider({
     loading,
     connectors,
     connectorsLoading,
+    enabledMcpIds,
+    onToggleMcp,
     liveGoal,
     liveExecutionTrace,
     liveSteps,

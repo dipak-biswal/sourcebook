@@ -1,6 +1,6 @@
 """Agent connector catalog for the Agents page."""
 
-from app.agents.connectors import connectors_overview, list_connectors
+from app.agents.connectors import connectors_overview, list_connectors, list_mcp_connectors
 from app.config import settings
 
 
@@ -20,23 +20,33 @@ def test_create_note_requires_approval():
     assert note["status"] == "available"
 
 
-def test_drawio_coming_soon_by_default(monkeypatch):
+def test_drawio_available_mcp_not_coming_soon(monkeypatch):
     monkeypatch.setattr(settings, "mcp_enabled", False)
     monkeypatch.setattr(settings, "mcp_drawio_enabled", False)
     drawio = next(c for c in list_connectors() if c["id"] == "mcp_drawio")
     assert drawio["kind"] == "mcp"
-    assert drawio["status"] == "coming_soon"
+    assert drawio["status"] == "available"
+    assert drawio["enabled_by_default"] is False
     assert "npx" in (drawio.get("install_hint") or "")
 
 
-def test_drawio_configured_when_flags_on(monkeypatch):
+def test_drawio_enabled_by_default_when_flags_on(monkeypatch):
     monkeypatch.setattr(settings, "mcp_enabled", True)
     monkeypatch.setattr(settings, "mcp_drawio_enabled", True)
     drawio = next(c for c in list_connectors() if c["id"] == "mcp_drawio")
-    assert drawio["status"] == "configured"
+    assert drawio["status"] == "available"
+    assert drawio["enabled_by_default"] is True
 
 
-def test_overview_counts():
+def test_mcp_connectors_only():
+    mcp = list_mcp_connectors()
+    assert mcp
+    assert all(c["kind"] == "mcp" for c in mcp)
+
+
+def test_overview_includes_mcp_connectors():
     overview = connectors_overview()
     assert overview["counts"]["total"] == len(overview["connectors"])
-    assert overview["counts"]["total"] >= 8
+    assert overview["mcp_connectors"] == [
+        c for c in overview["connectors"] if c["kind"] == "mcp"
+    ]
