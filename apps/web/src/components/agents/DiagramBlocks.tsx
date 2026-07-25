@@ -232,18 +232,23 @@ function layoutFlowDiagram(nodes: FlowNode[], edges: FlowEdge[]): FlowLayout | n
   }
 
   // Longest-path layering: more stable columns for teaching pipelines.
+  // Cap path length at n-1 so cycles in LLM-produced graphs cannot spin forever
+  // (without a cap, A→B→A keeps increasing columns and freezes the Visual tab).
+  const maxColCap = Math.max(nodes.length - 1, 0);
   const column = new Map<string, number>();
   const queue: string[] = [];
   for (const r of roots) {
     column.set(r, 0);
     queue.push(r);
   }
-  while (queue.length) {
+  // Hard stop if something still goes wrong (should not hit with the cap).
+  let safety = nodes.length * (maxColCap + 2) + 8;
+  while (queue.length && safety-- > 0) {
     const id = queue.shift();
     if (id === undefined) break;
     const col = column.get(id) ?? 0;
     for (const next of adj.get(id) ?? []) {
-      const nextCol = col + 1;
+      const nextCol = Math.min(col + 1, maxColCap);
       const prev = column.get(next);
       if (prev === undefined || nextCol > prev) {
         column.set(next, nextCol);

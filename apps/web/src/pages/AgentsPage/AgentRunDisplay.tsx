@@ -21,6 +21,7 @@ import {
 import { extractGenerativeUIFromRun } from "@/components/agents/generative-ui";
 import { MarkdownContent } from "@/components/chat/MarkdownContent";
 import { Button } from "@/components/ui/button";
+import { ErrorBoundary } from "@/components/ui/error-boundary";
 import { formatDate } from "@/lib/utils";
 import { cn } from "@/lib/utils";
 import { useAgentPage } from "./agent-page-context";
@@ -79,7 +80,7 @@ export function AgentRunDisplay() {
     workspaceId,
   } = useAgentPage();
 
-  const steps = selected?.steps ?? [];
+  const steps = selected?.steps;
   const gen = useMemo(
     () =>
       extractGenerativeUIFromRun(
@@ -91,6 +92,8 @@ export function AgentRunDisplay() {
             }
           : null,
       ),
+    // Prefer stable refs (selected.steps / liveSteps), not `steps ?? []` which
+    // allocates a new empty array every render and re-extracts forever.
     [selected?.id, selected?.presentation_spec, selected?.final_answer, liveSteps, steps],
   );
   const waitingApproval = selected?.status === "waiting_approval";
@@ -278,13 +281,16 @@ export function AgentRunDisplay() {
 
         {activeTab === "visual" && gen && (
           <div className="p-4">
-            <GenerativeUIView
-              payload={gen}
-              onSaveAsNote={(t, b) => onSaveLearningNote(t, b)}
-              savingNote={savingNote}
-              workspaceId={workspaceId}
-              runId={selected?.id}
-            />
+            {/* Isolate render errors so a bad block cannot blank the whole Agents page. */}
+            <ErrorBoundary>
+              <GenerativeUIView
+                payload={gen}
+                onSaveAsNote={(t, b) => onSaveLearningNote(t, b)}
+                savingNote={savingNote}
+                workspaceId={workspaceId}
+                runId={selected?.id}
+              />
+            </ErrorBoundary>
           </div>
         )}
 

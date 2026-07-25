@@ -1,4 +1,4 @@
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   AlertTriangle,
   Check,
@@ -929,7 +929,8 @@ export function GenerativeUIView({
   );
   const chipProps = { activeTag, onSelect: onChipSelect };
   const [copied, setCopied] = useState(false);
-  const markdown = generativeUIToNoteBody(payload);
+  // Defer markdown export until user copies/saves — keep tab open snappy.
+  const markdown = useMemo(() => generativeUIToNoteBody(payload), [payload]);
 
   const handleCopyMarkdown = useCallback(async () => {
     try {
@@ -960,15 +961,46 @@ export function GenerativeUIView({
   }, [markdown, payload]);
 
   const drawio = payload.meta?.drawio;
-  const drawioImageSrc =
+  // Prefer compact remote URLs over multi-MB base64 data URIs (main-thread hang).
+  const drawioImageSrcRaw =
+    (typeof drawio?.preview_url === "string" &&
+      drawio.preview_url &&
+      !drawio.preview_url.startsWith("data:") &&
+      drawio.preview_url) ||
+    (typeof drawio?.png_url === "string" &&
+      drawio.png_url &&
+      !drawio.png_url.startsWith("data:") &&
+      drawio.png_url) ||
     (typeof drawio?.png_data_url === "string" && drawio.png_data_url) ||
     (typeof drawio?.preview_url === "string" && drawio.preview_url) ||
     (typeof drawio?.png_url === "string" && drawio.png_url) ||
     "";
+  // Defer attaching large data: URIs so the tab paints first.
+  const [drawioImageSrc, setDrawioImageSrc] = useState(() =>
+    drawioImageSrcRaw.startsWith("data:") && drawioImageSrcRaw.length > 200_000
+      ? ""
+      : drawioImageSrcRaw,
+  );
+  useEffect(() => {
+    if (!drawioImageSrcRaw) {
+      setDrawioImageSrc("");
+      return;
+    }
+    if (
+      drawioImageSrcRaw.startsWith("data:") &&
+      drawioImageSrcRaw.length > 200_000
+    ) {
+      const id = window.requestAnimationFrame(() => {
+        setDrawioImageSrc(drawioImageSrcRaw);
+      });
+      return () => window.cancelAnimationFrame(id);
+    }
+    setDrawioImageSrc(drawioImageSrcRaw);
+  }, [drawioImageSrcRaw]);
   const drawioReady =
     !!drawio &&
     drawio.status !== "skipped" &&
-    (drawioImageSrc.length > 0 ||
+    (drawioImageSrcRaw.length > 0 ||
       (typeof drawio.edit_url === "string" && drawio.edit_url.length > 0));
 
   return (
@@ -1076,9 +1108,15 @@ export function GenerativeUIView({
                 src={drawioImageSrc}
                 alt="Generated diagram PNG"
                 className="mx-auto max-h-[28rem] w-full object-contain p-3 sm:p-4"
-                loading="eager"
+                loading="lazy"
+                decoding="async"
               />
             </div>
+          ) : drawioImageSrcRaw ? (
+            <p className="rounded-[6px] border border-dashed border-hairline px-3 py-6 text-center text-xs text-mute">
+              <Loader2 className="mx-auto mb-2 h-4 w-4 animate-spin text-mute" />
+              Loading diagram image…
+            </p>
           ) : (
             <p className="rounded-[6px] border border-dashed border-hairline px-3 py-6 text-center text-xs text-mute">
               Diagram PNG is still generating or failed to render.
