@@ -229,6 +229,9 @@ def _run_tool_loop(
                         completion_tokens=completion_tokens_total,
                         total_tokens=total_tokens_acc,
                     )
+                    from app.agents.main.storage.run_storage import compact_run_if_terminal
+
+                    compact_run_if_terminal(db, run)
                     db.commit()
                     db.refresh(run)
                     _emit(
@@ -329,6 +332,9 @@ def _run_tool_loop(
                     completion_tokens=completion_tokens_total,
                     total_tokens=total_tokens_acc,
                 )
+                from app.agents.main.storage.run_storage import compact_run_if_terminal
+
+                compact_run_if_terminal(db, run)
                 db.commit()
                 db.refresh(run)
                 _emit(

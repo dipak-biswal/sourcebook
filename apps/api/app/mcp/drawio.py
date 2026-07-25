@@ -1,22 +1,21 @@
-"""draw.io MCP connector for the Visual Summary phase.
+"""draw.io export connector for the Visual Summary phase.
 
 When the user enables ``mcp_drawio`` on the Agents page, the visual pipeline
 calls this module after ``render_ui`` to:
 
 1. Build Mermaid from structured process_flow / interaction_sequence
-2. Produce a diagrams.net edit URL (MCP-compatible handoff)
-3. Optionally try the local ``npx @drawio/mcp`` tool server (best-effort)
+2. Produce a diagrams.net edit URL
 
-The agent still uses Sourcebook's generative UI blocks; draw.io is an extra
-export/edit path when the MCP toggle is on.
+Despite the connector id, this does not speak the Model Context Protocol —
+it is plain code that builds a Mermaid diagram and links out to
+diagrams.net/mermaid.ink. The agent still uses Sourcebook's generative UI
+blocks; draw.io is an extra export/edit path when the toggle is on.
 """
 
 from __future__ import annotations
 
 import base64
 import re
-import shutil
-import subprocess
 import urllib.parse
 from typing import Any
 
@@ -287,34 +286,11 @@ def render_mermaid_png(mermaid: str) -> dict[str, Any]:
     }
 
 
-def _try_npx_drawio_mcp(mermaid: str) -> dict[str, Any] | None:
-    """Best-effort: confirm npx/@drawio/mcp is available (does not block UI)."""
-    if not shutil.which("npx"):
-        return None
-    try:
-        # Lightweight presence check — full MCP JSON-RPC is session-based;
-        # we still produce a diagrams.net URL for the product path.
-        proc = subprocess.run(
-            ["npx", "-y", "@drawio/mcp", "--help"],
-            capture_output=True,
-            text=True,
-            timeout=25,
-            check=False,
-        )
-        available = proc.returncode == 0 or "draw" in (proc.stdout + proc.stderr).lower()
-        if not available:
-            return {"npx_checked": True, "package_ready": False}
-        return {"npx_checked": True, "package_ready": True}
-    except (OSError, subprocess.TimeoutExpired):
-        return {"npx_checked": True, "package_ready": False, "error": "timeout_or_os"}
-
-
 def run_drawio_mcp_for_visual(
     *,
     structured: dict[str, Any] | None,
     goal: str = "",
     presentation_spec: dict[str, Any] | None = None,
-    try_npx: bool = False,
 ) -> dict[str, Any]:
     """
     Produce draw.io connector output for the visual summary.
@@ -368,10 +344,6 @@ def run_drawio_mcp_for_visual(
         "png_error": png.get("error"),
         "source": "sourcebook_drawio_mcp",
     }
-    if try_npx:
-        npx_info = _try_npx_drawio_mcp(mermaid)
-        if npx_info:
-            result["npx"] = npx_info
     return result
 
 

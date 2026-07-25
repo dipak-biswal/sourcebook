@@ -17,6 +17,7 @@ from app.agents.visual_summary.pipeline import (
     _apply_render_ui_result,
     _visual_tool_result_input,
 )
+from app.agents.main.runner.constants import DB_BOUND_READ_TOOLS
 from app.agents.main.tool_policy import (
     DATE_TOOL_NAME,
     format_date_context_message,
@@ -118,17 +119,26 @@ def _run_read_tool_batch(
         ms = (time.perf_counter() - t0) * 1000
         return {"call_id": call_id, "name": name, "args": args, "result": result, "ms": ms}
 
+    def _run_batch(calls: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        # DB-bound tools share one SQLAlchemy Session for this run — Sessions
+        # aren't thread-safe, so those calls run sequentially in this thread.
+        # Only non-DB tools (web_search, fetch_url, ...) go to the pool.
+        db_calls = [tc for tc in calls if tc.get("name") in DB_BOUND_READ_TOOLS]
+        other = [tc for tc in calls if tc.get("name") not in DB_BOUND_READ_TOOLS]
+        results = [_run_one(tc) for tc in db_calls]
+        if other:
+            with concurrent.futures.ThreadPoolExecutor(max_workers=4) as pool:
+                results.extend(pool.map(_run_one, other))
+        return results
+
     if date_first_sequential and len(ordered) > 1:
         date_calls = [tc for tc in ordered if tc.get("name") == DATE_TOOL_NAME]
         other_calls = [tc for tc in ordered if tc.get("name") != DATE_TOOL_NAME]
         results = [_run_one(tc) for tc in date_calls]
-        if other_calls:
-            with concurrent.futures.ThreadPoolExecutor(max_workers=4) as pool:
-                results.extend(pool.map(_run_one, other_calls))
+        results.extend(_run_batch(other_calls))
         return results
 
-    with concurrent.futures.ThreadPoolExecutor(max_workers=4) as pool:
-        return list(pool.map(_run_one, ordered))
+    return _run_batch(ordered)
 
 
 def _apply_read_tool_results(

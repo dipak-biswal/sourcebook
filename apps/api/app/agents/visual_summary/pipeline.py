@@ -412,9 +412,6 @@ def _run_visual_pipeline(
                     presentation_spec=run.presentation_spec
                     if isinstance(run.presentation_spec, dict)
                     else None,
-                    try_npx=bool(
-                        settings.mcp_enabled and settings.mcp_drawio_enabled
-                    ),
                 ),
                 None,
             ),
@@ -511,7 +508,6 @@ def _maybe_apply_drawio_mcp(
         presentation_spec=run.presentation_spec
         if isinstance(run.presentation_spec, dict)
         else None,
-        try_npx=bool(settings.mcp_enabled and settings.mcp_drawio_enabled),
     )
     step_index += 1
     _append_step(
