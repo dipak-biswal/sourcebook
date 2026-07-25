@@ -39,8 +39,18 @@ export function isSessionExpiredMessage(message: string): boolean {
   return message === SESSION_EXPIRED_MESSAGE;
 }
 
+/** Paths guests may stay on after a 401 (token cleared, no forced login). */
+const PUBLIC_PATH_PREFIXES = ["/login"];
+
+export function isPublicPath(pathname: string = window.location.pathname): boolean {
+  if (pathname === "/") return true; // dashboard is public
+  return PUBLIC_PATH_PREFIXES.some(
+    (p) => pathname === p || pathname.startsWith(`${p}/`),
+  );
+}
+
 export function shouldRedirectToLogin(): boolean {
-  return !window.location.pathname.startsWith("/login");
+  return !isPublicPath();
 }
 
 export function isStreamAbortError(err: unknown): boolean {

@@ -1,6 +1,6 @@
-import { Suspense, type ComponentType } from "react";
+import { Suspense, useEffect, type ComponentType } from "react";
 import { Navigate, useLocation } from "react-router-dom";
-import { getToken } from "@/api";
+import { getToken, isTokenExpired, setToken } from "@/api";
 import { PageLoadingFallback } from "@/components/layout/PageLoadingFallback";
 
 type RequireAuthProps = {
@@ -9,9 +9,17 @@ type RequireAuthProps = {
 
 export function RequireAuth({ page: Page }: RequireAuthProps) {
   const location = useLocation();
+  const token = getToken();
+  const sessionValid = !!token && !isTokenExpired(token);
 
-  if (!getToken()) {
-    return <Navigate to="/login" replace />;
+  useEffect(() => {
+    if (token && isTokenExpired(token)) {
+      setToken(null);
+    }
+  }, [token]);
+
+  if (!sessionValid) {
+    return <Navigate to="/login" replace state={{ from: location.pathname }} />;
   }
 
   return (

@@ -13,8 +13,9 @@ import {
   User,
   X,
 } from "lucide-react";
-import { getToken, setToken } from "@/api";
+import { setToken } from "@/api";
 import { useMe } from "@/hooks/queries";
+import { useIsAuthenticated } from "@/hooks/useAuth";
 import { SourcebookIcon } from "@/components/branding/SourcebookIcon";
 import { ThemeToggle } from "@/components/theme/ThemeToggle";
 import { cn } from "@/lib/utils";
@@ -271,7 +272,7 @@ export function AppHeader({
   showAuthActions = true,
   onLogout,
 }: AppHeaderProps) {
-  const authed = !!getToken();
+  const authed = useIsAuthenticated();
   const location = useLocation();
   const [menuOpen, setMenuOpen] = useState(false);
 
@@ -309,10 +310,7 @@ export function AppHeader({
   return (
     <header className="sticky top-0 z-40 w-full shrink-0 border-b border-hairline bg-canvas/95 backdrop-blur-sm">
       <div className="flex w-full items-center justify-between gap-3 px-4 py-3 sm:px-6 sm:py-3.5">
-        <Link
-          to={authed ? "/" : "/login"}
-          className="flex min-w-0 items-center gap-2.5"
-        >
+        <Link to="/" className="flex min-w-0 items-center gap-2.5">
           <SourcebookIcon size="sm" />
           <span className="truncate font-semibold tracking-tight text-ink">
             Sourcebook
@@ -359,6 +357,15 @@ export function AppHeader({
                 )}
               </button>
             </>
+          )}
+
+          {showAuthActions && !authed && (
+            <Link
+              to="/login"
+              className="inline-flex items-center rounded-[8px] bg-ink px-3 py-1.5 text-[13px] font-medium text-[var(--canvas)] transition-opacity hover:opacity-90"
+            >
+              Sign in
+            </Link>
           )}
         </div>
       </div>

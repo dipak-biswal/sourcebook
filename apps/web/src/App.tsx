@@ -1,4 +1,4 @@
-import { Suspense } from "react";
+import { Suspense, useEffect, type ComponentType } from "react";
 import {
   BrowserRouter,
   Link,
@@ -8,14 +8,13 @@ import {
   useLocation,
 } from "react-router-dom";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { getToken } from "@/api";
+import { ApiError, startSessionKeepalive } from "@/api";
 import { ThemeProvider } from "@/components/theme/ThemeProvider";
 import { ToastProvider } from "@/components/ui/toast";
 import { ErrorBoundary } from "@/components/ui/error-boundary";
 import { ConfirmProvider } from "@/components/ui/confirm-dialog";
 import { RequireAuth } from "@/components/layout/RequireAuth";
 import { PageLoadingFallback } from "@/components/layout/PageLoadingFallback";
-import { ApiError } from "@/api";
 import { lazyWithRetry } from "@/lib/lazyWithRetry";
 
 const queryClient = new QueryClient({
@@ -61,24 +60,29 @@ const NotesPage = lazyWithRetry(() =>
 );
 
 function HomeRedirect() {
-  return <Navigate to={getToken() ? "/" : "/login"} replace />;
+  // Dashboard is public; unknown routes land there (guests included).
+  return <Navigate to="/" replace />;
+}
+
+function PublicPage({ page: Page }: { page: ComponentType }) {
+  const location = useLocation();
+  return (
+    <Suspense key={location.key} fallback={<PageLoadingFallback />}>
+      <Page />
+    </Suspense>
+  );
 }
 
 function LoginRoute() {
-  const location = useLocation();
-
-  return (
-    <Suspense key={location.key} fallback={<PageLoadingFallback />}>
-      <LoginPage />
-    </Suspense>
-  );
+  return <PublicPage page={LoginPage} />;
 }
 
 function AppRoutes() {
   return (
     <Routes>
       <Route path="/login" element={<LoginRoute />} />
-      <Route path="/" element={<RequireAuth page={DashboardPage} />} />
+      {/* Dashboard is viewable without signing in */}
+      <Route path="/" element={<PublicPage page={DashboardPage} />} />
       <Route path="/chat" element={<RequireAuth page={ChatPage} />} />
       <Route path="/documents" element={<RequireAuth page={DocumentsPage} />} />
       <Route
@@ -96,6 +100,10 @@ function AppRoutes() {
 }
 
 export default function App() {
+  useEffect(() => {
+    startSessionKeepalive();
+  }, []);
+
   return (
     <ThemeProvider>
       <ToastProvider>

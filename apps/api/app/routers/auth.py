@@ -4,8 +4,9 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
 from app.db import get_db
+from app.deps import get_current_user
 from app.models import User, Workspace, WorkspaceMember
-from app.schemas import LoginRequest, RegisterRequest, TokenResponse, UserResponse
+from app.schemas import LoginRequest, RegisterRequest, TokenResponse
 from app.security import create_access_token, hash_password, verify_password
 
 
@@ -53,3 +54,13 @@ def login(body: LoginRequest, db: Session = Depends(get_db)):
         raise HTTPException(status_code=401, detail="Invalid email or password")
     _mark_login(db, user)
     return TokenResponse(access_token=create_access_token(str(user.id)))
+
+
+@router.post("/refresh", response_model=TokenResponse)
+def refresh(current_user: User = Depends(get_current_user)):
+    """Issue a fresh access token for an already-authenticated user.
+
+    Clients call this while the session is still valid so long-lived active
+    use never hits a hard JWT expiry wall.
+    """
+    return TokenResponse(access_token=create_access_token(str(current_user.id)))

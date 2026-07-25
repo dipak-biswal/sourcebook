@@ -8,6 +8,15 @@ const API_URL = import.meta.env.VITE_API_URL ?? "http://127.0.0.1:8000";
 
 export { ApiError } from "@/lib/api-errors";
 
+export type TokenResponse = { access_token: string; token_type: string };
+
+/** Dispatched whenever the stored access token changes (login/logout/refresh). */
+export const AUTH_CHANGED_EVENT = "sourcebook-auth-changed";
+
+function notifyAuthChanged() {
+  window.dispatchEvent(new Event(AUTH_CHANGED_EVENT));
+}
+
 function failHttpResponse(status: number, text: string): never {
   if (status === 401) {
     setToken(null);
@@ -28,6 +37,117 @@ export function setToken(token: string | null) {
     localStorage.removeItem("sourcebook_token");
     localStorage.removeItem("sourcebook_user");
   }
+  notifyAuthChanged();
+}
+
+/** Decode JWT `exp` (seconds) without verifying the signature. */
+export function getTokenExpiresAtMs(token: string | null = getToken()): number | null {
+  if (!token) return null;
+  try {
+    const parts = token.split(".");
+    if (parts.length < 2) return null;
+    const base64 = parts[1].replace(/-/g, "+").replace(/_/g, "/");
+    const padded = base64 + "=".repeat((4 - (base64.length % 4)) % 4);
+    const payload = JSON.parse(atob(padded)) as { exp?: number };
+    return typeof payload.exp === "number" ? payload.exp * 1000 : null;
+  } catch {
+    return null;
+  }
+}
+
+/** True when the token is missing or past its exp claim. */
+export function isTokenExpired(token: string | null = getToken()): boolean {
+  const exp = getTokenExpiresAtMs(token);
+  if (exp == null) return !token;
+  return Date.now() >= exp;
+}
+
+/**
+ * Refresh the access token while the current one is still valid so active
+ * sessions never hit a hard expiry wall.
+ *
+ * Returns the new token, or null if there is no session / refresh failed.
+ */
+export async function refreshAccessToken(): Promise<string | null> {
+  const token = getToken();
+  if (!token || isTokenExpired(token)) return null;
+  try {
+    const res = await fetch(`${API_URL}/auth/refresh`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "Content-Type": "application/json",
+      },
+    });
+    if (!res.ok) {
+      if (res.status === 401) setToken(null);
+      return null;
+    }
+    const data = (await res.json()) as TokenResponse;
+    if (data.access_token) {
+      setToken(data.access_token);
+      return data.access_token;
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+/** Periodic refresh while the tab is open (ms). */
+const SESSION_KEEPALIVE_INTERVAL_MS = 30 * 60 * 1000;
+/** Refresh proactively when less than this remains on the JWT. */
+const REFRESH_IF_REMAINING_MS = 3 * 24 * 60 * 60 * 1000; // 3 days
+
+let keepaliveStarted = false;
+let refreshInFlight: Promise<string | null> | null = null;
+
+async function maybeRefreshSession(force = false): Promise<void> {
+  const token = getToken();
+  if (!token) return;
+  if (isTokenExpired(token)) {
+    setToken(null);
+    return;
+  }
+  if (!force) {
+    const exp = getTokenExpiresAtMs(token);
+    if (exp != null && exp - Date.now() > REFRESH_IF_REMAINING_MS) {
+      return; // plenty of time left
+    }
+  }
+  if (refreshInFlight) {
+    await refreshInFlight;
+    return;
+  }
+  refreshInFlight = refreshAccessToken().finally(() => {
+    refreshInFlight = null;
+  });
+  await refreshInFlight;
+}
+
+/**
+ * Start background session keepalive (idempotent). Call once from the app shell
+ * so long-active tabs keep receiving fresh JWTs before expiry.
+ */
+export function startSessionKeepalive(): void {
+  if (keepaliveStarted || typeof window === "undefined") return;
+  keepaliveStarted = true;
+
+  // On load: only refresh if the token is approaching expiry.
+  void maybeRefreshSession(false);
+
+  setInterval(() => {
+    if (document.visibilityState === "visible" && getToken()) {
+      // Force refresh on the interval so long-open tabs never go idle into expiry.
+      void maybeRefreshSession(true);
+    }
+  }, SESSION_KEEPALIVE_INTERVAL_MS);
+
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "visible") {
+      void maybeRefreshSession(false);
+    }
+  });
 }
 
 export type UserProfile = {
@@ -68,8 +188,6 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   if (res.status === 204) return undefined as T;
   return res.json() as Promise<T>;
 }
-
-export type TokenResponse = { access_token: string; token_type: string };
 
 export type Workspace = {
   id: string;
@@ -316,6 +434,15 @@ export const api = {
     request<TokenResponse>("/auth/register", {
       method: "POST",
       body: JSON.stringify({ email, password }),
+    }),
+
+  /** Extend the current session with a fresh JWT (sliding expiry). */
+  refresh: () =>
+    request<TokenResponse>("/auth/refresh", {
+      method: "POST",
+    }).then((res) => {
+      if (res.access_token) setToken(res.access_token);
+      return res;
     }),
 
   /** Current authenticated user (email for profile menu). */
