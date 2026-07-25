@@ -6,10 +6,12 @@ import {
   ChevronRight,
   Copy,
   Download,
+  ExternalLink,
   FileText,
   Loader2,
   Sparkles,
   StickyNote,
+  Workflow,
 } from "lucide-react";
 import { Link } from "react-router-dom";
 import { api } from "@/api";
@@ -957,6 +959,13 @@ export function GenerativeUIView({
     URL.revokeObjectURL(url);
   }, [markdown, payload]);
 
+  const drawio = payload.meta?.drawio;
+  const drawioReady =
+    !!drawio &&
+    drawio.status !== "skipped" &&
+    typeof drawio.edit_url === "string" &&
+    drawio.edit_url.length > 0;
+
   return (
     <div
       className={cn(
@@ -1029,6 +1038,28 @@ export function GenerativeUIView({
           )}
         </div>
       </div>
+
+      {drawioReady && (
+        <div className="flex flex-wrap items-center gap-2 rounded-[8px] border border-hairline bg-canvas-soft px-3 py-2.5">
+          <Workflow className="h-4 w-4 shrink-0 text-ink" strokeWidth={1.5} />
+          <div className="min-w-0 flex-1">
+            <p className="text-[12px] font-medium text-ink">draw.io MCP</p>
+            <p className="text-[11px] text-mute">
+              Diagram export from this visual summary
+              {drawio?.diagram_kind ? ` (${drawio.diagram_kind})` : ""}.
+            </p>
+          </div>
+          <a
+            href={drawio!.edit_url}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex h-7 items-center gap-1 rounded-[6px] bg-ink px-2.5 text-[11px] font-medium text-[var(--canvas)] transition-opacity hover:opacity-90"
+          >
+            Open in draw.io
+            <ExternalLink className="h-3 w-3" strokeWidth={1.5} />
+          </a>
+        </div>
+      )}
 
       {payload.plain_summary &&
         !plainSummaryIsRedundant(payload.plain_summary, blocks) && (

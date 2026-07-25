@@ -106,6 +106,8 @@ class AgentRunCreate(BaseModel):
     goal: str
     max_steps: int | None = None
     agent_type: str = "general"
+    # MCP connector ids toggled on in the Agents page (e.g. "mcp_drawio").
+    enabled_mcp_ids: list[str] = []
 
 
 class AgentStepResponse(BaseModel):
@@ -132,6 +134,7 @@ class AgentRunResponse(BaseModel):
     error: str | None
     token_usage: int | None
     pending_tool: dict | None = None
+    run_options: dict | None = None
     created_at: datetime
     steps: list[AgentStepResponse] = []
     execution_trace: dict | None = None

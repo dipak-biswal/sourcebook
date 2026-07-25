@@ -79,6 +79,17 @@ export type GenUISource = {
   snippet?: string;
 };
 
+export type DrawioMeta = {
+  mermaid?: string;
+  edit_url?: string;
+  preview_url?: string;
+  diagram_kind?: string;
+  connector_id?: string;
+  status?: string;
+  reason?: string;
+  detail?: string;
+};
+
 export type GenerativeUIPayload = {
   type: "generative_ui";
   title: string;
@@ -90,6 +101,11 @@ export type GenerativeUIPayload = {
   sources?: GenUISource[];
   document_id?: string | null;
   document_filename?: string | null;
+  /** Optional extras (e.g. draw.io MCP export when enabled on the run). */
+  meta?: {
+    drawio?: DrawioMeta;
+    [key: string]: unknown;
+  };
 };
 
 export function isGenerativeUI(value: unknown): value is GenerativeUIPayload {
@@ -132,6 +148,10 @@ function coerceGenerativeUIPayload(
     document_filename:
       typeof raw.document_filename === "string"
         ? raw.document_filename
+        : undefined,
+    meta:
+      raw.meta && typeof raw.meta === "object"
+        ? (raw.meta as GenerativeUIPayload["meta"])
         : undefined,
   });
 }

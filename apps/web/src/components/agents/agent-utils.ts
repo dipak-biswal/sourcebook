@@ -116,6 +116,7 @@ const TOOL_LABELS: Record<string, string> = {
   get_current_date: "Current date",
   plan_layout: "Plan layout",
   render_ui: "Render UI",
+  mcp_drawio: "draw.io MCP",
   ask_user: "Collect context",
 };
 

@@ -16,6 +16,11 @@ from app.agents.visual_summary.tools import (
     run_render_ui,
 )
 from app.config import settings
+from app.mcp.drawio import (
+    attach_drawio_to_spec,
+    enabled_mcp_ids_from_run,
+    run_drawio_mcp_for_visual,
+)
 from app.models import AgentRun, Document, Workspace
 from app.agents.visual_summary.render.answer import resolve_presentation_answer
 from app.agents.visual_summary.context import PresentationContext
@@ -386,6 +391,41 @@ def _run_visual_pipeline(
             on_event=on_event,
         )
 
+        # Optional draw.io MCP (user toggle on Agents page).
+        mcp_ids = enabled_mcp_ids_from_run(run)
+        if "mcp_drawio" in mcp_ids:
+            structured_for_mcp = (
+                structured
+                if isinstance(structured, dict)
+                else (ctx.structured_content if isinstance(ctx.structured_content, dict) else {})
+            )
+            drawio_payload, _ = record_tool(
+                "mcp_drawio",
+                {
+                    "connector_id": "mcp_drawio",
+                    "goal": (ctx.goal or "")[:200],
+                },
+                lambda: (
+                    run_drawio_mcp_for_visual(
+                        structured=structured_for_mcp,
+                        goal=ctx.goal or run.goal or "",
+                        try_npx=bool(settings.mcp_enabled and settings.mcp_drawio_enabled),
+                    ),
+                    None,
+                ),
+            )
+            if isinstance(run.presentation_spec, dict) and isinstance(drawio_payload, dict):
+                run.presentation_spec = attach_drawio_to_spec(
+                    run.presentation_spec,
+                    drawio_payload,
+                )
+                _emit(
+                    on_event,
+                    "presentation",
+                    run_id=str(run.id),
+                    presentation_spec=run.presentation_spec,
+                )
+
     run.status = "completed"
     run.token_usage = (initial_usage + tokens_total) or None
     run.pending_tool = None
@@ -412,6 +452,64 @@ def _run_visual_pipeline(
     return run
 
 
+def _maybe_apply_drawio_mcp(
+    db: Session,
+    run: AgentRun,
+    *,
+    ctx: PresentationContext,
+    step_index: int,
+    on_event: EventCallback = None,
+) -> int:
+    """If the user enabled draw.io MCP, attach export URL + tool steps."""
+    if "mcp_drawio" not in enabled_mcp_ids_from_run(run):
+        return step_index
+    if not isinstance(run.presentation_spec, dict):
+        return step_index
+    # Skip if already applied (orchestrator path records the tool once).
+    meta = run.presentation_spec.get("meta")
+    if isinstance(meta, dict) and isinstance(meta.get("drawio"), dict):
+        if meta["drawio"].get("edit_url") or meta["drawio"].get("status") == "skipped":
+            return step_index
+
+    structured = (
+        ctx.structured_content if isinstance(ctx.structured_content, dict) else {}
+    )
+    step_index += 1
+    _append_step(
+        db,
+        run,
+        step_index=step_index,
+        type="tool_call",
+        tool_name="mcp_drawio",
+        input={"connector_id": "mcp_drawio", "goal": (ctx.goal or "")[:200]},
+        on_event=on_event,
+    )
+    payload = run_drawio_mcp_for_visual(
+        structured=structured,
+        goal=ctx.goal or run.goal or "",
+        try_npx=bool(settings.mcp_enabled and settings.mcp_drawio_enabled),
+    )
+    step_index += 1
+    _append_step(
+        db,
+        run,
+        step_index=step_index,
+        type="tool_result",
+        tool_name="mcp_drawio",
+        input={"connector_id": "mcp_drawio"},
+        output=payload,
+        on_event=on_event,
+    )
+    run.presentation_spec = attach_drawio_to_spec(run.presentation_spec, payload)
+    _emit(
+        on_event,
+        "presentation",
+        run_id=str(run.id),
+        presentation_spec=run.presentation_spec,
+    )
+    return step_index
+
+
 def _finalize_visual_summary_run(
     db: Session,
     run: AgentRun,
@@ -430,10 +528,16 @@ def _finalize_visual_summary_run(
     if plain and (not run.final_answer or run.final_answer == "(no final answer)"):
         run.final_answer = str(plain)
 
+    ctx = _presentation_context_for_run(db, run)
+    # Agent-loop path may not have run draw.io yet.
+    step_index = _maybe_apply_drawio_mcp(
+        db, run, ctx=ctx, step_index=step_index, on_event=on_event
+    )
+    spec = run.presentation_spec if isinstance(run.presentation_spec, dict) else spec
+
     if _has_presentation_step(run):
         return step_index
 
-    ctx = _presentation_context_for_run(db, run)
     return _attach_presentation_step(
         db,
         run,

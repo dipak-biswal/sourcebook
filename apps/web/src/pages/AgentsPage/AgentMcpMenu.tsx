@@ -22,30 +22,16 @@ function McpToggleRow({
   const Icon = MCP_ICONS[connector.icon] ?? Plug;
 
   return (
-    <label
+    <div
       className={cn(
-        "flex cursor-pointer items-start gap-2.5 rounded-[8px] px-2.5 py-2 transition-colors",
-        disabled ? "opacity-50" : "hover:bg-canvas-soft-2",
+        "flex items-center gap-2.5 rounded-[6px] px-2 py-1.5",
+        !disabled && "hover:bg-canvas-soft-2",
+        disabled && "opacity-50",
       )}
     >
-      <span className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-[6px] border border-hairline bg-canvas-soft">
-        <Icon className="h-3.5 w-3.5 text-ink" strokeWidth={1.5} />
-      </span>
-      <span className="min-w-0 flex-1">
-        <span className="flex items-center gap-1.5">
-          <span className="text-[13px] font-medium text-ink">{connector.name}</span>
-          <span className="rounded-full border border-hairline px-1.5 py-0.5 text-[10px] text-mute">
-            MCP
-          </span>
-        </span>
-        <span className="mt-0.5 block text-[11px] leading-snug text-mute">
-          {connector.description}
-        </span>
-        {connector.install_hint && (
-          <code className="mt-1 inline-block rounded bg-canvas-soft-2 px-1 py-0.5 font-mono text-[10px] text-ink">
-            {connector.install_hint}
-          </code>
-        )}
+      <Icon className="h-4 w-4 shrink-0 text-body" strokeWidth={1.5} />
+      <span className="min-w-0 flex-1 truncate text-[13px] font-medium text-ink">
+        {connector.name}
       </span>
       <button
         type="button"
@@ -53,12 +39,9 @@ function McpToggleRow({
         aria-checked={enabled}
         aria-label={`${enabled ? "Disable" : "Enable"} ${connector.name}`}
         disabled={disabled}
-        onClick={(e) => {
-          e.preventDefault();
-          onToggle();
-        }}
+        onClick={onToggle}
         className={cn(
-          "relative mt-0.5 h-5 w-9 shrink-0 rounded-full transition-colors",
+          "relative h-5 w-9 shrink-0 rounded-full transition-colors",
           enabled ? "bg-ink" : "bg-canvas-soft-2 ring-1 ring-hairline",
         )}
       >
@@ -69,11 +52,11 @@ function McpToggleRow({
           )}
         />
       </button>
-    </label>
+    </div>
   );
 }
 
-/** Dropdown of MCP connectors with on/off toggles — sits beside Run agent. */
+/** Compact MCP toggles beside Run agent — icon, name, switch only. */
 export function AgentMcpMenu({ disabled }: { disabled?: boolean }) {
   const {
     connectors,
@@ -113,9 +96,10 @@ export function AgentMcpMenu({ disabled }: { disabled?: boolean }) {
         disabled={disabled || connectorsLoading}
         aria-expanded={open}
         aria-haspopup="menu"
+        aria-label="MCP connectors"
         onClick={() => setOpen((v) => !v)}
         className={cn(
-          "inline-flex h-9 items-center gap-1.5 rounded-[6px] border border-hairline bg-canvas px-3 text-[13px] font-medium transition-colors",
+          "inline-flex h-9 items-center gap-1.5 rounded-[6px] border border-hairline bg-canvas px-2.5 text-[13px] font-medium transition-colors",
           open
             ? "border-ink bg-canvas-soft-2 text-ink"
             : "text-body hover:bg-canvas-soft-2 hover:text-ink",
@@ -123,14 +107,15 @@ export function AgentMcpMenu({ disabled }: { disabled?: boolean }) {
         )}
       >
         <Plug className="h-3.5 w-3.5" strokeWidth={1.5} />
-        MCP
+        <span>MCP</span>
         {enabledCount > 0 && (
-          <span className="rounded-full bg-ink px-1.5 py-0.5 text-[10px] font-semibold text-[var(--canvas)]">
-            {enabledCount}
-          </span>
+          <span className="tabular-nums text-mute">{enabledCount}</span>
         )}
         <ChevronDown
-          className={cn("h-3.5 w-3.5 text-mute transition-transform", open && "rotate-180")}
+          className={cn(
+            "h-3.5 w-3.5 text-mute transition-transform",
+            open && "rotate-180",
+          )}
           strokeWidth={1.5}
         />
       </button>
@@ -138,21 +123,14 @@ export function AgentMcpMenu({ disabled }: { disabled?: boolean }) {
       {open && (
         <div
           role="menu"
-          className="absolute left-0 z-50 mt-1.5 w-[min(100vw-2rem,20rem)] overflow-hidden rounded-[10px] border border-hairline bg-canvas shadow-[var(--elevation-card)] sm:left-auto sm:right-0"
+          className="absolute right-0 z-50 mt-1.5 w-52 overflow-hidden rounded-[8px] border border-hairline bg-canvas py-1 shadow-[var(--elevation-card)]"
         >
-          <div className="border-b border-hairline bg-canvas-soft px-3 py-2">
-            <p className="text-[12px] font-semibold text-ink">MCP connectors</p>
-            <p className="mt-0.5 text-[11px] text-mute">
-              Toggle external tools for this agent. Built-in document tools stay on.
-            </p>
-          </div>
-
           {mcpList.length === 0 ? (
-            <p className="px-3 py-4 text-center text-xs text-mute">
-              {connectorsLoading ? "Loading…" : "No MCP connectors configured."}
+            <p className="px-3 py-2 text-xs text-mute">
+              {connectorsLoading ? "Loading…" : "None"}
             </p>
           ) : (
-            <ul className="max-h-72 overflow-y-auto p-1.5">
+            <ul>
               {mcpList.map((c) => (
                 <li key={c.id}>
                   <McpToggleRow

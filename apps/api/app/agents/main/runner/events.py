@@ -60,6 +60,7 @@ def run_to_public_dict(
         "error": run.error,
         "token_usage": run.token_usage,
         "pending_tool": run.pending_tool,
+        "run_options": run.run_options,
         "created_at": run.created_at.isoformat() if run.created_at else None,
         "steps": [step_to_dict(s) for s in steps],
         "execution_trace": build_execution_trace(

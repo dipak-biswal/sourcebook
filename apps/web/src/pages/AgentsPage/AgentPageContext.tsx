@@ -255,7 +255,10 @@ export function AgentPageProvider({
             setLiveExecutionTrace(final.execution_trace ?? null);
           },
         ),
-        { maxSteps: DEFAULT_MAX_STEPS },
+        {
+          maxSteps: DEFAULT_MAX_STEPS,
+          enabledMcpIds: Array.from(enabledMcpIds),
+        },
       );
       if (run) {
         setSelected(run);

@@ -57,6 +57,7 @@ def run_agent(
     goal: str,
     max_steps: int = 5,
     agent_type: str = "general",
+    enabled_mcp_ids: list[str] | None = None,
     on_event: EventCallback = None,
 ) -> AgentRun:
     """
@@ -73,6 +74,13 @@ def run_agent(
     resolved_type = profile.agent_type
     cap_steps = max(1, min(max_steps, 12))
 
+    mcp_ids = [
+        str(x).strip()
+        for x in (enabled_mcp_ids or [])
+        if str(x).strip()
+    ]
+    run_options = {"enabled_mcp_ids": mcp_ids} if mcp_ids else {"enabled_mcp_ids": []}
+
     run = AgentRun(
         workspace_id=workspace_id,
         user_id=user_id,
@@ -80,6 +88,7 @@ def run_agent(
         agent_type=resolved_type,
         status="running",
         pending_tool=None,
+        run_options=run_options,
     )
     db.add(run)
     db.flush()

@@ -74,8 +74,8 @@ def _mcp_drawio() -> dict[str, Any]:
         "id": "mcp_drawio",
         "name": "draw.io",
         "description": (
-            "Generate diagrams with draw.io MCP (Mermaid, CSV, .drawio). "
-            "Free — runs locally via npx @drawio/mcp."
+            "When on, Visual Summary adds a Mermaid export and Open in draw.io "
+            "link after layout/render (free; npx @drawio/mcp when available)."
         ),
         "kind": "mcp",
         "status": "available",

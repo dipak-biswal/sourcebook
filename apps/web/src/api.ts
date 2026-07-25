@@ -558,7 +558,7 @@ export const api = {
   startAgentRun: (
     workspaceId: string,
     goal: string,
-    options: { maxSteps?: number } = {},
+    options: { maxSteps?: number; enabledMcpIds?: string[] } = {},
   ) =>
     request<AgentRun>("/agents/runs", {
       method: "POST",
@@ -567,6 +567,7 @@ export const api = {
         goal,
         max_steps: options.maxSteps,
         agent_type: "general",
+        enabled_mcp_ids: options.enabledMcpIds ?? [],
       }),
     }),
 
@@ -575,7 +576,7 @@ export const api = {
     workspaceId: string,
     goal: string,
     handlers: AgentStreamHandlers = {},
-    options: { maxSteps?: number } = {},
+    options: { maxSteps?: number; enabledMcpIds?: string[] } = {},
   ) =>
     streamAgentRun(
       "/agents/runs/stream",
@@ -584,6 +585,7 @@ export const api = {
         goal,
         max_steps: options.maxSteps,
         agent_type: "general",
+        enabled_mcp_ids: options.enabledMcpIds ?? [],
       },
       handlers,
     ),
@@ -869,6 +871,7 @@ export type AgentRun = {
     kind?: string;
     args?: Record<string, unknown>;
   } | null;
+  run_options?: { enabled_mcp_ids?: string[] } | null;
   created_at: string;
   steps: AgentStep[];
   execution_trace?: ExecutionTrace | null;

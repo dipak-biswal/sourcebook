@@ -261,6 +261,8 @@ class AgentRun(Base):
     token_usage: Mapped[int | None] = mapped_column(nullable=True)
     # Pending write tool awaiting human approval, e.g. create_note
     pending_tool: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    # Per-run options from the Agents page (e.g. enabled_mcp_ids).
+    run_options: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )

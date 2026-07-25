@@ -138,6 +138,7 @@ def start_agent_run(
             goal=body.goal.strip(),
             max_steps=min(max(max_steps, 1), 10),
             agent_type=agent_type,
+            enabled_mcp_ids=list(body.enabled_mcp_ids or []),
         )
     except Exception as e:
         raise HTTPException(
@@ -172,6 +173,7 @@ def start_agent_run_stream(
     user_id = current_user.id
     goal = body.goal.strip()
     agent_type = normalize_agent_type(body.agent_type)
+    enabled_mcp_ids = list(body.enabled_mcp_ids or [])
     profile = get_profile(agent_type)
     max_steps = (
         body.max_steps
@@ -188,6 +190,7 @@ def start_agent_run_stream(
             goal=goal,
             max_steps=max_steps,
             agent_type=agent_type,
+            enabled_mcp_ids=enabled_mcp_ids,
             on_event=on_event,
         )
         # reload with steps
