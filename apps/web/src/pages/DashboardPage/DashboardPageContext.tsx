@@ -79,7 +79,7 @@ export function DashboardPageProvider({ children }: { children: ReactNode }) {
     onRefreshWorkspaces: () => {
       void queryClient.invalidateQueries({ queryKey: ["workspaces"] });
     },
-    onLogout: () => navigate("/", { replace: true }),
+    onLogout: () => navigate("/login", { replace: true }),
   };
 
   return (

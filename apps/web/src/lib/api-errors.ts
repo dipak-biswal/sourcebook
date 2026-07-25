@@ -43,7 +43,6 @@ export function isSessionExpiredMessage(message: string): boolean {
 const PUBLIC_PATH_PREFIXES = ["/login"];
 
 export function isPublicPath(pathname: string = window.location.pathname): boolean {
-  if (pathname === "/") return true; // dashboard is public
   return PUBLIC_PATH_PREFIXES.some(
     (p) => pathname === p || pathname.startsWith(`${p}/`),
   );

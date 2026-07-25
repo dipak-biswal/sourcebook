@@ -1,4 +1,4 @@
-import { Suspense, useEffect, type ComponentType } from "react";
+import { Suspense, useEffect } from "react";
 import {
   BrowserRouter,
   Link,
@@ -8,7 +8,7 @@ import {
   useLocation,
 } from "react-router-dom";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { ApiError, startSessionKeepalive } from "@/api";
+import { ApiError, getToken, isTokenExpired, startSessionKeepalive } from "@/api";
 import { ThemeProvider } from "@/components/theme/ThemeProvider";
 import { ToastProvider } from "@/components/ui/toast";
 import { ErrorBoundary } from "@/components/ui/error-boundary";
@@ -59,30 +59,30 @@ const NotesPage = lazyWithRetry(() =>
   import("@/pages/NotesPage").then((m) => ({ default: m.NotesPage })),
 );
 
-function HomeRedirect() {
-  // Dashboard is public; unknown routes land there (guests included).
-  return <Navigate to="/" replace />;
+function hasValidSession(): boolean {
+  const token = getToken();
+  return !!token && !isTokenExpired(token);
 }
 
-function PublicPage({ page: Page }: { page: ComponentType }) {
-  const location = useLocation();
-  return (
-    <Suspense key={location.key} fallback={<PageLoadingFallback />}>
-      <Page />
-    </Suspense>
-  );
+function HomeRedirect() {
+  // Unknown paths: signed-in users → dashboard; guests → login.
+  return <Navigate to={hasValidSession() ? "/" : "/login"} replace />;
 }
 
 function LoginRoute() {
-  return <PublicPage page={LoginPage} />;
+  const location = useLocation();
+  return (
+    <Suspense key={location.key} fallback={<PageLoadingFallback />}>
+      <LoginPage />
+    </Suspense>
+  );
 }
 
 function AppRoutes() {
   return (
     <Routes>
       <Route path="/login" element={<LoginRoute />} />
-      {/* Dashboard is viewable without signing in */}
-      <Route path="/" element={<PublicPage page={DashboardPage} />} />
+      <Route path="/" element={<RequireAuth page={DashboardPage} />} />
       <Route path="/chat" element={<RequireAuth page={ChatPage} />} />
       <Route path="/documents" element={<RequireAuth page={DocumentsPage} />} />
       <Route
