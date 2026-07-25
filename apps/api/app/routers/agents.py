@@ -9,6 +9,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session, joinedload
 
+from app.agents.connectors import connectors_overview
 from app.agents.main.profiles import get_profile, normalize_agent_type
 from app.agents.main.runner import (
     _workspace_name_for_run,
@@ -23,6 +24,13 @@ from app.rate_limit import rate_limit
 from app.schemas import AgentApproveRequest, AgentRunCreate, AgentRunResponse
 
 router = APIRouter(prefix="/agents", tags=["agents"])
+
+
+@router.get("/connectors")
+def get_connectors(current_user: User = Depends(get_current_user)):
+    """Catalog of built-in tools and MCP connectors for the Agents page UI."""
+    _ = current_user  # auth required; catalog is not tenant-specific yet
+    return connectors_overview()
 
 
 def _require_member(db: Session, user_id: uuid.UUID, workspace_id: uuid.UUID) -> None:

@@ -123,6 +123,15 @@ class Settings(BaseSettings):
     # Throttle last_seen_at writes on authenticated requests (seconds).
     monitoring_seen_throttle_seconds: int = 300
 
+    # MCP (Model Context Protocol) connectors — catalog + future runtime.
+    # Master switch; individual servers also need their own enable flag.
+    mcp_enabled: bool = False
+    # draw.io MCP (`npx -y @drawio/mcp`) — free local diagram tooling.
+    mcp_drawio_enabled: bool = False
+    # Optional override for how the draw.io MCP process is started.
+    mcp_drawio_command: str = "npx"
+    mcp_drawio_args: str = "-y,@drawio/mcp"  # comma-separated args
+
     # Redis / RQ background ingest
     # Local Redis: redis://127.0.0.1:6379/0
     # Windows Docker host example: redis://192.168.31.50:6379/0

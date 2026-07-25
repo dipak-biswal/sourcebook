@@ -588,6 +588,9 @@ export const api = {
       handlers,
     ),
 
+  /** Built-in tools + MCP connectors catalog for the Agents page. */
+  agentConnectors: () => request<AgentConnectorsOverview>("/agents/connectors"),
+
   agentRuns: (workspaceId: string) => {
     const params = new URLSearchParams({ workspace_id: workspaceId });
     return request<AgentRun[]>(`/agents/runs?${params.toString()}`);
@@ -799,6 +802,36 @@ export type DailyTotal = {
   prompt_tokens: number;
   completion_tokens: number;
   event_count: number;
+};
+
+/** Catalog entry from GET /agents/connectors. */
+export type AgentConnector = {
+  id: string;
+  name: string;
+  description: string;
+  kind: "builtin" | "mcp" | "pipeline";
+  status: "available" | "configured" | "coming_soon" | "disabled";
+  phase: "main" | "visual" | "both";
+  tool_names: string[];
+  requires_approval: boolean;
+  icon: string;
+  provider: string;
+  install_hint?: string | null;
+  docs_url?: string | null;
+};
+
+export type AgentConnectorsOverview = {
+  mcp_enabled: boolean;
+  connectors: AgentConnector[];
+  counts: {
+    total: number;
+    available: number;
+    configured: number;
+    coming_soon: number;
+    disabled: number;
+    mcp: number;
+    builtin: number;
+  };
 };
 
 export type AgentStep = {

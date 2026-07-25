@@ -1,4 +1,9 @@
-import type { AgentStep, AgentRun, ExecutionTrace } from "@/api";
+import type {
+  AgentConnectorsOverview,
+  AgentStep,
+  AgentRun,
+  ExecutionTrace,
+} from "@/api";
 import type { LiveTraceSpan, LlmTraceEvent } from "@/components/agents/trace-types";
 import type { AgentFormExample, AgentType } from "@/components/agents/agent-utils";
 
@@ -17,6 +22,8 @@ export type AgentPageContextValue = {
   sidebarOpen: boolean;
   savingNote: boolean;
   loading: boolean;
+  connectors: AgentConnectorsOverview | undefined;
+  connectorsLoading: boolean;
   liveGoal: string | null;
   liveExecutionTrace: ExecutionTrace | null;
   liveSteps: AgentStep[];

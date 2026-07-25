@@ -15,7 +15,12 @@ import {
   appendLlmStream,
   patchRunningLlmWithDelta,
 } from "@/hooks/useAgentStream";
-import { useAgentRuns, useDocuments, useWorkspaces } from "@/hooks/queries";
+import {
+  useAgentConnectors,
+  useAgentRuns,
+  useDocuments,
+  useWorkspaces,
+} from "@/hooks/queries";
 import { useLastWorkspace } from "@/hooks/useLastWorkspace";
 import type { AgentPageContextValue } from "@/types/agents";
 import { AgentPageContext } from "./agent-page-context";
@@ -64,6 +69,7 @@ export function AgentPageProvider({
     useLastWorkspace(workspaces);
   const { data: runs = [] } = useAgentRuns(effectiveWorkspaceId);
   const { data: documents = [] } = useDocuments(effectiveWorkspaceId);
+  const { data: connectors, isLoading: connectorsLoading } = useAgentConnectors();
   const effectiveSelectedId = selectedId;
   const selectedWorkspace = useMemo(
     () => workspaces.find((w) => w.id === effectiveWorkspaceId),
@@ -585,6 +591,8 @@ export function AgentPageProvider({
     sidebarOpen,
     savingNote,
     loading,
+    connectors,
+    connectorsLoading,
     liveGoal,
     liveExecutionTrace,
     liveSteps,

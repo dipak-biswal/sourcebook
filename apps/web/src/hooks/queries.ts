@@ -1,6 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import {
   api,
+  type AgentConnectorsOverview,
   type AgentRun,
   type ChatMessage,
   type Conversation,
@@ -74,6 +75,16 @@ export function useAgentRuns(workspaceId: string | undefined) {
     queryKey: ["agentRuns", workspaceId],
     queryFn: () => api.agentRuns(workspaceId!),
     enabled: authed && !!workspaceId,
+  });
+}
+
+export function useAgentConnectors() {
+  const authed = useIsAuthenticated();
+  return useQuery<AgentConnectorsOverview>({
+    queryKey: ["agentConnectors"],
+    queryFn: () => api.agentConnectors(),
+    enabled: authed,
+    staleTime: 60_000,
   });
 }
 

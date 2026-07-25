@@ -7,6 +7,7 @@ import { AgentPageProvider } from "./AgentPageContext";
 import { useAgentPage } from "./agent-page-context";
 import { AgentSidebar } from "./AgentSidebar";
 import { AgentRunForm } from "./AgentRunForm";
+import { AgentConnectors } from "./AgentConnectors";
 import { AgentRunDisplay } from "./AgentRunDisplay";
 
 function AgentsPageInner() {
@@ -64,6 +65,7 @@ function AgentsPageInner() {
             )}
 
             <AgentRunForm />
+            <AgentConnectors />
           </div>
 
           {/* Wider than the form column so teaching diagrams have room. */}
