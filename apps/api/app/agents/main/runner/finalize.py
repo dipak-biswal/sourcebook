@@ -70,6 +70,25 @@ def _offer_presentation_if_needed(
     ):
         return step_index
 
+    # Surface MCP connectors the user can opt into for Visual Summary.
+    from app.agents.connectors import list_mcp_connectors
+    from app.mcp.drawio import enabled_mcp_ids_from_run
+
+    available_mcp = [
+        {
+            "id": c["id"],
+            "name": c["name"],
+            "icon": c.get("icon") or "tool",
+            "phase": c.get("phase") or "visual",
+        }
+        for c in list_mcp_connectors()
+        if c.get("status") != "disabled"
+    ]
+    # Prefer run-start toggles; otherwise default available MCPs ON for visual.
+    preselected = enabled_mcp_ids_from_run(run)
+    if not preselected:
+        preselected = [c["id"] for c in available_mcp]
+
     run.status = "waiting_approval"
     run.pending_tool = {
         "id": str(uuid.uuid4()),
@@ -78,6 +97,8 @@ def _offer_presentation_if_needed(
         "args": {
             "goal": run.goal,
             "answer_preview": (run.final_answer or "")[:240],
+            "available_mcp": available_mcp,
+            "preselected_mcp_ids": preselected,
         },
     }
     step_index += 1
@@ -91,6 +112,8 @@ def _offer_presentation_if_needed(
         output={
             "status": "waiting_approval",
             "kind": "presentation",
+            "available_mcp": available_mcp,
+            "preselected_mcp_ids": preselected,
         },
         on_event=on_event,
     )

@@ -409,7 +409,13 @@ def _run_visual_pipeline(
                     run_drawio_mcp_for_visual(
                         structured=structured_for_mcp,
                         goal=ctx.goal or run.goal or "",
-                        try_npx=bool(settings.mcp_enabled and settings.mcp_drawio_enabled),
+                        presentation_spec=run.presentation_spec
+                        if isinstance(run.presentation_spec, dict)
+                        else None,
+                        # npx is slow on cloud hosts; only when explicitly enabled
+                        try_npx=bool(
+                            settings.mcp_enabled and settings.mcp_drawio_enabled
+                        ),
                     ),
                     None,
                 ),
@@ -487,6 +493,9 @@ def _maybe_apply_drawio_mcp(
     payload = run_drawio_mcp_for_visual(
         structured=structured,
         goal=ctx.goal or run.goal or "",
+        presentation_spec=run.presentation_spec
+        if isinstance(run.presentation_spec, dict)
+        else None,
         try_npx=bool(settings.mcp_enabled and settings.mcp_drawio_enabled),
     )
     step_index += 1

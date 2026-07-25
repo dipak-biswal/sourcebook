@@ -42,7 +42,10 @@ export type AgentPageContextValue = {
   onRun: (e: React.SubmitEvent<HTMLFormElement>) => void;
   onApprove: (
     approve: boolean,
-    answers?: Record<string, string | string[]>,
+    options?: {
+      answers?: Record<string, string | string[]>;
+      enabledMcpIds?: string[];
+    },
   ) => void;
   onCancelRun: () => void;
   cancelling: boolean;

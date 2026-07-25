@@ -235,7 +235,11 @@ def approve_run(
         )
     try:
         approve_agent_run(
-            db, run, approve=body.approve, answers=body.answers
+            db,
+            run,
+            approve=body.approve,
+            answers=body.answers,
+            enabled_mcp_ids=body.enabled_mcp_ids,
         )
     except ValueError as e:
         raise HTTPException(
@@ -266,6 +270,7 @@ def approve_run_stream(
     uid = current_user.id
     approve = body.approve
     answers = body.answers
+    enabled_mcp_ids = body.enabled_mcp_ids
 
     def work(session: Session, on_event) -> None:
         run = (
@@ -281,6 +286,7 @@ def approve_run_stream(
             run,
             approve=approve,
             answers=answers,
+            enabled_mcp_ids=enabled_mcp_ids,
             on_event=on_event,
         )
         loaded = (

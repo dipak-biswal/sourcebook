@@ -117,6 +117,33 @@ export function AgentStepList({
   );
 }
 
+export type ApproveOptions = {
+  answers?: ContextAnswers;
+  enabledMcpIds?: string[];
+};
+
+function availableMcpFromPending(
+  pendingTool: PendingTool,
+): { id: string; name: string }[] {
+  const args = pendingTool.args ?? {};
+  const raw = args.available_mcp;
+  if (!Array.isArray(raw)) return [];
+  return raw
+    .filter((x): x is Record<string, unknown> => !!x && typeof x === "object")
+    .map((x) => ({
+      id: String(x.id ?? ""),
+      name: String(x.name ?? x.id ?? "MCP"),
+    }))
+    .filter((x) => x.id);
+}
+
+function preselectedMcpFromPending(pendingTool: PendingTool): string[] {
+  const args = pendingTool.args ?? {};
+  const raw = args.preselected_mcp_ids;
+  if (!Array.isArray(raw)) return [];
+  return raw.map((x) => String(x)).filter(Boolean);
+}
+
 export function AgentApprovalCard({
   pendingTool,
   approving,
@@ -126,19 +153,28 @@ export function AgentApprovalCard({
 }: {
   pendingTool: PendingTool;
   approving?: boolean;
-  onApprove: (answers?: ContextAnswers) => void;
+  onApprove: (options?: ApproveOptions) => void;
   onReject: () => void;
   className?: string;
 }) {
   const presentation = isPresentationPending(pendingTool);
   const contextForm = parseContextQuestions(pendingTool);
   const questions = isQuestionsPending(pendingTool) && contextForm;
+  const availableMcp = availableMcpFromPending(pendingTool);
 
   const [textAnswers, setTextAnswers] = useState<Record<string, string>>({});
   const [checkboxAnswers, setCheckboxAnswers] = useState<
     Record<string, string[]>
   >({});
   const [formError, setFormError] = useState<string | null>(null);
+  const [mcpEnabled, setMcpEnabled] = useState<Record<string, boolean>>(() => {
+    const pre = new Set(preselectedMcpFromPending(pendingTool));
+    const init: Record<string, boolean> = {};
+    for (const m of availableMcpFromPending(pendingTool)) {
+      init[m.id] = pre.has(m.id);
+    }
+    return init;
+  });
 
   function toggleOption(qid: string, oid: string, allowMultiple: boolean) {
     setCheckboxAnswers((prev) => {
@@ -198,7 +234,7 @@ export function AgentApprovalCard({
       }
     }
     setFormError(null);
-    onApprove(skip ? {} : buildAnswers());
+    onApprove({ answers: skip ? {} : buildAnswers() });
   }
 
   if (questions && contextForm) {
@@ -309,6 +345,16 @@ export function AgentApprovalCard({
     );
   }
 
+  function selectedMcpIds(): string[] {
+    return Object.entries(mcpEnabled)
+      .filter(([, on]) => on)
+      .map(([id]) => id);
+  }
+
+  function handlePresentationApprove() {
+    onApprove({ enabledMcpIds: selectedMcpIds() });
+  }
+
   return (
     <div
       className={
@@ -320,10 +366,41 @@ export function AgentApprovalCard({
         {presentation ? "View in UI?" : "Approval required"}
       </div>
       {presentation ? (
-        <p className="mt-1 text-xs text-body">
-          The agent finished with a text answer. Generate a visual summary
-          with sections, chips, and tables—or keep the text-only answer.
-        </p>
+        <>
+          <p className="mt-1 text-xs text-body">
+            Generate a visual summary, or keep the text-only answer.
+          </p>
+          {availableMcp.length > 0 && (
+            <div className="mt-3 rounded-[6px] border border-hairline bg-canvas px-2.5 py-2">
+              <p className="text-[11px] font-medium text-ink">
+                Available connectors
+              </p>
+              <ul className="mt-1.5 space-y-1">
+                {availableMcp.map((m) => (
+                  <li key={m.id}>
+                    <label className="flex cursor-pointer items-center gap-2 py-0.5 text-[12px] text-ink">
+                      <input
+                        type="checkbox"
+                        className="h-3.5 w-3.5 rounded border-hairline"
+                        checked={!!mcpEnabled[m.id]}
+                        disabled={approving}
+                        onChange={() =>
+                          setMcpEnabled((prev) => ({
+                            ...prev,
+                            [m.id]: !prev[m.id],
+                          }))
+                        }
+                      />
+                      <span>
+                        Use <span className="font-medium">{m.name}</span>
+                      </span>
+                    </label>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+        </>
       ) : (
         <>
           <p className="mt-1 text-xs text-body">
@@ -348,7 +425,9 @@ export function AgentApprovalCard({
           size="sm"
           className="rounded-[6px]"
           disabled={approving}
-          onClick={() => onApprove()}
+          onClick={() =>
+            presentation ? handlePresentationApprove() : onApprove()
+          }
         >
           {approving ? (
             <Loader2 className="h-3.5 w-3.5 animate-spin" />

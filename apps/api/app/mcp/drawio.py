@@ -111,7 +111,12 @@ def mermaid_from_structured(structured: dict[str, Any] | None) -> tuple[str | No
         prev = None
         for i, step in enumerate(actions[:12]):
             if isinstance(step, dict):
-                label = str(step.get("title") or step.get("text") or step.get("label") or f"Step {i+1}")
+                label = str(
+                    step.get("title")
+                    or step.get("text")
+                    or step.get("label")
+                    or f"Step {i + 1}"
+                )
             else:
                 label = str(step)
             nid = _sanitize_id(f"s{i}", used)
@@ -120,6 +125,82 @@ def mermaid_from_structured(structured: dict[str, Any] | None) -> tuple[str | No
                 lines.append(f"  {prev} --> {nid}")
             prev = nid
         return "\n".join(lines), "flowchart"
+
+    # Fallback: key_points / sections as linear flow
+    points = structured.get("key_points") or []
+    if isinstance(points, list) and len(points) >= 2:
+        used = set()
+        lines = ["flowchart TD"]
+        prev = None
+        for i, pt in enumerate(points[:10]):
+            if isinstance(pt, dict):
+                label = str(pt.get("text") or pt.get("title") or pt.get("label") or f"Point {i + 1}")
+            else:
+                label = str(pt)
+            nid = _sanitize_id(f"k{i}", used)
+            lines.append(f'  {nid}["{_escape_mermaid_label(label)}"]')
+            if prev:
+                lines.append(f"  {prev} --> {nid}")
+            prev = nid
+        return "\n".join(lines), "flowchart"
+
+    sections = structured.get("sections") or []
+    if isinstance(sections, list) and len(sections) >= 2:
+        used = set()
+        lines = ["flowchart TD"]
+        prev = None
+        for i, sec in enumerate(sections[:10]):
+            if isinstance(sec, dict):
+                label = str(sec.get("title") or sec.get("heading") or f"Section {i + 1}")
+            else:
+                label = str(sec)
+            nid = _sanitize_id(f"sec{i}", used)
+            lines.append(f'  {nid}["{_escape_mermaid_label(label)}"]')
+            if prev:
+                lines.append(f"  {prev} --> {nid}")
+            prev = nid
+        return "\n".join(lines), "flowchart"
+
+    return None, "none"
+
+
+def mermaid_from_presentation_spec(
+    spec: dict[str, Any] | None,
+) -> tuple[str | None, str]:
+    """Build Mermaid from rendered generative UI diagram blocks."""
+    if not isinstance(spec, dict):
+        return None, "none"
+    blocks = spec.get("blocks") or []
+    if not isinstance(blocks, list):
+        return None, "none"
+
+    for b in blocks:
+        if not isinstance(b, dict):
+            continue
+        btype = str(b.get("type") or "")
+        if btype == "flow_diagram":
+            nodes = b.get("nodes") or []
+            edges = b.get("edges") or []
+            if isinstance(nodes, list) and len(nodes) >= 2:
+                return mermaid_from_structured(
+                    {"process_flow": {"nodes": nodes, "edges": edges}}
+                )
+        if btype == "sequence_diagram":
+            actors = b.get("actors") or []
+            messages = b.get("messages") or []
+            if isinstance(messages, list) and messages:
+                return mermaid_from_structured(
+                    {
+                        "interaction_sequence": {
+                            "actors": actors,
+                            "messages": messages,
+                        }
+                    }
+                )
+        if btype == "steps":
+            items = b.get("items") or []
+            if isinstance(items, list) and len(items) >= 2:
+                return mermaid_from_structured({"ordered_actions": items})
 
     return None, "none"
 
@@ -162,23 +243,39 @@ def run_drawio_mcp_for_visual(
     *,
     structured: dict[str, Any] | None,
     goal: str = "",
-    try_npx: bool = True,
+    presentation_spec: dict[str, Any] | None = None,
+    try_npx: bool = False,
 ) -> dict[str, Any]:
     """
     Produce draw.io connector output for the visual summary.
 
-    Returns a tool-result shaped dict always (success or soft skip).
+    Prefer structured handoff → rendered UI blocks → goal fallback.
+    Always returns a tool-result shaped dict (success or soft skip).
     """
     mermaid, kind = mermaid_from_structured(structured)
+    if not mermaid:
+        mermaid, kind = mermaid_from_presentation_spec(presentation_spec)
+    if not mermaid and (goal or "").strip():
+        # Last resort so enabled MCP still produces an editable diagram shell.
+        g = _escape_mermaid_label((goal or "").strip()[:70])
+        mermaid = (
+            "flowchart TD\n"
+            f'  start["Start"] --> topic["{g}"]\n'
+            '  topic --> visual["Visual summary"]\n'
+            '  visual --> done["Done"]'
+        )
+        kind = "flowchart"
+
     if not mermaid:
         return {
             "status": "skipped",
             "reason": "no_diagram_structure",
             "detail": (
-                "No process_flow, sequence, or ordered steps in the handoff "
+                "No process_flow, sequence, steps, or rendered diagram blocks "
                 "to send to draw.io."
             ),
             "provider": "draw.io",
+            "connector_id": "mcp_drawio",
         }
 
     title = (goal or "Sourcebook diagram").strip()[:80] or "Sourcebook diagram"

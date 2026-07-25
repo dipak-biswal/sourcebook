@@ -43,9 +43,38 @@ def test_mermaid_from_sequence():
     assert "Client" in mermaid
 
 
-def test_run_drawio_skips_without_structure():
-    result = run_drawio_mcp_for_visual(structured={"summary": "hi"}, try_npx=False)
-    assert result["status"] == "skipped"
+def test_run_drawio_goal_fallback_when_thin_structure():
+    result = run_drawio_mcp_for_visual(
+        structured={"summary": "hi"},
+        goal="Explain the pipeline",
+        try_npx=False,
+    )
+    assert result["status"] == "ok"
+    assert "mermaid" in result
+
+
+def test_run_drawio_from_presentation_blocks():
+    spec = {
+        "type": "generative_ui",
+        "title": "T",
+        "blocks": [
+            {
+                "type": "flow_diagram",
+                "nodes": [
+                    {"id": "a", "label": "Ingest"},
+                    {"id": "b", "label": "Answer"},
+                ],
+                "edges": [{"from": "a", "to": "b"}],
+            }
+        ],
+    }
+    result = run_drawio_mcp_for_visual(
+        structured={},
+        presentation_spec=spec,
+        try_npx=False,
+    )
+    assert result["status"] == "ok"
+    assert "Ingest" in result["mermaid"]
 
 
 def test_run_drawio_ok_with_flow():

@@ -289,9 +289,14 @@ export function AgentPageProvider({
 
   async function onApprove(
     approve: boolean,
-    answers?: Record<string, string | string[]>,
+    options?: {
+      answers?: Record<string, string | string[]>;
+      enabledMcpIds?: string[];
+    },
   ) {
     if (!selected || approving) return;
+    const answers = options?.answers;
+    const enabledMcpIds = options?.enabledMcpIds;
     const presentationPending = isPresentationPending(selected.pending_tool);
     const questionsPending = isQuestionsPending(selected.pending_tool);
     setApproving(true);
@@ -417,6 +422,9 @@ export function AgentPageProvider({
             },
             false,
           ),
+          {
+            enabledMcpIds: enabledMcpIds ?? [],
+          },
         );
         if (run) {
           setSelected(run);
@@ -516,7 +524,7 @@ export function AgentPageProvider({
           },
           false,
         ),
-        questionsPending ? answers ?? {} : undefined,
+        questionsPending ? { answers: answers ?? {} } : undefined,
       );
       if (run) {
         setSelected(run);

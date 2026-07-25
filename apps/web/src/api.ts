@@ -609,13 +609,19 @@ export const api = {
   approveAgentRun: (
     runId: string,
     approve: boolean,
-    answers?: Record<string, string | string[]>,
+    options: {
+      answers?: Record<string, string | string[]>;
+      enabledMcpIds?: string[];
+    } = {},
   ) =>
     request<AgentRun>(`/agents/runs/${runId}/approve`, {
       method: "POST",
       body: JSON.stringify({
         approve,
-        ...(answers != null ? { answers } : {}),
+        ...(options.answers != null ? { answers: options.answers } : {}),
+        ...(options.enabledMcpIds != null
+          ? { enabled_mcp_ids: options.enabledMcpIds }
+          : {}),
       }),
     }),
 
@@ -623,13 +629,19 @@ export const api = {
     runId: string,
     approve: boolean,
     handlers: AgentStreamHandlers = {},
-    answers?: Record<string, string | string[]>,
+    options: {
+      answers?: Record<string, string | string[]>;
+      enabledMcpIds?: string[];
+    } = {},
   ) =>
     streamAgentRun(
       `/agents/runs/${runId}/approve/stream`,
       {
         approve,
-        ...(answers != null ? { answers } : {}),
+        ...(options.answers != null ? { answers: options.answers } : {}),
+        ...(options.enabledMcpIds != null
+          ? { enabled_mcp_ids: options.enabledMcpIds }
+          : {}),
       },
       handlers,
     ),

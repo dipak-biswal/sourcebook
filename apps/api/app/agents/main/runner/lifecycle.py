@@ -255,6 +255,7 @@ def approve_agent_run(
     *,
     approve: bool,
     answers: dict | None = None,
+    enabled_mcp_ids: list[str] | None = None,
     on_event: EventCallback = None,
 ) -> AgentRun:
     """
@@ -319,6 +320,17 @@ def approve_agent_run(
         return run
 
     if _is_presentation_pending(pending):
+        # Apply MCP choices from the presentation prompt (or keep prior run options).
+        mcp_ids = [
+            str(x).strip()
+            for x in (enabled_mcp_ids if enabled_mcp_ids is not None else [])
+            if str(x).strip()
+        ]
+        if enabled_mcp_ids is not None:
+            opts = dict(run.run_options or {}) if isinstance(run.run_options, dict) else {}
+            opts["enabled_mcp_ids"] = mcp_ids
+            run.run_options = opts
+
         trace_live.approving = True
         trace_live.visual_agent_active = True
         _refresh_execution_trace(db, run, on_event, trace_live)
@@ -329,7 +341,16 @@ def approve_agent_run(
             type="approval",
             tool_name=name,
             input=args,
-            output={"status": "approved"},
+            output={
+                "status": "approved",
+                "enabled_mcp_ids": mcp_ids
+                if enabled_mcp_ids is not None
+                else list(
+                    (run.run_options or {}).get("enabled_mcp_ids") or []
+                    if isinstance(run.run_options, dict)
+                    else []
+                ),
+            },
             on_event=on_event,
         )
         step_index += 1

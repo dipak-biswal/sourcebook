@@ -179,7 +179,7 @@ export function AgentRunDisplay() {
             <AgentApprovalCard
               pendingTool={selected.pending_tool}
               approving={approving}
-              onApprove={(answers) => onApprove(true, answers)}
+              onApprove={(opts) => onApprove(true, opts)}
               onReject={() => onApprove(false)}
               className="border-warning-border bg-warning-soft"
             />
@@ -300,7 +300,7 @@ export function AgentRunDisplay() {
             executionTrace={liveExecutionTrace ?? selected?.execution_trace}
             running={running || approving}
             approving={approving}
-            onApprove={(answers) => onApprove(true, answers)}
+            onApprove={(opts) => onApprove(true, opts)}
             onReject={() => onApprove(false)}
           />
         )}
