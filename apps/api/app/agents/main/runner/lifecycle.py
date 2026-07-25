@@ -389,15 +389,33 @@ def approve_agent_run(
 
     if _is_presentation_pending(pending):
         # Apply MCP choices from the presentation prompt (or keep prior run options).
-        mcp_ids = [
-            str(x).strip()
-            for x in (enabled_mcp_ids if enabled_mcp_ids is not None else [])
-            if str(x).strip()
-        ]
+        # If the UI sent nothing, default to available MCPs listed on the offer.
         if enabled_mcp_ids is not None:
-            opts = dict(run.run_options or {}) if isinstance(run.run_options, dict) else {}
-            opts["enabled_mcp_ids"] = mcp_ids
-            run.run_options = opts
+            mcp_ids = [
+                str(x).strip() for x in enabled_mcp_ids if str(x).strip()
+            ]
+        else:
+            args_mcp = []
+            if isinstance(args, dict):
+                raw_pre = args.get("preselected_mcp_ids") or args.get("available_mcp") or []
+                if isinstance(raw_pre, list):
+                    for item in raw_pre:
+                        if isinstance(item, dict) and item.get("id"):
+                            args_mcp.append(str(item["id"]))
+                        elif item:
+                            args_mcp.append(str(item).strip())
+            mcp_ids = args_mcp or [
+                str(x).strip()
+                for x in (
+                    (run.run_options or {}).get("enabled_mcp_ids") or []
+                    if isinstance(run.run_options, dict)
+                    else []
+                )
+                if str(x).strip()
+            ]
+        opts = dict(run.run_options or {}) if isinstance(run.run_options, dict) else {}
+        opts["enabled_mcp_ids"] = mcp_ids
+        run.run_options = opts
 
         trace_live.approving = True
         trace_live.visual_agent_active = True

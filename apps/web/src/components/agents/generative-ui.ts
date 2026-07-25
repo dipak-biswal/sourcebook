@@ -223,9 +223,20 @@ function pickRicherGenerativeUI(
 ): GenerativeUIPayload | null {
   if (!primary) return secondary;
   if (!secondary) return primary;
-  return payloadContentScore(secondary) > payloadContentScore(primary)
-    ? secondary
-    : primary;
+  const winner =
+    payloadContentScore(secondary) > payloadContentScore(primary)
+      ? secondary
+      : primary;
+  const other = winner === primary ? secondary : primary;
+  // Never drop draw.io meta when merging richer block payloads.
+  const drawio = winner.meta?.drawio ?? other.meta?.drawio;
+  if (drawio && !winner.meta?.drawio) {
+    return {
+      ...winner,
+      meta: { ...(winner.meta ?? {}), drawio },
+    };
+  }
+  return winner;
 }
 
 type RunStep = {
@@ -774,10 +785,18 @@ export function extractGenerativeUIFromRun(
       : null;
   const fromSteps = extractGenerativeUIFromSteps(steps);
 
-  return [fromSpec, fromLlmOutput, fromFinalAnswer, fromSteps].reduce(
-    (best, candidate) => pickRicherGenerativeUI(best, candidate),
+  const best = [fromSpec, fromLlmOutput, fromFinalAnswer, fromSteps].reduce(
+    (acc, candidate) => pickRicherGenerativeUI(acc, candidate),
     null as GenerativeUIPayload | null,
   );
+  // presentation_spec.meta.drawio is the source of truth for MCP export UI.
+  if (best && fromSpec?.meta?.drawio && !best.meta?.drawio) {
+    return {
+      ...best,
+      meta: { ...(best.meta ?? {}), drawio: fromSpec.meta.drawio },
+    };
+  }
+  return best;
 }
 
 export function extractGenerativeUIFromSteps(

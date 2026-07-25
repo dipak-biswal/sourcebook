@@ -1040,24 +1040,41 @@ export function GenerativeUIView({
       </div>
 
       {drawioReady && (
-        <div className="flex flex-wrap items-center gap-2 rounded-[8px] border border-hairline bg-canvas-soft px-3 py-2.5">
-          <Workflow className="h-4 w-4 shrink-0 text-ink" strokeWidth={1.5} />
-          <div className="min-w-0 flex-1">
-            <p className="text-[12px] font-medium text-ink">draw.io MCP</p>
-            <p className="text-[11px] text-mute">
-              Diagram export from this visual summary
-              {drawio?.diagram_kind ? ` (${drawio.diagram_kind})` : ""}.
-            </p>
+        <div className="space-y-2 rounded-[8px] border border-hairline bg-canvas-soft p-3">
+          <div className="flex flex-wrap items-center gap-2">
+            <Workflow className="h-4 w-4 shrink-0 text-ink" strokeWidth={1.5} />
+            <div className="min-w-0 flex-1">
+              <p className="text-[12px] font-medium text-ink">draw.io diagram</p>
+              <p className="text-[11px] text-mute">
+                Generated via draw.io MCP
+                {drawio?.diagram_kind ? ` · ${drawio.diagram_kind}` : ""}
+              </p>
+            </div>
+            <a
+              href={drawio!.edit_url}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex h-7 items-center gap-1 rounded-[6px] bg-ink px-2.5 text-[11px] font-medium text-[var(--canvas)] transition-opacity hover:opacity-90"
+            >
+              Open in draw.io
+              <ExternalLink className="h-3 w-3" strokeWidth={1.5} />
+            </a>
           </div>
-          <a
-            href={drawio!.edit_url}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="inline-flex h-7 items-center gap-1 rounded-[6px] bg-ink px-2.5 text-[11px] font-medium text-[var(--canvas)] transition-opacity hover:opacity-90"
-          >
-            Open in draw.io
-            <ExternalLink className="h-3 w-3" strokeWidth={1.5} />
-          </a>
+          {typeof drawio?.preview_url === "string" && drawio.preview_url && (
+            <a
+              href={drawio.edit_url}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="block overflow-hidden rounded-[6px] border border-hairline bg-canvas"
+            >
+              <img
+                src={drawio.preview_url}
+                alt="draw.io diagram preview"
+                className="mx-auto max-h-80 w-full object-contain p-2"
+                loading="lazy"
+              />
+            </a>
+          )}
         </div>
       )}
 

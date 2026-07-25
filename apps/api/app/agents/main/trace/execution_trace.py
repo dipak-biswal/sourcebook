@@ -102,6 +102,7 @@ TOOL_LABELS: dict[str, str] = {
     "generative_ui": "Visual summary",
     "plan_layout": "Plan layout",
     "render_ui": "Render UI",
+    "mcp_drawio": "draw.io MCP",
     "get_current_date": "Current date",
 }
 
@@ -844,6 +845,16 @@ class _TurnAcc:
                     stage_key="render_ui",
                     label="Render UI",
                     tool=render_tool,
+                )
+            )
+
+        drawio_tool = next((t for t in self.tools if t.tool_name == "mcp_drawio"), None)
+        if drawio_tool:
+            nodes.append(
+                self._visual_stage_node(
+                    stage_key="mcp_drawio",
+                    label="draw.io MCP",
+                    tool=drawio_tool,
                 )
             )
 

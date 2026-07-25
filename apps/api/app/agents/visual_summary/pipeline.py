@@ -391,46 +391,61 @@ def _run_visual_pipeline(
             on_event=on_event,
         )
 
-        # Optional draw.io MCP (user toggle on Agents page).
-        mcp_ids = enabled_mcp_ids_from_run(run)
-        if "mcp_drawio" in mcp_ids:
-            structured_for_mcp = (
-                structured
-                if isinstance(structured, dict)
-                else (ctx.structured_content if isinstance(ctx.structured_content, dict) else {})
-            )
-            drawio_payload, _ = record_tool(
-                "mcp_drawio",
-                {
-                    "connector_id": "mcp_drawio",
-                    "goal": (ctx.goal or "")[:200],
-                },
-                lambda: (
-                    run_drawio_mcp_for_visual(
-                        structured=structured_for_mcp,
-                        goal=ctx.goal or run.goal or "",
-                        presentation_spec=run.presentation_spec
-                        if isinstance(run.presentation_spec, dict)
-                        else None,
-                        # npx is slow on cloud hosts; only when explicitly enabled
-                        try_npx=bool(
-                            settings.mcp_enabled and settings.mcp_drawio_enabled
-                        ),
+    # Optional draw.io MCP — always attempt when enabled, even if plan/render failed.
+    mcp_ids = enabled_mcp_ids_from_run(run)
+    if "mcp_drawio" in mcp_ids:
+        structured_for_mcp = (
+            ctx.structured_content
+            if isinstance(ctx.structured_content, dict)
+            else {}
+        )
+        drawio_payload, _ = record_tool(
+            "mcp_drawio",
+            {
+                "connector_id": "mcp_drawio",
+                "goal": (ctx.goal or run.goal or "")[:200],
+            },
+            lambda: (
+                run_drawio_mcp_for_visual(
+                    structured=structured_for_mcp,
+                    goal=ctx.goal or run.goal or "",
+                    presentation_spec=run.presentation_spec
+                    if isinstance(run.presentation_spec, dict)
+                    else None,
+                    try_npx=bool(
+                        settings.mcp_enabled and settings.mcp_drawio_enabled
                     ),
-                    None,
                 ),
+                None,
+            ),
+        )
+        if isinstance(drawio_payload, dict):
+            if not isinstance(run.presentation_spec, dict):
+                # Ensure Visual tab can still show the draw.io export card.
+                run.presentation_spec = {
+                    "type": "generative_ui",
+                    "title": (run.goal or "Visual summary")[:80],
+                    "plain_summary": (run.final_answer or "")[:500],
+                    "blocks": [],
+                }
+            run.presentation_spec = attach_drawio_to_spec(
+                run.presentation_spec,
+                drawio_payload,
             )
-            if isinstance(run.presentation_spec, dict) and isinstance(drawio_payload, dict):
-                run.presentation_spec = attach_drawio_to_spec(
-                    run.presentation_spec,
-                    drawio_payload,
-                )
-                _emit(
-                    on_event,
-                    "presentation",
-                    run_id=str(run.id),
-                    presentation_spec=run.presentation_spec,
-                )
+            _emit(
+                on_event,
+                "presentation",
+                run_id=str(run.id),
+                presentation_spec=run.presentation_spec,
+            )
+            _emit(
+                on_event,
+                "status",
+                run_id=str(run.id),
+                status=run.status,
+                presentation_spec=run.presentation_spec,
+                final_answer=run.final_answer,
+            )
 
     run.status = "completed"
     run.token_usage = (initial_usage + tokens_total) or None
