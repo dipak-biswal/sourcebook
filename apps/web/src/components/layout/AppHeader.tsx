@@ -265,16 +265,15 @@ export function AppHeader({
 }: AppHeaderProps) {
   const authed = useIsAuthenticated();
   const location = useLocation();
-  const [menuOpen, setMenuOpen] = useState(false);
-
-  useEffect(() => {
-    setMenuOpen(false);
-  }, [location.pathname]);
+  // Track which path the mobile menu was opened on so a route change
+  // closes it without setState inside an effect.
+  const [menuPath, setMenuPath] = useState<string | null>(null);
+  const menuOpen = menuPath === location.pathname;
 
   useEffect(() => {
     if (!menuOpen) return;
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") setMenuOpen(false);
+      if (e.key === "Escape") setMenuPath(null);
     };
     document.addEventListener("keydown", onKey);
     const prev = document.body.style.overflow;
@@ -339,7 +338,11 @@ export function AppHeader({
                 className="inline-flex h-9 w-9 items-center justify-center rounded-[8px] border border-hairline text-body transition-colors hover:bg-canvas-soft-2 hover:text-ink md:hidden"
                 aria-label={menuOpen ? "Close menu" : "Open menu"}
                 aria-expanded={menuOpen}
-                onClick={() => setMenuOpen((v) => !v)}
+                onClick={() =>
+                  setMenuPath((path) =>
+                    path === location.pathname ? null : location.pathname,
+                  )
+                }
               >
                 {menuOpen ? (
                   <X className="h-5 w-5" strokeWidth={1.5} />
@@ -364,7 +367,7 @@ export function AppHeader({
       {showAuthActions && authed && (
         <MobileNavMenu
           open={menuOpen}
-          onClose={() => setMenuOpen(false)}
+          onClose={() => setMenuPath(null)}
           onLogout={onLogout}
         />
       )}
