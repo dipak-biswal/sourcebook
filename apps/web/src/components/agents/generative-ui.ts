@@ -82,12 +82,16 @@ export type GenUISource = {
 export type DrawioMeta = {
   mermaid?: string;
   edit_url?: string;
+  /** Best image src for the Visual Summary tab (data URI preferred). */
   preview_url?: string;
+  png_url?: string;
+  png_data_url?: string;
   diagram_kind?: string;
   connector_id?: string;
   status?: string;
   reason?: string;
   detail?: string;
+  png_error?: string;
 };
 
 export type GenerativeUIPayload = {

@@ -960,11 +960,16 @@ export function GenerativeUIView({
   }, [markdown, payload]);
 
   const drawio = payload.meta?.drawio;
+  const drawioImageSrc =
+    (typeof drawio?.png_data_url === "string" && drawio.png_data_url) ||
+    (typeof drawio?.preview_url === "string" && drawio.preview_url) ||
+    (typeof drawio?.png_url === "string" && drawio.png_url) ||
+    "";
   const drawioReady =
     !!drawio &&
     drawio.status !== "skipped" &&
-    typeof drawio.edit_url === "string" &&
-    drawio.edit_url.length > 0;
+    (drawioImageSrc.length > 0 ||
+      (typeof drawio.edit_url === "string" && drawio.edit_url.length > 0));
 
   return (
     <div
@@ -1040,42 +1045,48 @@ export function GenerativeUIView({
       </div>
 
       {drawioReady && (
-        <div className="space-y-2 rounded-[8px] border border-hairline bg-canvas-soft p-3">
+        <section
+          aria-label="draw.io diagram"
+          className="space-y-3 rounded-[10px] border border-hairline bg-canvas p-3 sm:p-4"
+        >
           <div className="flex flex-wrap items-center gap-2">
             <Workflow className="h-4 w-4 shrink-0 text-ink" strokeWidth={1.5} />
             <div className="min-w-0 flex-1">
-              <p className="text-[12px] font-medium text-ink">draw.io diagram</p>
+              <p className="text-sm font-semibold text-ink">Diagram</p>
               <p className="text-[11px] text-mute">
-                Generated via draw.io MCP
+                PNG from draw.io connector
                 {drawio?.diagram_kind ? ` · ${drawio.diagram_kind}` : ""}
               </p>
             </div>
-            <a
-              href={drawio!.edit_url}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="inline-flex h-7 items-center gap-1 rounded-[6px] bg-ink px-2.5 text-[11px] font-medium text-[var(--canvas)] transition-opacity hover:opacity-90"
-            >
-              Open in draw.io
-              <ExternalLink className="h-3 w-3" strokeWidth={1.5} />
-            </a>
+            {typeof drawio?.edit_url === "string" && drawio.edit_url && (
+              <a
+                href={drawio.edit_url}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex h-8 items-center gap-1.5 rounded-[6px] border border-hairline bg-canvas px-3 text-[12px] font-medium text-ink transition-colors hover:bg-canvas-soft-2"
+              >
+                Edit in draw.io
+                <ExternalLink className="h-3.5 w-3.5" strokeWidth={1.5} />
+              </a>
+            )}
           </div>
-          {typeof drawio?.preview_url === "string" && drawio.preview_url && (
-            <a
-              href={drawio.edit_url}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="block overflow-hidden rounded-[6px] border border-hairline bg-canvas"
-            >
+          {drawioImageSrc ? (
+            <div className="overflow-hidden rounded-[8px] border border-hairline bg-[var(--canvas)]">
               <img
-                src={drawio.preview_url}
-                alt="draw.io diagram preview"
-                className="mx-auto max-h-80 w-full object-contain p-2"
-                loading="lazy"
+                src={drawioImageSrc}
+                alt="Generated diagram PNG"
+                className="mx-auto max-h-[28rem] w-full object-contain p-3 sm:p-4"
+                loading="eager"
               />
-            </a>
+            </div>
+          ) : (
+            <p className="rounded-[6px] border border-dashed border-hairline px-3 py-6 text-center text-xs text-mute">
+              Diagram PNG is still generating or failed to render.
+              {drawio?.png_error ? ` (${drawio.png_error})` : ""}
+              {drawio?.edit_url ? " Use Edit in draw.io to open the source." : ""}
+            </p>
           )}
-        </div>
+        </section>
       )}
 
       {payload.plain_summary &&

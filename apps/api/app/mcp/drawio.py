@@ -20,6 +20,11 @@ import subprocess
 import urllib.parse
 from typing import Any
 
+import httpx
+
+# Cap embedded PNG size so presentation_spec stays free-tier friendly.
+_MAX_PNG_BYTES = 1_500_000
+
 
 def _sanitize_id(label: str, used: set[str]) -> str:
     raw = re.sub(r"[^A-Za-z0-9_]", "_", (label or "n").strip()) or "n"
@@ -217,6 +222,71 @@ def drawio_edit_url(mermaid: str, *, title: str = "Sourcebook diagram") -> str:
     )
 
 
+def mermaid_encode(mermaid: str) -> str:
+    """URL-safe base64 used by mermaid.ink / Kroki-style renderers."""
+    return base64.urlsafe_b64encode(mermaid.encode("utf-8")).decode("ascii").rstrip("=")
+
+
+def mermaid_png_urls(mermaid: str) -> list[str]:
+    """Candidate PNG render URLs (tried in order)."""
+    enc = mermaid_encode(mermaid)
+    return [
+        f"https://mermaid.ink/img/{enc}?type=png",
+        f"https://mermaid.ink/img/{enc}",
+        f"https://kroki.io/mermaid/png/{enc}",
+    ]
+
+
+def render_mermaid_png(mermaid: str) -> dict[str, Any]:
+    """
+    Render Mermaid to PNG for the Visual Summary tab.
+
+    Returns keys: png_url, png_data_url (optional embedded data URI), error.
+    """
+    urls = mermaid_png_urls(mermaid)
+    last_error: str | None = None
+    for url in urls:
+        try:
+            with httpx.Client(timeout=httpx.Timeout(45.0, connect=8.0), follow_redirects=True) as client:
+                resp = client.get(url)
+            if resp.status_code != 200:
+                last_error = f"HTTP {resp.status_code} from renderer"
+                continue
+            content_type = (resp.headers.get("content-type") or "").lower()
+            body = resp.content or b""
+            if not body:
+                last_error = "empty PNG body"
+                continue
+            # mermaid.ink may return SVG for some paths — only accept image payloads.
+            if "svg" in content_type and body[:200].lstrip().startswith(b"<"):
+                last_error = "renderer returned SVG, not PNG"
+                continue
+            if len(body) > _MAX_PNG_BYTES:
+                # Still usable as remote URL without embedding.
+                return {
+                    "png_url": url,
+                    "png_data_url": None,
+                    "png_bytes": len(body),
+                    "embedded": False,
+                }
+            b64 = base64.b64encode(body).decode("ascii")
+            return {
+                "png_url": url,
+                "png_data_url": f"data:image/png;base64,{b64}",
+                "png_bytes": len(body),
+                "embedded": True,
+            }
+        except Exception as e:  # network / TLS / timeout
+            last_error = f"{type(e).__name__}: {e}"
+            continue
+    return {
+        "png_url": urls[0] if urls else None,
+        "png_data_url": None,
+        "error": last_error or "png_render_failed",
+        "embedded": False,
+    }
+
+
 def _try_npx_drawio_mcp(mermaid: str) -> dict[str, Any] | None:
     """Best-effort: confirm npx/@drawio/mcp is available (does not block UI)."""
     if not shutil.which("npx"):
@@ -280,8 +350,9 @@ def run_drawio_mcp_for_visual(
 
     title = (goal or "Sourcebook diagram").strip()[:80] or "Sourcebook diagram"
     edit_url = drawio_edit_url(mermaid, title=title)
-    b64 = base64.urlsafe_b64encode(mermaid.encode("utf-8")).decode("ascii").rstrip("=")
-    preview_url = f"https://mermaid.ink/svg/{b64}"
+    png = render_mermaid_png(mermaid)
+    # Prefer embedded data URI for reliable display in the Visual Summary tab.
+    preview_url = png.get("png_data_url") or png.get("png_url")
 
     result: dict[str, Any] = {
         "status": "ok",
@@ -291,6 +362,10 @@ def run_drawio_mcp_for_visual(
         "mermaid": mermaid,
         "edit_url": edit_url,
         "preview_url": preview_url,
+        "png_url": png.get("png_url"),
+        "png_data_url": png.get("png_data_url"),
+        "png_bytes": png.get("png_bytes"),
+        "png_error": png.get("error"),
         "source": "sourcebook_drawio_mcp",
     }
     if try_npx:
@@ -301,17 +376,27 @@ def run_drawio_mcp_for_visual(
 
 
 def attach_drawio_to_spec(spec: dict[str, Any], drawio_result: dict[str, Any]) -> dict[str, Any]:
-    """Merge draw.io MCP result into presentation_spec.meta."""
+    """Merge draw.io MCP result into presentation_spec.meta (+ optional image block)."""
     out = dict(spec)
     meta = dict(out.get("meta") or {}) if isinstance(out.get("meta"), dict) else {}
     if drawio_result.get("status") == "ok":
+        image_src = (
+            drawio_result.get("png_data_url")
+            or drawio_result.get("preview_url")
+            or drawio_result.get("png_url")
+        )
         meta["drawio"] = {
             "mermaid": drawio_result.get("mermaid"),
             "edit_url": drawio_result.get("edit_url"),
-            "preview_url": drawio_result.get("preview_url"),
+            "preview_url": image_src,
+            "png_url": drawio_result.get("png_url"),
+            "png_data_url": drawio_result.get("png_data_url"),
             "diagram_kind": drawio_result.get("diagram_kind"),
             "connector_id": "mcp_drawio",
+            "png_error": drawio_result.get("png_error"),
         }
+        # Also inject a full-width image-like callout via summary body is not ideal;
+        # the Visual Summary UI reads meta.drawio for the diagram panel.
     elif drawio_result.get("status") == "skipped":
         meta["drawio"] = {
             "status": "skipped",

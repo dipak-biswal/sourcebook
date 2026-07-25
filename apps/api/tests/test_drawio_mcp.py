@@ -77,13 +77,27 @@ def test_run_drawio_from_presentation_blocks():
     assert "Ingest" in result["mermaid"]
 
 
-def test_run_drawio_ok_with_flow():
+def test_run_drawio_ok_with_flow(monkeypatch):
     structured = {
         "process_flow": {
             "nodes": [{"id": "1", "label": "A"}, {"id": "2", "label": "B"}],
             "edges": [{"from": "1", "to": "2"}],
         }
     }
+
+    def _fake_png(mermaid: str):
+        assert "flowchart" in mermaid
+        return {
+            "png_url": "https://example.test/diagram.png",
+            "png_data_url": "data:image/png;base64,AAAA",
+            "png_bytes": 4,
+            "embedded": True,
+        }
+
+    monkeypatch.setattr(
+        "app.mcp.drawio.render_mermaid_png",
+        _fake_png,
+    )
     result = run_drawio_mcp_for_visual(
         structured=structured, goal="Explain pipeline", try_npx=False
     )
@@ -91,6 +105,8 @@ def test_run_drawio_ok_with_flow():
     assert result["edit_url"].startswith("https://app.diagrams.net/")
     assert "mermaid" in result
     assert "create=" in result["edit_url"]
+    assert result["png_data_url"] == "data:image/png;base64,AAAA"
+    assert result["preview_url"] == "data:image/png;base64,AAAA"
 
 
 def test_attach_drawio_to_spec():
@@ -117,3 +133,22 @@ def test_drawio_edit_url_encodes_mermaid():
     url = drawio_edit_url("flowchart TD\n  a-->b", title="Demo")
     assert "app.diagrams.net" in url
     assert "create=" in url
+
+
+def test_attach_includes_png_data_url():
+    from app.mcp.drawio import attach_drawio_to_spec
+
+    spec = {"type": "generative_ui", "title": "T", "blocks": []}
+    out = attach_drawio_to_spec(
+        spec,
+        {
+            "status": "ok",
+            "mermaid": "flowchart TD\n  a-->b",
+            "edit_url": "https://app.diagrams.net/?x=1",
+            "png_data_url": "data:image/png;base64,QQ==",
+            "png_url": "https://example.test/a.png",
+            "diagram_kind": "flowchart",
+        },
+    )
+    assert out["meta"]["drawio"]["png_data_url"].startswith("data:image/png")
+    assert out["meta"]["drawio"]["preview_url"].startswith("data:image/png")
