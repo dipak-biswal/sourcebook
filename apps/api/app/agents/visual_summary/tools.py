@@ -198,21 +198,46 @@ def _plan_layout_llm(
         f"{json.dumps(skeleton['plan'].get('block_outline') or [], ensure_ascii=False)}\n"
     )
 
-    resp = chat_json(
-        _client(),
-        model=settings.visual_summary_model,
-        system=(
-            "You are the Visual Summary layout planner. Output valid JSON only. "
-            "Decide which blocks to show, their order, titles, source_hint, and width. "
-            "Use only available source_hint fields from the prompt. Do not invent facts. "
-            "presentation_profile must be a real short snake_case id for this layout "
-            "(e.g. mechanism_explainer, gap_analysis) — never the placeholder short_snake_case."
-        ),
-        prompt=prompt,
-        schema_name="layout_plan",
-        schema=PLAN_SCHEMA,
-        temperature=0.0,
-    )
+    try:
+        resp = chat_json(
+            _client(),
+            model=settings.visual_summary_model,
+            system=(
+                "You are the Visual Summary layout planner. Output valid JSON only. "
+                "Decide which blocks to show, their order, titles, source_hint, and width. "
+                "Use only available source_hint fields from the prompt. Do not invent facts. "
+                "presentation_profile must be a real short snake_case id for this layout "
+                "(e.g. mechanism_explainer, gap_analysis) — never the placeholder short_snake_case."
+            ),
+            prompt=prompt,
+            schema_name="layout_plan",
+            schema=PLAN_SCHEMA,
+            temperature=0.0,
+        )
+    except Exception as e:
+        # OpenAI 5xx / network — never fail HITL; use code skeleton plan.
+        plan = dict(skeleton["plan"])
+        plan["rationale"] = (
+            f"Fallback to code skeleton — planner LLM unavailable "
+            f"({type(e).__name__})."
+        )
+        return {
+            "plan": plan,
+            "structured_input": planner_input,
+            "prompt": prompt,
+            "llm_output": "",
+            "usage": {
+                "model": "code_skeleton_fallback",
+                "prompt_tokens": 0,
+                "completion_tokens": 0,
+                "total_tokens": 0,
+            },
+            "structured_content": structured,
+            "requested_components": components,
+            "ui_intent": skeleton.get("ui_intent"),
+            "planner_error": str(e)[:400],
+        }
+
     raw = (resp.choices[0].message.content or "{}").strip()
     try:
         plan = json.loads(raw)

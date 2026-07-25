@@ -32,7 +32,9 @@ def _llm(model: str | None = None):
         # error instead of relying on library defaults (which can be absent
         # or vary between versions) — a run should never hang indefinitely.
         timeout=90.0,
-        max_retries=2,
+        # Extra retries help with intermittent OpenAI 500 server_error responses
+        # seen after HITL (e.g. View in UI → visual summary).
+        max_retries=4,
     )
 
 

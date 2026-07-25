@@ -215,13 +215,43 @@ def _run_visual_summary_agent(
         # Default: code orchestrator — plan_layout → render_ui directly.
         # The outer agent added LLM turns but no decisions (render_ui already
         # accepts "{}" and uses the plan produced by plan_layout).
-        completed = _run_visual_pipeline(
-            db,
-            run,
-            ctx=ctx,
-            step_index=step_index,
-            on_event=on_event,
-        )
+        try:
+            completed = _run_visual_pipeline(
+                db,
+                run,
+                ctx=ctx,
+                step_index=step_index,
+                on_event=on_event,
+            )
+        except Exception as e:
+            # Never surface raw OpenAI 5xx through approve as an unhandled 500.
+            run.status = "failed"
+            err = str(e)
+            if "server had an error" in err.lower() or "server_error" in err.lower():
+                run.error = (
+                    "The AI provider had a temporary server error while building "
+                    "the visual summary. Please try View in UI again in a moment."
+                )
+            else:
+                run.error = f"Visual summary failed: {err[:500]}"
+            db.commit()
+            db.refresh(run)
+            _emit(
+                on_event,
+                "error",
+                run_id=str(run.id),
+                detail=run.error,
+            )
+            _emit(
+                on_event,
+                "status",
+                run_id=str(run.id),
+                status=run.status,
+                final_answer=run.final_answer,
+            )
+            if trace_live is not None:
+                trace_live.visual_agent_active = False
+            return run
         if trace_live is not None:
             trace_live.visual_agent_active = False
         return completed

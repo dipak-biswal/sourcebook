@@ -8,11 +8,28 @@ below cannot drift from app.agents.visual_summary.blocks.registry.
 
 from __future__ import annotations
 
+import time
 from typing import Any
 
-from openai import BadRequestError
+from openai import (
+    APIConnectionError,
+    APIStatusError,
+    APITimeoutError,
+    BadRequestError,
+    InternalServerError,
+    RateLimitError,
+)
 
 from app.agents.visual_summary.blocks.registry import ALL_BLOCK_TYPES, KNOWN_SOURCE_HINTS
+
+# Transient provider failures (including OpenAI bare 500 "server_error").
+_TRANSIENT_OPENAI = (
+    APIConnectionError,
+    APITimeoutError,
+    APIStatusError,
+    InternalServerError,
+    RateLimitError,
+)
 
 
 def _str_array() -> dict[str, Any]:
@@ -286,6 +303,18 @@ RENDER_PAYLOAD_SCHEMA: dict[str, Any] = {
 }
 
 
+def _is_retryable_openai_error(exc: BaseException) -> bool:
+    if isinstance(exc, (APIConnectionError, APITimeoutError, RateLimitError, InternalServerError)):
+        return True
+    if isinstance(exc, APIStatusError):
+        code = getattr(exc, "status_code", None) or 0
+        # 408/409/429/5xx — retry; leave 4xx validation errors alone.
+        return code in (408, 409, 429) or code >= 500
+    # Some SDK versions wrap the body as a plain Exception with this text.
+    msg = str(exc).lower()
+    return "server_error" in msg or "server had an error" in msg
+
+
 def chat_json(
     client: Any,
     *,
@@ -296,8 +325,12 @@ def chat_json(
     schema: dict[str, Any],
     temperature: float = 0.1,
     max_tokens: int | None = None,
+    max_retries: int = 3,
 ):
-    """One JSON chat completion: strict json_schema, json_object on rejection."""
+    """One JSON chat completion: strict json_schema, json_object on rejection.
+
+    Retries transient OpenAI 5xx / rate-limit / connection errors with backoff.
+    """
     kwargs: dict[str, Any] = {
         "model": model,
         "messages": [
@@ -308,7 +341,8 @@ def chat_json(
     }
     if max_tokens is not None:
         kwargs["max_tokens"] = max_tokens
-    try:
+
+    def _create_strict():
         return client.chat.completions.create(
             **kwargs,
             response_format={
@@ -320,9 +354,33 @@ def chat_json(
                 },
             },
         )
-    except (BadRequestError, TypeError):
-        # Provider without json_schema support — plain JSON mode.
+
+    def _create_json_object():
         return client.chat.completions.create(
             **kwargs,
             response_format={"type": "json_object"},
         )
+
+    last_err: BaseException | None = None
+    for attempt in range(max(1, max_retries)):
+        try:
+            try:
+                return _create_strict()
+            except (BadRequestError, TypeError):
+                # Provider without json_schema support — plain JSON mode.
+                return _create_json_object()
+        except _TRANSIENT_OPENAI as e:
+            last_err = e
+            if not _is_retryable_openai_error(e) or attempt >= max_retries - 1:
+                raise
+            # 0.6s, 1.2s, 2.4s …
+            time.sleep(0.6 * (2**attempt))
+        except Exception as e:
+            # Catch-all for provider wrappers that don't subclass APIStatusError.
+            last_err = e
+            if not _is_retryable_openai_error(e) or attempt >= max_retries - 1:
+                raise
+            time.sleep(0.6 * (2**attempt))
+    if last_err:
+        raise last_err
+    raise RuntimeError("chat_json failed without error")
