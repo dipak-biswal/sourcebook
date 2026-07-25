@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ComponentType } from "react";
 import { Link, useLocation } from "react-router-dom";
 import {
   Activity,
@@ -24,18 +24,25 @@ type AppHeaderProps = {
   onLogout?: () => void;
 };
 
-const PRIMARY_NAV = [
+/** Primary destinations — sticky app bar under the chrome header. */
+const APP_NAV = [
+  { to: "/", label: "Dashboard", icon: LayoutDashboard, match: "/" },
   { to: "/chat", label: "Chat", icon: MessageCircle, match: "/chat" },
   { to: "/agents", label: "Agents", icon: Bot, match: "/agents" },
   { to: "/documents", label: "Documents", icon: Files, match: "/documents" },
   { to: "/notes", label: "Notes", icon: StickyNote, match: "/notes" },
 ] as const;
 
-const MORE_NAV = [
-  { to: "/", label: "Dashboard", icon: LayoutDashboard, match: "/" },
+/** Account / secondary destinations — profile menu + mobile drawer only. */
+const ACCOUNT_NAV = [
   { to: "/usage", label: "Usage", icon: Activity, match: "/usage" },
   { to: "/settings", label: "Settings", icon: User, match: "/settings" },
 ] as const;
+
+function isNavActive(pathname: string, match: string): boolean {
+  if (match === "/") return pathname === "/";
+  return pathname.startsWith(match);
+}
 
 function initialsFromEmail(email: string): string {
   const local = email.split("@")[0] || "?";
@@ -128,7 +135,7 @@ function UserProfileMenu({ onLogout }: { onLogout?: () => void }) {
           </div>
 
           <div className="p-1.5">
-            {MORE_NAV.map(({ to, label, icon: Icon }) => (
+            {ACCOUNT_NAV.map(({ to, label, icon: Icon }) => (
               <Link
                 key={to}
                 to={to}
@@ -165,15 +172,12 @@ function MobileNavLink({
 }: {
   to: string;
   label: string;
-  icon: React.ComponentType<{ className?: string; strokeWidth?: number }>;
+  icon: ComponentType<{ className?: string; strokeWidth?: number }>;
   match: string;
   onNavigate: () => void;
 }) {
   const location = useLocation();
-  const active =
-    match === "/"
-      ? location.pathname === "/"
-      : location.pathname.startsWith(match);
+  const active = isNavActive(location.pathname, match);
 
   return (
     <Link
@@ -192,7 +196,7 @@ function MobileNavLink({
   );
 }
 
-function MobileNavMenu({
+function MobileAccountMenu({
   open,
   onClose,
   onLogout,
@@ -224,19 +228,10 @@ function MobileNavMenu({
 
       <div className="document-scroll max-h-[min(70vh,28rem)] overflow-y-auto px-3 py-3">
         <p className="px-3 pb-1 text-[10px] font-medium uppercase tracking-wide text-mute">
-          Main
+          Account
         </p>
         <nav className="flex flex-col gap-0.5">
-          {PRIMARY_NAV.map((item) => (
-            <MobileNavLink key={item.to} {...item} onNavigate={onClose} />
-          ))}
-        </nav>
-
-        <p className="mt-4 px-3 pb-1 text-[10px] font-medium uppercase tracking-wide text-mute">
-          More
-        </p>
-        <nav className="flex flex-col gap-0.5">
-          {MORE_NAV.map((item) => (
+          {ACCOUNT_NAV.map((item) => (
             <MobileNavLink key={item.to} {...item} onNavigate={onClose} />
           ))}
         </nav>
@@ -256,6 +251,64 @@ function MobileNavMenu({
         </button>
       </div>
     </div>
+  );
+}
+
+/**
+ * Sticky secondary bar: primary product destinations with clear active state.
+ * Always visible when signed in (desktop + mobile).
+ */
+function AppNavBar() {
+  const location = useLocation();
+
+  return (
+    <nav
+      aria-label="App"
+      className="border-t border-hairline bg-canvas-soft/90"
+    >
+      <div className="flex w-full items-stretch justify-between gap-0.5 px-1 sm:justify-center sm:gap-1 sm:px-4">
+        {APP_NAV.map(({ to, label, icon: Icon, match }) => {
+          const active = isNavActive(location.pathname, match);
+          return (
+            <Link
+              key={to}
+              to={to}
+              aria-current={active ? "page" : undefined}
+              className={cn(
+                "group relative flex min-w-0 flex-1 flex-col items-center justify-center gap-0.5 px-1 py-2.5 text-center transition-colors sm:flex-none sm:flex-row sm:gap-1.5 sm:rounded-[8px] sm:px-3.5 sm:py-2",
+                active
+                  ? "text-ink"
+                  : "text-mute hover:bg-canvas-soft-2 hover:text-ink",
+              )}
+            >
+              <Icon
+                className={cn(
+                  "h-4 w-4 shrink-0 sm:h-3.5 sm:w-3.5",
+                  active ? "text-ink" : "text-mute group-hover:text-ink",
+                )}
+                strokeWidth={active ? 2 : 1.5}
+              />
+              <span
+                className={cn(
+                  "max-w-full truncate text-[10px] font-medium leading-tight sm:text-[13px]",
+                  active && "font-semibold",
+                )}
+              >
+                {label}
+              </span>
+              {/* Active underline — full width on mobile, pill underline on desktop */}
+              <span
+                aria-hidden
+                className={cn(
+                  "pointer-events-none absolute inset-x-2 bottom-0 h-0.5 rounded-full transition-opacity sm:inset-x-3",
+                  active ? "bg-ink opacity-100" : "opacity-0",
+                )}
+              />
+            </Link>
+          );
+        })}
+      </div>
+    </nav>
   );
 }
 
@@ -284,23 +337,11 @@ export function AppHeader({
     };
   }, [menuOpen]);
 
-  function navClass(match: string) {
-    const active =
-      match === "/"
-        ? location.pathname === "/"
-        : location.pathname.startsWith(match);
-    return cn(
-      "flex items-center gap-1.5 rounded-[6px] px-2.5 py-1.5 text-[13px] font-medium transition-colors",
-      active
-        ? "bg-canvas-soft-2 text-ink"
-        : "text-body hover:bg-canvas-soft-2 hover:text-ink",
-    );
-  }
-
   return (
     <header className="sticky top-0 z-40 w-full shrink-0 border-b border-hairline bg-canvas/95 backdrop-blur-sm">
-      <div className="flex w-full items-center justify-between gap-3 px-4 py-3 sm:px-6 sm:py-3.5">
-        <Link to="/" className="flex min-w-0 items-center gap-2.5">
+      {/* Top chrome: brand + account controls only */}
+      <div className="flex w-full items-center justify-between gap-3 px-4 py-2.5 sm:px-6 sm:py-3">
+        <Link to={authed ? "/" : "/login"} className="flex min-w-0 items-center gap-2.5">
           <SourcebookIcon size="sm" />
           <span className="truncate font-semibold tracking-tight text-ink">
             Sourcebook
@@ -308,23 +349,6 @@ export function AppHeader({
         </Link>
 
         <div className="flex items-center gap-1 sm:gap-1.5">
-          {showAuthActions && authed && (
-            <nav className="mr-1 hidden items-center gap-0.5 md:flex" aria-label="Main">
-              {PRIMARY_NAV.map(({ to, label, icon: Icon, match }) => (
-                <Link
-                  key={to}
-                  to={to}
-                  className={navClass(match)}
-                  title={label}
-                  aria-label={label}
-                >
-                  <Icon className="h-3.5 w-3.5 shrink-0" strokeWidth={1.5} />
-                  <span className="hidden lg:inline">{label}</span>
-                </Link>
-              ))}
-            </nav>
-          )}
-
           <div className="hidden md:block">
             <ThemeToggle />
           </div>
@@ -336,7 +360,7 @@ export function AppHeader({
               <button
                 type="button"
                 className="inline-flex h-9 w-9 items-center justify-center rounded-[8px] border border-hairline text-body transition-colors hover:bg-canvas-soft-2 hover:text-ink md:hidden"
-                aria-label={menuOpen ? "Close menu" : "Open menu"}
+                aria-label={menuOpen ? "Close account menu" : "Open account menu"}
                 aria-expanded={menuOpen}
                 onClick={() =>
                   setMenuPath((path) =>
@@ -364,8 +388,11 @@ export function AppHeader({
         </div>
       </div>
 
+      {/* Sticky app destinations — always under the chrome when signed in */}
+      {showAuthActions && authed && <AppNavBar />}
+
       {showAuthActions && authed && (
-        <MobileNavMenu
+        <MobileAccountMenu
           open={menuOpen}
           onClose={() => setMenuPath(null)}
           onLogout={onLogout}
