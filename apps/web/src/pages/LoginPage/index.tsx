@@ -39,7 +39,7 @@ export function LoginPage() {
   }, [loadDevUsers]);
 
   if (getToken()) {
-    return <Navigate to="/documents" replace />;
+    return <Navigate to="/" replace />;
   }
 
   async function submit(e: FormEvent, mode: "login" | "register") {
@@ -52,7 +52,7 @@ export function LoginPage() {
           ? await api.login(email, password)
           : await api.register(email, password);
       setToken(res.access_token);
-      navigate("/documents", { replace: true });
+      navigate("/", { replace: true });
     } catch (err) {
       setError(formatError(err));
     } finally {
