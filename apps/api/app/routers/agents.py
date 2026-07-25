@@ -70,6 +70,26 @@ def _sse(payload: dict) -> str:
     return f"data: {json.dumps(payload, ensure_ascii=False, default=str)}\n\n"
 
 
+def _sanitize_stream_error(detail: str) -> str:
+    """Never leak raw OpenAI 5xx dumps into the browser toast."""
+    d = (detail or "").strip()
+    low = d.lower()
+    if (
+        "server_error" in low
+        or "server had an error" in low
+        or "error code: 500" in low
+        or "error code: 502" in low
+        or "error code: 503" in low
+    ):
+        return (
+            "The AI provider had a temporary server error. "
+            "Please try again in a moment."
+        )
+    if len(d) > 400:
+        return d[:400] + "…"
+    return d or "Unexpected error"
+
+
 def _stream_agent_work(
     work,
     *,
@@ -85,6 +105,8 @@ def _stream_agent_work(
     q: queue.Queue = queue.Queue()
 
     def on_event(event_type: str, payload: dict) -> None:
+        if event_type == "error" and isinstance(payload.get("detail"), str):
+            payload = {**payload, "detail": _sanitize_stream_error(payload["detail"])}
         q.put({"type": event_type, **payload})
 
     def runner() -> None:
@@ -92,7 +114,7 @@ def _stream_agent_work(
         try:
             work(db, on_event)
         except Exception as e:
-            q.put({"type": "error", "detail": str(e)})
+            q.put({"type": "error", "detail": _sanitize_stream_error(str(e))})
         finally:
             db.close()
             q.put(None)
@@ -244,6 +266,12 @@ def approve_run(
     except ValueError as e:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)
+        ) from e
+    except Exception as e:
+        # Non-stream approve path: never return raw OpenAI 5xx to the client.
+        detail = _sanitize_stream_error(str(e))
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY, detail=detail
         ) from e
 
     loaded = _load_run(db, run_id, current_user.id)

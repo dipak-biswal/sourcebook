@@ -49,6 +49,27 @@ from app.agents.visual_summary.workspace.context import (
 )
 
 
+def _is_provider_server_error(message: str) -> bool:
+    m = (message or "").lower()
+    return (
+        "server_error" in m
+        or "server had an error" in m
+        or "error code: 500" in m
+        or "error code: 502" in m
+        or "error code: 503" in m
+        or "rate limit" in m
+    )
+
+
+def _friendly_provider_error(message: str) -> str:
+    if _is_provider_server_error(message):
+        return (
+            "The AI provider had a temporary server error. "
+            "Please try again in a moment."
+        )
+    return (message or "Unexpected error")[:500]
+
+
 def run_agent(
     db: Session,
     *,
@@ -161,7 +182,24 @@ def _run_visual_summary_agent(
     if trace_live is not None:
         trace_live.visual_agent_active = True
 
-    ctx = _presentation_context_for_run(db, run)
+    try:
+        ctx = _presentation_context_for_run(db, run)
+    except Exception as e:
+        run.status = "failed"
+        run.error = _friendly_provider_error(str(e))
+        db.commit()
+        db.refresh(run)
+        _emit(on_event, "error", run_id=str(run.id), detail=run.error)
+        _emit(
+            on_event,
+            "status",
+            run_id=str(run.id),
+            status=run.status,
+            final_answer=run.final_answer,
+        )
+        if trace_live is not None:
+            trace_live.visual_agent_active = False
+        return run
     handoff_ok, handoff_errors = validate_handoff(ctx.structured_content)
     if not handoff_ok:
         step_index += 1
@@ -226,14 +264,14 @@ def _run_visual_summary_agent(
         except Exception as e:
             # Never surface raw OpenAI 5xx through approve as an unhandled 500.
             run.status = "failed"
-            err = str(e)
-            if "server had an error" in err.lower() or "server_error" in err.lower():
+            run.error = _friendly_provider_error(str(e))
+            if not _is_provider_server_error(str(e)):
+                run.error = f"Visual summary failed: {run.error}"
+            else:
                 run.error = (
                     "The AI provider had a temporary server error while building "
                     "the visual summary. Please try View in UI again in a moment."
                 )
-            else:
-                run.error = f"Visual summary failed: {err[:500]}"
             db.commit()
             db.refresh(run)
             _emit(
@@ -388,14 +426,35 @@ def approve_agent_run(
         run.pending_tool = None
         run.status = "running"
         db.flush()
-        _run_visual_summary_agent(
-            db,
-            run,
-            step_index=step_index,
-            on_event=on_event,
-            trace_live=trace_live,
-        )
-        run.status = "completed"
+        try:
+            _run_visual_summary_agent(
+                db,
+                run,
+                step_index=step_index,
+                on_event=on_event,
+                trace_live=trace_live,
+            )
+        except Exception as e:
+            # Provider 5xx or unexpected failures during visual phase.
+            err = str(e)
+            run.status = "failed"
+            if _is_provider_server_error(err):
+                run.error = (
+                    "The AI provider had a temporary server error while building "
+                    "the visual summary. Please try View in UI again in a moment."
+                )
+            else:
+                run.error = f"Visual summary failed: {err[:500]}"
+            _emit(
+                on_event,
+                "error",
+                run_id=str(run.id),
+                detail=run.error,
+            )
+
+        # Do not clobber a failed/cancelled status set inside the visual agent.
+        if run.status == "running":
+            run.status = "completed"
         from app.agents.main.storage.run_storage import compact_run_if_terminal
 
         compact_run_if_terminal(db, run)
@@ -410,6 +469,7 @@ def approve_agent_run(
             status=run.status,
             final_answer=run.final_answer,
             presentation_spec=run.presentation_spec,
+            error=run.error,
         )
         _refresh_execution_trace(db, run, on_event, trace_live)
         return run

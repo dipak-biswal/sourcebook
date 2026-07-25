@@ -51,11 +51,13 @@ _MAX_AUTO_REPLANS = 1
 
 def _client() -> OpenAI:
     # Explicit bounds — see app/agents/runner/llm.py for why.
+    # Higher max_retries: OpenAI intermittently returns bare 500 server_error
+    # during visual summary right after HITL approve.
     return OpenAI(
         api_key=settings.openai_api_key,
         base_url=settings.openai_base_url,
         timeout=60.0,
-        max_retries=2,
+        max_retries=5,
     )
 
 

@@ -39,6 +39,24 @@ import {
   parseApiErrorBody,
 } from "@/lib/api-errors";
 
+function sanitizeProviderErrorMessage(message: string): string {
+  const m = message.toLowerCase();
+  if (
+    m.includes("server_error") ||
+    m.includes("server had an error") ||
+    m.includes("error code: 500") ||
+    m.includes("error code: 502") ||
+    m.includes("error code: 503") ||
+    m.includes("help.openai.com")
+  ) {
+    return (
+      "The AI provider had a temporary server error. " +
+      "Please try again in a moment."
+    );
+  }
+  return message;
+}
+
 export function formatError(err: unknown): string {
   if (isStreamAbortError(err)) {
     const reason =
@@ -47,16 +65,20 @@ export function formatError(err: unknown): string {
         : undefined;
     return formatStreamAbortMessage(reason);
   }
-  if (err instanceof ApiError) return err.message;
+  if (err instanceof ApiError) return sanitizeProviderErrorMessage(err.message);
   if (err instanceof Error) {
     try {
       const parsed = JSON.parse(err.message) as { detail?: string };
-      if (typeof parsed.detail === "string") return parsed.detail;
+      if (typeof parsed.detail === "string") {
+        return sanitizeProviderErrorMessage(parsed.detail);
+      }
     } catch {
       /* plain message */
     }
-    return err.message;
+    return sanitizeProviderErrorMessage(err.message);
   }
-  if (typeof err === "string") return parseApiErrorBody(err, 500);
-  return String(err);
+  if (typeof err === "string") {
+    return sanitizeProviderErrorMessage(parseApiErrorBody(err, 500));
+  }
+  return sanitizeProviderErrorMessage(String(err));
 }
