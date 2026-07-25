@@ -198,7 +198,7 @@ function AgentMessageItem({
             approving={approving}
             onApprove={
               item.run
-                ? (answers) => onApproveAgent(item.id, item.run!.id, true, answers)
+                ? (opts) => onApproveAgent(item.id, item.run!.id, true, opts)
                 : undefined
             }
             onReject={

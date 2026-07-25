@@ -472,7 +472,10 @@ export function AgentRunPanel({
   run: AgentRun | null | undefined;
   pending?: boolean;
   approving?: boolean;
-  onApprove?: (answers?: Record<string, string | string[]>) => void;
+  onApprove?: (options?: {
+    answers?: Record<string, string | string[]>;
+    enabledMcpIds?: string[];
+  }) => void;
   onReject?: () => void;
   className?: string;
   forceOpenWhilePending?: boolean;

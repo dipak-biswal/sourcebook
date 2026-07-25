@@ -269,9 +269,14 @@ export function useAgentThread(
     asstId: string,
     runId: string,
     approve: boolean,
-    answers?: Record<string, string | string[]>,
+    options?: {
+      answers?: Record<string, string | string[]>;
+      enabledMcpIds?: string[];
+    },
   ) {
     if (approving) return;
+    const answers = options?.answers;
+    const enabledMcpIds = options?.enabledMcpIds;
     const threadItem = agentThread.find((item) => item.id === asstId);
     const presentationPending = isPresentationPending(threadItem?.run?.pending_tool);
     const questionsPending = isQuestionsPending(threadItem?.run?.pending_tool);
@@ -413,6 +418,9 @@ export function useAgentThread(
             },
             false,
           ),
+          {
+            enabledMcpIds: enabledMcpIds ?? [],
+          },
         );
         if (run) {
           applyRunToThread(asstId, run);
@@ -497,7 +505,7 @@ export function useAgentThread(
           },
           false,
         ),
-        questionsPending ? answers ?? {} : undefined,
+        questionsPending ? { answers: answers ?? {} } : undefined,
       );
       if (run) {
         applyRunToThread(asstId, run);

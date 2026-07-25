@@ -79,7 +79,10 @@ export type ChatPageContextValue = {
     asstId: string,
     runId: string,
     approve: boolean,
-    answers?: Record<string, string | string[]>,
+    options?: {
+      answers?: Record<string, string | string[]>;
+      enabledMcpIds?: string[];
+    },
   ) => void;
   onSaveLearningNote: (title: string, body: string) => void;
   onDismissError: () => void;
