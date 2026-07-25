@@ -3,7 +3,6 @@ import { Link, useLocation } from "react-router-dom";
 import {
   Activity,
   Bot,
-  ChevronDown,
   Files,
   LayoutDashboard,
   LogOut,
@@ -97,23 +96,15 @@ function UserProfileMenu({ onLogout }: { onLogout?: () => void }) {
         onClick={() => setOpen((v) => !v)}
         aria-expanded={open}
         aria-haspopup="menu"
+        aria-label={user?.email ? `Account menu for ${user.email}` : "Account menu"}
+        title={user?.email || "Account"}
         className={cn(
-          "inline-flex items-center gap-1.5 rounded-[8px] border border-hairline bg-canvas px-1.5 py-1 text-left transition-colors",
-          "hover:bg-canvas-soft-2",
-          open && "bg-canvas-soft-2 ring-1 ring-hairline",
+          "inline-flex h-8 w-8 items-center justify-center rounded-full transition-colors",
+          "hover:ring-2 hover:ring-hairline",
+          open && "ring-2 ring-hairline",
         )}
       >
         <UserAvatar email={email} />
-        <span className="flex min-w-0 max-w-[10rem] flex-col">
-          <span className="truncate text-[12px] font-medium leading-tight text-ink">
-            {email}
-          </span>
-          <span className="text-[10px] leading-tight text-mute">Account</span>
-        </span>
-        <ChevronDown
-          className={cn("h-3.5 w-3.5 text-mute", open && "rotate-180")}
-          strokeWidth={1.5}
-        />
       </button>
 
       {open && (
