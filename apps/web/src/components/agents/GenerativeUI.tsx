@@ -120,6 +120,45 @@ function isFullWidth(block: GenUIBlock): boolean {
   return FULL_WIDTH_TYPES.has(block.type);
 }
 
+const STUDY_SHEET_PROFILES = new Set(["topic_study_sheet", "study_sheet"]);
+
+const SECTION_CHROME = [
+  "border-t-[3px] border-t-emerald-500/70 bg-emerald-500/[0.04]",
+  "border-t-[3px] border-t-amber-500/70 bg-amber-500/[0.04]",
+  "border-t-[3px] border-t-rose-400/70 bg-rose-400/[0.04]",
+  "border-t-[3px] border-t-sky-500/70 bg-sky-500/[0.04]",
+  "border-t-[3px] border-t-violet-500/70 bg-violet-500/[0.04]",
+  "border-t-[3px] border-t-teal-500/70 bg-teal-500/[0.04]",
+] as const;
+
+function sectionIndexFromBlock(block: GenUIBlock, fallback: number): number {
+  const tag = (block.tags ?? []).find((t) => /^__section:\d+$/i.test(t));
+  if (tag) {
+    const n = Number(tag.split(":")[1]);
+    if (Number.isFinite(n) && n > 0) return n;
+  }
+  const m = (block.title ?? "").match(/^\s*(\d+)\s*[.):\-–—]/);
+  if (m) return Number(m[1]);
+  return fallback;
+}
+
+function isStudySheetPayload(payload: {
+  presentation_profile?: string;
+  blocks?: GenUIBlock[];
+}): boolean {
+  const profile = (payload.presentation_profile || "").toLowerCase();
+  if (STUDY_SHEET_PROFILES.has(profile)) return true;
+  const blocks = payload.blocks ?? [];
+  if (blocks.length < 4) return false;
+  const tagged = blocks.filter((b) =>
+    (b.tags ?? []).some((t) => t.startsWith("__section:")),
+  ).length;
+  const numbered = blocks.filter((b) =>
+    /^\s*\d+\s*[.):\-–—]/.test(b.title ?? ""),
+  ).length;
+  return tagged >= 3 || numbered >= 4;
+}
+
 function parseChip(item: string): { label: string; tag: string } {
   const parts = parsePipeRow(item);
   const label = parts[0] || item;
@@ -880,6 +919,7 @@ export function GenerativeUIView({
   runId?: string | null;
 }) {
   const blocks = payload.blocks ?? [];
+  const studySheet = isStudySheetPayload(payload);
   const sourceFiles = [
     ...new Set(
       (payload.source_files ?? [])
@@ -1020,10 +1060,12 @@ export function GenerativeUIView({
             </h3>
           </div>
           <p className="mt-0.5 text-[11px] text-mute">
-            {payload.presentation_profile
-              ? `${payload.presentation_profile.replace(/_/g, " ")} · `
-              : ""}
-            Visual summary from your workspace
+            {studySheet
+              ? "Topic study sheet · sections stacked in order"
+              : payload.presentation_profile
+                ? `${payload.presentation_profile.replace(/_/g, " ")} · `
+                : ""}
+            {!studySheet && "Visual summary from your workspace"}
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-1.5">
@@ -1134,36 +1176,73 @@ export function GenerativeUIView({
           </p>
         )}
 
-      <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+      <div
+        className={cn(
+          "grid grid-cols-1 gap-4",
+          // Study sheets: always single column, full-width panels one after another.
+          !studySheet && "md:grid-cols-2",
+        )}
+      >
         {blocks.map((b, i) => {
           if (!blockMatchesTag(b, activeTag)) return null;
+          const sectionNum = studySheet ? sectionIndexFromBlock(b, i + 1) : null;
           const highlighted =
             activeTag &&
             b.type !== "chips" &&
             b.type !== "summary" &&
-            (b.tags ?? []).map(slugify).includes(activeTag);
+            (b.tags ?? [])
+              .filter((t) => !t.startsWith("__section:"))
+              .map(slugify)
+              .includes(activeTag);
+          const chrome =
+            studySheet && sectionNum != null
+              ? SECTION_CHROME[(sectionNum - 1) % SECTION_CHROME.length]
+              : "";
+          // Hide internal section tags from chip filter matching noise.
+          const renderBlock =
+            studySheet && (b.tags ?? []).some((t) => t.startsWith("__section:"))
+              ? {
+                  ...b,
+                  tags: (b.tags ?? []).filter((t) => !t.startsWith("__section:")),
+                }
+              : b;
           return (
             <div
               key={`${b.type}-${i}`}
               className={cn(
                 "min-w-0 self-start transition-opacity duration-200",
-                isFullWidth(b) && "md:col-span-2",
+                (studySheet || isFullWidth(b)) && "md:col-span-2",
                 highlighted && "rounded-[10px] ring-1 ring-ink/15",
+                studySheet &&
+                  "overflow-hidden rounded-[12px] border border-hairline shadow-sm",
+                chrome,
               )}
             >
-              <GenerativeUIBlock
-                block={b}
-                chipProps={b.type === "chips" ? chipProps : undefined}
-                onFaqExpand={b.type === "faq" ? onFaqExpand : undefined}
-                onCardExpand={
-                  b.type === "key_points" ||
-                  b.type === "key_terms" ||
-                  b.type === "flow_diagram" ||
-                  b.type === "sequence_diagram"
-                    ? onCardExpand
-                    : undefined
-                }
-              />
+              {studySheet && sectionNum != null && (
+                <div className="flex items-center gap-2 border-b border-hairline/70 px-3 py-2">
+                  <span className="inline-flex h-6 min-w-6 items-center justify-center rounded-full bg-ink px-1.5 text-[11px] font-bold text-[var(--canvas)]">
+                    {sectionNum}
+                  </span>
+                  <span className="text-[11px] font-bold uppercase tracking-wide text-mute">
+                    Section
+                  </span>
+                </div>
+              )}
+              <div className={cn(studySheet && "p-3 sm:p-4")}>
+                <GenerativeUIBlock
+                  block={renderBlock}
+                  chipProps={b.type === "chips" ? chipProps : undefined}
+                  onFaqExpand={b.type === "faq" ? onFaqExpand : undefined}
+                  onCardExpand={
+                    b.type === "key_points" ||
+                    b.type === "key_terms" ||
+                    b.type === "flow_diagram" ||
+                    b.type === "sequence_diagram"
+                      ? onCardExpand
+                      : undefined
+                  }
+                />
+              </div>
             </div>
           );
         })}

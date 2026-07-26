@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 import uuid
 from typing import Any
 
@@ -112,9 +113,46 @@ def _ensure_structured(ctx: PresentationContext) -> dict[str, Any]:
 
 
 def _plan_layout_skeleton(ctx: PresentationContext) -> dict[str, Any]:
-    """Code-first layout from UiIntent (affordance ∩ data)."""
+    """Code-first layout from UiIntent (affordance ∩ data) or topic study sheet."""
+    from app.agents.visual_summary.planning.study_sheet import (
+        STUDY_SHEET_PROFILE,
+        build_topic_study_sheet_plan,
+    )
+
     goal = (ctx.goal or "").strip()
     structured = _ensure_structured(ctx)
+
+    # Teaching / complete-guide boards: one full-width panel per answer section.
+    study_plan = build_topic_study_sheet_plan(structured, goal=goal)
+    if study_plan is not None:
+        components = list(study_plan.get("components") or [])
+        planner_input = build_plan_layout_input(
+            goal=goal,
+            structured_content=structured,
+            evidence=ctx.agent_evidence,
+            components=components,
+            notes="topic_study_sheet",
+        )
+        return {
+            "plan": study_plan,
+            "structured_input": planner_input,
+            "prompt": (
+                "CODE SKELETON PLAN (topic study sheet)\n"
+                f"Sections: {len(study_plan.get('block_outline') or [])}\n"
+                f"Profile: {STUDY_SHEET_PROFILE}"
+            ),
+            "llm_output": json.dumps(study_plan, ensure_ascii=False),
+            "usage": {
+                "model": "code_skeleton_study_sheet",
+                "prompt_tokens": 0,
+                "completion_tokens": 0,
+                "total_tokens": 0,
+            },
+            "structured_content": structured,
+            "requested_components": components,
+            "ui_intent": study_plan.get("ui_intent"),
+        }
+
     packet, hints = _packet_and_hints(ctx)
     intent = resolve_ui_intent(
         structured_content=structured,
@@ -209,7 +247,11 @@ def _plan_layout_llm(
                 "Decide which blocks to show, their order, titles, source_hint, and width. "
                 "Use only available source_hint fields from the prompt. Do not invent facts. "
                 "presentation_profile must be a real short snake_case id for this layout "
-                "(e.g. mechanism_explainer, gap_analysis) — never the placeholder short_snake_case."
+                "(e.g. mechanism_explainer, gap_analysis, topic_study_sheet) — never the "
+                "placeholder short_snake_case. "
+                "If the reference skeleton has presentation_profile topic_study_sheet, "
+                "KEEP that profile, KEEP section order, KEEP width=full for every block, "
+                "and do not collapse into a short overview-only layout."
             ),
             prompt=prompt,
             schema_name="layout_plan",
@@ -252,6 +294,37 @@ def _plan_layout_llm(
     # If LLM emptied outline, fall back to skeleton
     if not plan.get("block_outline"):
         plan = dict(skeleton["plan"])
+    sk_plan = skeleton.get("plan") if isinstance(skeleton.get("plan"), dict) else {}
+    # Never let the LLM shrink a study-sheet board into a short digest.
+    if str(sk_plan.get("presentation_profile") or "") == "topic_study_sheet":
+        sk_outline = sk_plan.get("block_outline") or []
+        llm_outline = plan.get("block_outline") or []
+        if len(llm_outline) < max(2, int(len(sk_outline) * 0.6)):
+            plan = dict(sk_plan)
+        else:
+            plan["presentation_profile"] = "topic_study_sheet"
+            # Force full width + preserve section_index from skeleton when missing.
+            sk_by_i = {
+                int(e.get("section_index") or 0): e
+                for e in sk_outline
+                if isinstance(e, dict)
+            }
+            fixed: list[dict[str, Any]] = []
+            for i, entry in enumerate(llm_outline):
+                if not isinstance(entry, dict):
+                    continue
+                e = dict(entry)
+                e["width"] = "full"
+                if not e.get("section_index"):
+                    e["section_index"] = i + 1
+                # Prefer skeleton title numbering when LLM strips numbers.
+                sk_e = sk_by_i.get(int(e.get("section_index") or 0))
+                if sk_e and str(sk_e.get("title") or "").strip():
+                    title = str(e.get("title") or "")
+                    if not re.match(r"^\s*\d+", title):
+                        e["title"] = sk_e["title"]
+                fixed.append(e)
+            plan["block_outline"] = fixed
     plan.setdefault("components", components)
     plan.setdefault("presentation_profile", "workspace_derived")
     plan.setdefault("block_outline", [])

@@ -439,6 +439,114 @@ def _levels_items(structured: dict[str, Any]) -> list[str]:
     return out[:10]
 
 
+def _section_by_index(
+    structured: dict[str, Any], section_index: Any
+) -> dict[str, Any] | None:
+    """1-based section_index from study-sheet outline → section dict."""
+    try:
+        idx = int(section_index)
+    except (TypeError, ValueError):
+        return None
+    if idx < 1:
+        return None
+    sections = [
+        s for s in (structured.get("sections") or []) if isinstance(s, dict)
+    ]
+    if idx > len(sections):
+        return None
+    return sections[idx - 1]
+
+
+def _structured_from_section(
+    sec: dict[str, Any],
+    global_structured: dict[str, Any],
+) -> dict[str, Any]:
+    """Build a local structured blob so assemble can fill one panel from one section."""
+    bullets = _str_list(sec.get("bullets"), limit=16)
+    body = str(sec.get("body") or "").strip()
+    pipe_from_bullets = [b for b in bullets if "|" in b]
+    prose_bullets = [b for b in bullets if "|" not in b]
+    pipe_from_body: list[str] = []
+    steps_from_body: list[str] = []
+    for line in body.splitlines():
+        ln = line.strip()
+        if not ln:
+            continue
+        if ln.count("|") >= 1 and not re.match(r"^[\s|:-]+$", ln):
+            pipe_from_body.append(ln[:400])
+            continue
+        m = re.match(r"^(?:\d+[.)]|[-•*])\s+(.+)$", ln)
+        if m:
+            steps_from_body.append(m.group(1).strip()[:400])
+
+    matrix = pipe_from_bullets or pipe_from_body
+    steps = steps_from_body or (
+        prose_bullets
+        if re.search(
+            r"\b(step|transaction|how|process|checklist|procedure)\b",
+            str(sec.get("heading") or ""),
+            re.I,
+        )
+        else []
+    )
+
+    # Simple chain flow from ordered steps / arrow phrases.
+    flow_nodes: list[dict[str, Any]] = []
+    flow_edges: list[dict[str, Any]] = []
+    chain_src = steps_from_body or prose_bullets
+    arrow_parts: list[str] = []
+    for text in [body, *bullets]:
+        if re.search(r"→|->|⇒", text):
+            parts = re.split(r"\s*(?:→|->|⇒)\s*", text)
+            parts = [p.strip(" .;:") for p in parts if p.strip()]
+            if len(parts) >= 2:
+                arrow_parts = parts
+                break
+    labels = arrow_parts if len(arrow_parts) >= 2 else chain_src[:8]
+    if len(labels) >= 2:
+        for i, lab in enumerate(labels):
+            nid = f"s{i}"
+            flow_nodes.append({"id": nid, "label": lab[:100]})
+            if i > 0:
+                flow_edges.append(
+                    {"source": f"s{i - 1}", "target": nid, "label": None}
+                )
+
+    actors: list[str] = []
+    messages: list[dict[str, Any]] = []
+    if len(labels) >= 2 and re.search(
+        r"\b(sequence|service|broker|consumer|producer)\b",
+        str(sec.get("heading") or body),
+        re.I,
+    ):
+        actors = [lab[:60] for lab in labels[:6]]
+        for i in range(len(actors) - 1):
+            messages.append(
+                {
+                    "source": actors[i],
+                    "target": actors[i + 1],
+                    "label": "next",
+                    "order": i,
+                }
+            )
+
+    return {
+        "summary": body[:2000] if body else " ".join(prose_bullets[:3]),
+        "key_points": prose_bullets or steps_from_body,
+        "matrix_rows": matrix,
+        "comparisons": matrix,
+        "ordered_actions": steps or prose_bullets,
+        "process_flow": {"nodes": flow_nodes, "edges": flow_edges},
+        "interaction_sequence": {"actors": actors, "messages": messages},
+        "priority_message": {
+            "title": str(sec.get("heading") or "Note")[:80],
+            "body": (body or " ".join(prose_bullets[:2]))[:600],
+        },
+        "themes": global_structured.get("themes") or [],
+        "sections": [sec],
+    }
+
+
 def assemble_block(
     outline_entry: dict[str, Any],
     structured: dict[str, Any],
@@ -450,28 +558,40 @@ def assemble_block(
     tags = outline_entry.get("tags")
     tag_list = [str(t).strip() for t in tags] if isinstance(tags, list) else None
 
+    # Study-sheet panels: prefer data from the matching answer section.
+    local = structured
+    sec = _section_by_index(structured, outline_entry.get("section_index"))
+    if sec is not None:
+        local = _structured_from_section(sec, structured)
+
     block: GenUIBlock | None = None
 
     if btype == "summary" or hint == "summary":
-        body = str(structured.get("summary") or "").strip()
+        body = str(local.get("summary") or "").strip()
         # A colon-terminated lead-in ("…consider the following:") is not a summary.
         if body.endswith(":"):
             body = ""
-        if not body and structured.get("key_points"):
-            body = " ".join(_str_list(structured.get("key_points"), limit=3))
+        if not body and local.get("key_points"):
+            body = " ".join(_str_list(local.get("key_points"), limit=3))
+        if not body and sec is None:
+            body = str(structured.get("summary") or "").strip()
+            if body.endswith(":"):
+                body = ""
         if body:
             block = GenUIBlock(type="summary", title=title or "Overview", body=body[:2000])
 
     elif btype == "key_points" or hint == "key_points":
-        items = _prose_key_points(structured)
+        items = _prose_key_points(local)
+        if not items and sec is not None:
+            items = _str_list(local.get("key_points") or local.get("ordered_actions"))
         if not items:
-            for sec in structured.get("sections") or []:
-                if not isinstance(sec, dict):
+            for s in structured.get("sections") or []:
+                if not isinstance(s, dict):
                     continue
-                heading = str(sec.get("heading") or "")
+                heading = str(s.get("heading") or "")
                 if re.search(r"checklist|step|how|process", heading, re.I):
                     continue
-                for b in _str_list(sec.get("bullets"), limit=6):
+                for b in _str_list(s.get("bullets"), limit=6):
                     if not _is_level_row(b) and "|" not in b:
                         items.append(b)
             items = _str_list(items)
@@ -479,7 +599,7 @@ def assemble_block(
             block = GenUIBlock(type="key_points", title=title or "Key points", items=items)
 
     elif btype == "key_terms" or hint in ("concepts", "terms"):
-        terms = _terms_from_structured(structured)
+        terms = _terms_from_structured(local if sec is not None else structured)
         # Drop empty-definition noise (common when falling back from bullets)
         terms = [t for t in terms if t.definition.strip()]
         if terms:
@@ -491,33 +611,46 @@ def assemble_block(
         "design_process",
         "steps",
     ):
-        items = _steps_from_structured(structured)
+        items = _steps_from_structured(local)
+        if not items and sec is None:
+            items = _steps_from_structured(structured)
+        if not items and sec is not None:
+            items = _str_list(local.get("key_points") or local.get("ordered_actions"))
         if items:
             block = GenUIBlock(type="steps", title=title or "Steps", items=items)
 
     elif btype == "table" or hint == "matrix_rows":
-        items = _str_list(structured.get("matrix_rows"))
+        items = _str_list(local.get("matrix_rows"))
         if items:
             # Keep only consistent multi-col rows
             items = _pipe_items_from_structured(
                 {"matrix_rows": items}, prefer_cols=None, include_levels=False
             ) or items
-        if not items:
+        if not items and sec is None:
             items = _pipe_items_from_structured(structured, include_levels=False)
         if items:
             block = GenUIBlock(type="table", title=title or "Comparison", items=items)
+        elif sec is not None:
+            # Study sheet: fall back to bullets so the panel is not dropped.
+            fb = _str_list(local.get("key_points") or local.get("ordered_actions"))
+            if fb:
+                block = GenUIBlock(type="key_points", title=title or "Details", items=fb)
 
     elif btype == "comparison" or hint == "comparisons":
-        items = _str_list(structured.get("comparisons"))
-        if not items:
+        items = _str_list(local.get("comparisons") or local.get("matrix_rows"))
+        if not items and sec is None:
             items = _pipe_items_from_structured(structured, prefer_cols=3, include_levels=False)
-        if not items:
+        if not items and sec is None:
             items = _pipe_items_from_structured(structured, include_levels=False)
         if items:
             block = GenUIBlock(type="comparison", title=title or "Tradeoffs", items=items)
+        elif sec is not None:
+            fb = _str_list(local.get("key_points") or local.get("ordered_actions"))
+            if fb:
+                block = GenUIBlock(type="key_points", title=title or "Comparison", items=fb)
 
     elif btype == "progress" or hint == "levels":
-        items = _levels_items(structured)
+        items = _levels_items(local if sec is not None else structured)
         if items:
             block = GenUIBlock(type="progress", title=title or "Levels", items=items)
 
@@ -527,7 +660,7 @@ def assemble_block(
             block = GenUIBlock(type="faq", title=title or "FAQ", faqs=faqs)
 
     elif btype == "callout" or hint == "priority_message":
-        ctitle, body = _callout_body(structured)
+        ctitle, body = _callout_body(local if sec is not None else structured)
         if body:
             block = GenUIBlock(
                 type="callout",
@@ -541,19 +674,30 @@ def assemble_block(
             block = GenUIBlock(type="chips", title=title or "Themes", items=items)
 
     elif btype == "timeline" or hint == "milestones":
-        items = _str_list(structured.get("milestones") or structured.get("timeline"))
+        items = _str_list(
+            (local if sec is not None else structured).get("milestones")
+            or (local if sec is not None else structured).get("timeline")
+        )
         if not items:
-            items = [i for i in _pipe_items_from_structured(structured) if re.search(r"\b(19|20)\d{2}\b", i)]
+            items = [
+                i
+                for i in _pipe_items_from_structured(
+                    local if sec is not None else structured
+                )
+                if re.search(r"\b(19|20)\d{2}\b", i)
+            ]
         if items:
             block = GenUIBlock(type="timeline", title=title or "Timeline", items=items)
 
     elif btype == "metrics" or hint == "metrics":
-        items = _str_list(structured.get("metrics"))
+        items = _str_list((local if sec is not None else structured).get("metrics"))
         if items:
             block = GenUIBlock(type="metrics", title=title or "Metrics", items=items)
 
     elif btype == "flow_diagram" or hint == "process_flow":
-        pf = structured.get("process_flow") or {}
+        pf = local.get("process_flow") or {}
+        if not (pf.get("nodes") and pf.get("edges")) and sec is None:
+            pf = structured.get("process_flow") or {}
         nodes = _diagram_nodes(pf.get("nodes"))
         valid_ids = {n.id for n in nodes}
         edges = _diagram_edges(pf.get("edges"), valid_ids)
@@ -561,9 +705,15 @@ def assemble_block(
             block = GenUIBlock(
                 type="flow_diagram", title=title or "How it works", nodes=nodes, edges=edges
             )
+        elif sec is not None:
+            fb = _str_list(local.get("ordered_actions") or local.get("key_points"))
+            if fb:
+                block = GenUIBlock(type="steps", title=title or "Flow", items=fb)
 
     elif btype == "sequence_diagram" or hint == "interaction_sequence":
-        seq = structured.get("interaction_sequence") or {}
+        seq = local.get("interaction_sequence") or {}
+        if not (seq.get("actors") and seq.get("messages")) and sec is None:
+            seq = structured.get("interaction_sequence") or {}
         actors, messages = _sequence_actors_and_messages(
             seq.get("actors"), seq.get("messages")
         )
@@ -571,11 +721,39 @@ def assemble_block(
             block = GenUIBlock(
                 type="sequence_diagram", title=title or "Sequence", actors=actors, messages=messages
             )
+        elif sec is not None:
+            pf = local.get("process_flow") or {}
+            nodes = _diagram_nodes(pf.get("nodes"))
+            valid_ids = {n.id for n in nodes}
+            edges = _diagram_edges(pf.get("edges"), valid_ids)
+            if len(nodes) >= 2 and edges:
+                block = GenUIBlock(
+                    type="flow_diagram",
+                    title=title or "End-to-end",
+                    nodes=nodes,
+                    edges=edges,
+                )
+            else:
+                fb = _str_list(local.get("ordered_actions") or local.get("key_points"))
+                if fb:
+                    block = GenUIBlock(type="steps", title=title or "End-to-end", items=fb)
 
     if block is None:
         return None
-    if tag_list:
-        block = block.model_copy(update={"tags": tag_list[:6]})
+    tags_out = list(tag_list or [])
+    # Prefer panel_index for display chrome; fall back to section_index.
+    panel_n = outline_entry.get("panel_index")
+    if panel_n is None:
+        panel_n = outline_entry.get("section_index")
+    if panel_n is not None:
+        try:
+            tag = f"__section:{int(panel_n)}"
+            if tag not in tags_out:
+                tags_out = [tag, *tags_out]
+        except (TypeError, ValueError):
+            pass
+    if tags_out:
+        block = block.model_copy(update={"tags": tags_out[:6]})
     # Drop title-only / empty
     norm = _normalize_block_dict(block.model_dump())
     if not norm:
@@ -589,6 +767,8 @@ def assemble_block(
 def assemble_blocks(
     outline: list[dict[str, Any]] | None,
     structured: dict[str, Any],
+    *,
+    max_blocks: int = 10,
 ) -> tuple[list[GenUIBlock], list[dict[str, str]]]:
     """
     Assemble GenUI blocks from plan outline.
@@ -600,31 +780,81 @@ def assemble_blocks(
     if not outline:
         return blocks, dropped
 
+    # Study sheets need more panels; also when outline itself is longer.
+    cap = max_blocks
+    if any(
+        isinstance(e, dict) and e.get("section_index") is not None for e in outline
+    ):
+        cap = max(cap, 12)
+    if len(outline) > cap:
+        cap = min(12, len(outline))
+
     for entry in outline:
         if not isinstance(entry, dict):
             continue
         btype = str(entry.get("type") or "block")
         assembled = assemble_block(entry, structured)
         if assembled is None:
-            dropped.append(
-                {
-                    "type": btype,
-                    "reason": f"no data for source_hint={entry.get('source_hint') or btype}",
-                }
-            )
-            continue
+            # Last-chance study-sheet panel: never leave a hole if section has text.
+            sec = _section_by_index(structured, entry.get("section_index"))
+            if sec is not None:
+                local = _structured_from_section(sec, structured)
+                fb = _str_list(
+                    local.get("key_points")
+                    or local.get("ordered_actions")
+                    or ([local.get("summary")] if local.get("summary") else [])
+                )
+                if fb:
+                    title = str(entry.get("title") or sec.get("heading") or "Section")
+                    if len(fb) == 1 and len(fb[0]) > 80:
+                        assembled = GenUIBlock(
+                            type="summary", title=title[:120], body=fb[0][:2000]
+                        )
+                    else:
+                        assembled = GenUIBlock(
+                            type="key_points", title=title[:120], items=fb
+                        )
+            if assembled is None:
+                dropped.append(
+                    {
+                        "type": btype,
+                        "reason": f"no data for source_hint={entry.get('source_hint') or btype}",
+                    }
+                )
+                continue
         if not block_has_min_content(assembled):
-            dropped.append({"type": btype, "reason": "insufficient content"})
-            continue
+            # Study-sheet: keep thin summary panels rather than dropping order.
+            if entry.get("section_index") is not None and (
+                (assembled.body and len(assembled.body.strip()) >= 8)
+                or (assembled.items and len(assembled.items) >= 1)
+            ):
+                pass
+            else:
+                dropped.append({"type": btype, "reason": "insufficient content"})
+                continue
         explicit = entry.get("width")
         width = explicit if explicit in ("full", "half") else block_width(assembled)
+        if entry.get("section_index") is not None:
+            width = "full"
         assembled = assembled.model_copy(update={"width": width})
+        # Ensure panel chrome tag survives model_copy(width=…).
+        panel_n = entry.get("panel_index", entry.get("section_index"))
+        if panel_n is not None:
+            tags = list(assembled.tags or [])
+            tag = f"__section:{int(panel_n)}"
+            if tag not in tags:
+                tags = [tag, *tags][:6]
+            assembled = assembled.model_copy(update={"tags": tags})
         blocks.append(assembled)
-        if len(blocks) >= 10:
+        if len(blocks) >= cap:
             break
 
-    blocks, deduped = _dedupe_overlapping_blocks(blocks)
-    dropped.extend(deduped)
+    # Dedupe is harmful for study sheets (many sections share vocabulary).
+    if not any(
+        isinstance(e, dict) and e.get("section_index") is not None for e in outline
+    ):
+        blocks, deduped = _dedupe_overlapping_blocks(blocks)
+        dropped.extend(deduped)
     blocks = _tag_blocks_with_themes(blocks, structured.get("themes") or [])
     return blocks, dropped
 
