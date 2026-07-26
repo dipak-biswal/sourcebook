@@ -163,44 +163,90 @@ def test_call_drawio_mcp_respects_spawn_flag(monkeypatch):
     assert out["error"] == "mcp_spawn_disabled"
 
 
+class _FakeClient:
+    """Mimics McpStdioClient's real surface (start/close, not just __enter__)."""
+
+    instances_started = 0
+
+    def __init__(self, *a, **k):
+        self.closed = False
+
+    def start(self):
+        _FakeClient.instances_started += 1
+
+    def close(self):
+        self.closed = True
+
+    def initialize(self, **k):
+        return {"serverInfo": {"name": "@drawio/mcp", "version": "1.5.0"}}
+
+    def list_tools(self):
+        return [{"name": "open_drawio_mermaid"}]
+
+    def call_tool(self, name, arguments, timeout=None):
+        assert name == "open_drawio_mermaid"
+        assert "content" in arguments
+        return {
+            "content": [
+                {
+                    "type": "text",
+                    "text": (
+                        "Draw.io Editor URL:\n"
+                        f"https://app.diagrams.net/?grid=0#create={arguments['content'][:6]}\n\n"
+                        "Opened."
+                    ),
+                }
+            ]
+        }
+
+
 def test_call_drawio_mcp_open_mermaid_success(monkeypatch):
     """Simulate a successful stdio MCP session without spawning npx."""
-
-    class _Client:
-        def __init__(self, *a, **k):
-            pass
-
-        def __enter__(self):
-            return self
-
-        def __exit__(self, *a):
-            return False
-
-        def initialize(self, **k):
-            return {"serverInfo": {"name": "@drawio/mcp", "version": "1.5.0"}}
-
-        def list_tools(self):
-            return [{"name": "open_drawio_mermaid"}]
-
-        def call_tool(self, name, arguments, timeout=None):
-            assert name == "open_drawio_mermaid"
-            assert "flowchart" in arguments["content"]
-            return {
-                "content": [
-                    {
-                        "type": "text",
-                        "text": "Draw.io Editor URL:\nhttps://app.diagrams.net/?grid=0#create=mcp\n\nOpened.",
-                    }
-                ]
-            }
-
+    _FakeClient.instances_started = 0
     monkeypatch.setattr("app.mcp.drawio._mcp_process_enabled", lambda: True)
-    monkeypatch.setattr("app.mcp.drawio.McpStdioClient", _Client)
+    monkeypatch.setattr("app.mcp.drawio.McpStdioClient", _FakeClient)
     out = call_drawio_mcp_open_mermaid("flowchart TD\n  a-->b")
     assert out["status"] == "ok"
     assert out["source"] == "mcp_stdio"
-    assert "create=mcp" in out["edit_url"]
+    assert "create=" in out["edit_url"]
     assert out["tool_name"] == "open_drawio_mermaid"
+    assert _FakeClient.instances_started == 1
+
+
+def test_render_section_diagrams_reuses_one_session(monkeypatch):
+    """N sections must spawn exactly one MCP process, not one per section."""
+    _FakeClient.instances_started = 0
+    monkeypatch.setattr("app.mcp.drawio._mcp_process_enabled", lambda: True)
+    monkeypatch.setattr("app.mcp.drawio.McpStdioClient", _FakeClient)
+
+    from app.mcp.drawio import render_section_diagrams_via_mcp
+
+    sections = {
+        1: ("flowchart TD\n  a-->b", "flowchart"),
+        2: ("flowchart TD\n  x-->y", "tree"),
+        3: ("sequenceDiagram\n  A->>B: hi", "sequence"),
+    }
+    results = render_section_diagrams_via_mcp(sections)
+    assert set(results.keys()) == {1, 2, 3}
+    for idx, res in results.items():
+        assert res["status"] == "ok"
+        assert res["source"] == "mcp_stdio"
+        assert res["diagram_kind"] == sections[idx][1]
+        assert res["mermaid"] == sections[idx][0]
+    # Exactly one process spawned across all three sections.
+    assert _FakeClient.instances_started == 1
+
+
+def test_render_section_diagrams_falls_back_when_spawn_disabled(monkeypatch):
+    monkeypatch.setattr("app.mcp.drawio._mcp_process_enabled", lambda: False)
+
+    from app.mcp.drawio import render_section_diagrams_via_mcp
+
+    sections = {1: ("flowchart TD\n  a-->b", "flowchart")}
+    results = render_section_diagrams_via_mcp(sections)
+    assert results[1]["status"] == "ok"
+    assert results[1]["source"] == "local_fallback"
+    assert "app.diagrams.net" in results[1]["edit_url"]
 
 
 def test_parse_tool_text_and_urls():

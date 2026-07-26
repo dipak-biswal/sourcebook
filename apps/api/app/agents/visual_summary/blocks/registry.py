@@ -69,6 +69,10 @@ BLOCK_SPECS: tuple[BlockSpec, ...] = (
         "interaction_walkthrough",
         width="full",
     ),
+    # Rendered by the real draw.io MCP server (open_drawio_mermaid), one per
+    # study-sheet section — not planner/render-assembled like the specs
+    # above. See app.agents.visual_summary.planning.section_diagrams.
+    BlockSpec("mcp_diagram", "Diagram", width="full"),
 )
 
 ALL_BLOCK_TYPES: tuple[str, ...] = tuple(s.type for s in BLOCK_SPECS)

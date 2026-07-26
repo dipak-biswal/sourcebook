@@ -774,6 +774,98 @@ function FaqBlock({
   );
 }
 
+/** Defer attaching large data: URIs so the tab paints first (main-thread hang guard). */
+function useDeferredImageSrc(rawSrc: string): string {
+  const [src, setSrc] = useState(() =>
+    rawSrc.startsWith("data:") && rawSrc.length > 200_000 ? "" : rawSrc,
+  );
+  useEffect(() => {
+    if (!rawSrc) {
+      setSrc("");
+      return;
+    }
+    if (rawSrc.startsWith("data:") && rawSrc.length > 200_000) {
+      const id = window.requestAnimationFrame(() => {
+        setSrc(rawSrc);
+      });
+      return () => window.cancelAnimationFrame(id);
+    }
+    setSrc(rawSrc);
+  }, [rawSrc]);
+  return src;
+}
+
+function McpDiagramBlock({ block }: { block: GenUIBlock }) {
+  const rawSrc =
+    (typeof block.preview_url === "string" &&
+      block.preview_url &&
+      !block.preview_url.startsWith("data:") &&
+      block.preview_url) ||
+    (typeof block.png_data_url === "string" && block.png_data_url) ||
+    (typeof block.preview_url === "string" && block.preview_url) ||
+    "";
+  const imageSrc = useDeferredImageSrc(rawSrc);
+  const caption =
+    block.source === "mcp_stdio"
+      ? "draw.io MCP (open_drawio_mermaid)"
+      : block.source === "local_fallback"
+        ? "Mermaid export (MCP fallback)"
+        : "Mermaid → PNG";
+
+  return (
+    <div className="space-y-2 rounded-[10px] border border-hairline bg-canvas p-3 sm:p-4">
+      <div className="flex flex-wrap items-center gap-2">
+        <Workflow className="h-4 w-4 shrink-0 text-ink" strokeWidth={1.5} />
+        <div className="min-w-0 flex-1">
+          {block.title && (
+            <p className="text-sm font-semibold text-ink">{block.title}</p>
+          )}
+          <p className="text-[11px] text-mute">
+            {caption}
+            {block.diagram_kind ? ` · ${block.diagram_kind}` : ""}
+            {block.mcp_error
+              ? ` · MCP: ${String(block.mcp_error).slice(0, 80)}`
+              : ""}
+          </p>
+        </div>
+        {typeof block.edit_url === "string" && block.edit_url && (
+          <a
+            href={block.edit_url}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex h-8 items-center gap-1.5 rounded-[6px] border border-hairline bg-canvas px-3 text-[12px] font-medium text-ink transition-colors hover:bg-canvas-soft-2"
+          >
+            Edit in draw.io
+            <ExternalLink className="h-3.5 w-3.5" strokeWidth={1.5} />
+          </a>
+        )}
+      </div>
+      {imageSrc ? (
+        <div className="overflow-hidden rounded-[8px] border border-hairline bg-[var(--canvas)]">
+          <img
+            src={imageSrc}
+            alt={block.title ? `${block.title} diagram` : "Generated diagram PNG"}
+            className="mx-auto max-h-[28rem] w-full object-contain p-3 sm:p-4"
+            loading="lazy"
+            decoding="async"
+          />
+        </div>
+      ) : rawSrc ? (
+        <p className="rounded-[6px] border border-dashed border-hairline px-3 py-6 text-center text-xs text-mute">
+          <Loader2 className="mx-auto mb-2 h-4 w-4 animate-spin text-mute" />
+          Loading diagram image…
+        </p>
+      ) : (
+        <p className="rounded-[6px] border border-dashed border-hairline px-3 py-6 text-center text-xs text-mute">
+          Diagram PNG is still generating or failed to render.
+          {block.png_error ? ` (${block.png_error})` : ""}
+          {block.edit_url ? " Use Edit in draw.io to open the source." : ""}
+        </p>
+      )}
+    </div>
+  );
+}
+
 function GenerativeUIBlock({
   block,
   chipProps,
@@ -827,6 +919,8 @@ function GenerativeUIBlock({
       return <FlowDiagramBlock block={block} onCardExpand={onCardExpand} />;
     case "sequence_diagram":
       return <SequenceDiagramBlock block={block} onCardExpand={onCardExpand} />;
+    case "mcp_diagram":
+      return <McpDiagramBlock block={block} />;
     default:
       // A type in the contract but missing a case above means this renderer
       // is behind the backend registry — surface it in dev builds.
@@ -1015,28 +1109,7 @@ export function GenerativeUIView({
     (typeof drawio?.preview_url === "string" && drawio.preview_url) ||
     (typeof drawio?.png_url === "string" && drawio.png_url) ||
     "";
-  // Defer attaching large data: URIs so the tab paints first.
-  const [drawioImageSrc, setDrawioImageSrc] = useState(() =>
-    drawioImageSrcRaw.startsWith("data:") && drawioImageSrcRaw.length > 200_000
-      ? ""
-      : drawioImageSrcRaw,
-  );
-  useEffect(() => {
-    if (!drawioImageSrcRaw) {
-      setDrawioImageSrc("");
-      return;
-    }
-    if (
-      drawioImageSrcRaw.startsWith("data:") &&
-      drawioImageSrcRaw.length > 200_000
-    ) {
-      const id = window.requestAnimationFrame(() => {
-        setDrawioImageSrc(drawioImageSrcRaw);
-      });
-      return () => window.cancelAnimationFrame(id);
-    }
-    setDrawioImageSrc(drawioImageSrcRaw);
-  }, [drawioImageSrcRaw]);
+  const drawioImageSrc = useDeferredImageSrc(drawioImageSrcRaw);
   const drawioReady =
     !!drawio &&
     drawio.status !== "skipped" &&

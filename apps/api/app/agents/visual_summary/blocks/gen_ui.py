@@ -27,6 +27,7 @@ BlockType = Literal[
     "chart",
     "flow_diagram",
     "sequence_diagram",
+    "mcp_diagram",
 ]
 
 
@@ -122,6 +123,17 @@ class GenUIBlock(BaseModel):
     # sequence_diagram: lifelines + ordered messages between named actors.
     actors: list[str] | None = None
     messages: list[SequenceMessage] | None = None
+    # mcp_diagram: real draw.io MCP render, spliced in post-render by the
+    # visual pipeline (never model-supplied) — see
+    # app.agents.visual_summary.planning.section_diagrams.
+    mermaid: str | None = None
+    diagram_kind: str | None = None
+    edit_url: str | None = None
+    png_data_url: str | None = None
+    preview_url: str | None = None
+    png_error: str | None = None
+    source: str | None = None
+    mcp_error: str | None = None
     # 1-based indices into payload.sources (same numbers as [1], [2] in context)
     source_indices: list[int] = Field(default_factory=list)
 

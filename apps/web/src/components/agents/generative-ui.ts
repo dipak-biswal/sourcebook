@@ -32,6 +32,7 @@ export const BLOCK_TYPE_ICONS: Record<string, LucideIcon> = {
   chart: BarChart3,
   flow_diagram: Workflow,
   sequence_diagram: ArrowRightLeft,
+  mcp_diagram: Workflow,
 };
 
 export type GenUIMeasure = {
@@ -68,6 +69,16 @@ export type GenUIBlock = {
         note?: string | null;
       }[]
     | null;
+  /** mcp_diagram: real draw.io MCP render, spliced in post-render per section. */
+  mermaid?: string | null;
+  diagram_kind?: string | null;
+  edit_url?: string | null;
+  png_data_url?: string | null;
+  preview_url?: string | null;
+  png_error?: string | null;
+  /** mcp_stdio when real @drawio/mcp succeeded; local_fallback otherwise. */
+  source?: string | null;
+  mcp_error?: string | null;
 };
 
 export type GenUISource = {

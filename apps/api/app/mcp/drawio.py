@@ -281,17 +281,16 @@ def _mcp_process_enabled() -> bool:
         return True
 
 
-def call_drawio_mcp_open_mermaid(mermaid: str) -> dict[str, Any]:
+def open_drawio_mcp_session() -> tuple[McpStdioClient | None, dict[str, Any]]:
     """
-    Spawn ``@drawio/mcp`` over stdio and call ``open_drawio_mermaid``.
+    Spawn ``@drawio/mcp`` over stdio, initialize, and list tools once.
 
-    Returns a dict with status, edit_url (if any), tool_text, tools, error.
-    Does not raise — callers fall back to local URL generation.
+    Returns (client, meta). ``client`` is ``None`` (already closed) when spawn
+    is disabled or the handshake fails — callers should fall back to local URL
+    generation for every section in that case. Does not raise.
     """
-    if not mermaid.strip():
-        return {"status": "error", "error": "empty_mermaid"}
     if not _mcp_process_enabled():
-        return {"status": "skipped", "error": "mcp_spawn_disabled"}
+        return None, {"status": "skipped", "error": "mcp_spawn_disabled"}
 
     command = _mcp_command()
     timeout = _mcp_timeout()
@@ -301,67 +300,168 @@ def call_drawio_mcp_open_mermaid(mermaid: str) -> dict[str, Any]:
         "BROWSER": "echo",
         "DISPLAY": "",
     }
+    client = McpStdioClient(command, timeout=timeout, env=env)
     try:
-        with McpStdioClient(command, timeout=timeout, env=env) as client:
-            init = client.initialize(client_name="sourcebook", client_version="0.1.0")
-            tools = client.list_tools()
-            tool_names = [str(t.get("name") or "") for t in tools]
-            preferred = "open_drawio_mermaid"
-            if preferred not in tool_names:
-                # Some forks may rename tools — try a fuzzy match.
-                for n in tool_names:
-                    if "mermaid" in n.lower() and "open" in n.lower():
-                        preferred = n
-                        break
-                else:
-                    return {
-                        "status": "error",
-                        "error": "open_drawio_mermaid_not_found",
-                        "tools": tool_names,
-                        "server": (init or {}).get("serverInfo"),
-                    }
-            result = client.call_tool(
-                preferred,
-                {"content": mermaid, "lightbox": False, "dark": "auto"},
-                timeout=timeout,
-            )
-            text = parse_tool_text_content(result)
-            urls = extract_urls(text)
-            is_error = bool(result.get("isError"))
-            if is_error:
-                return {
-                    "status": "error",
-                    "error": text[:400] or "tool_isError",
-                    "tools": tool_names,
-                    "tool_text": text[:800],
-                }
-            edit_url = urls[0] if urls else None
-            if not edit_url:
-                return {
-                    "status": "error",
-                    "error": "no_url_in_mcp_response",
-                    "tool_text": text[:800],
-                    "tools": tool_names,
-                }
-            return {
-                "status": "ok",
-                "edit_url": edit_url,
-                "tool_text": text[:800],
-                "tools": tool_names,
-                "tool_name": preferred,
-                "server": (init or {}).get("serverInfo"),
-                "source": "mcp_stdio",
-            }
+        client.start()
+        init = client.initialize(client_name="sourcebook", client_version="0.1.0")
+        tools = client.list_tools()
+        tool_names = [str(t.get("name") or "") for t in tools]
+        return client, {
+            "status": "ok",
+            "tools": tool_names,
+            "server": (init or {}).get("serverInfo"),
+        }
     except McpStdioError as e:
         logger.warning("draw.io MCP stdio failed: %s", e)
-        return {"status": "error", "error": str(e)[:500], "source": "mcp_stdio"}
+        client.close()
+        return None, {"status": "error", "error": str(e)[:500], "source": "mcp_stdio"}
     except Exception as e:
         logger.exception("draw.io MCP unexpected failure")
+        client.close()
+        return None, {
+            "status": "error",
+            "error": f"{type(e).__name__}: {e}"[:500],
+            "source": "mcp_stdio",
+        }
+
+
+def call_open_mermaid(
+    client: McpStdioClient,
+    mermaid: str,
+    *,
+    tool_names: list[str] | None = None,
+) -> dict[str, Any]:
+    """
+    Call ``open_drawio_mermaid`` (or a fuzzy-matched fork name) on an already
+    -initialized session. Does not raise — errors come back as a status dict.
+    """
+    if not mermaid.strip():
+        return {"status": "error", "error": "empty_mermaid"}
+
+    tool_names = tool_names if tool_names is not None else []
+    preferred = "open_drawio_mermaid"
+    if tool_names and preferred not in tool_names:
+        # Some forks may rename tools — try a fuzzy match.
+        for n in tool_names:
+            if "mermaid" in n.lower() and "open" in n.lower():
+                preferred = n
+                break
+        else:
+            return {
+                "status": "error",
+                "error": "open_drawio_mermaid_not_found",
+                "tools": tool_names,
+            }
+    try:
+        result = client.call_tool(
+            preferred,
+            {"content": mermaid, "lightbox": False, "dark": "auto"},
+            timeout=_mcp_timeout(),
+        )
+        text = parse_tool_text_content(result)
+        urls = extract_urls(text)
+        is_error = bool(result.get("isError"))
+        if is_error:
+            return {
+                "status": "error",
+                "error": text[:400] or "tool_isError",
+                "tools": tool_names,
+                "tool_text": text[:800],
+            }
+        edit_url = urls[0] if urls else None
+        if not edit_url:
+            return {
+                "status": "error",
+                "error": "no_url_in_mcp_response",
+                "tool_text": text[:800],
+                "tools": tool_names,
+            }
+        return {
+            "status": "ok",
+            "edit_url": edit_url,
+            "tool_text": text[:800],
+            "tools": tool_names,
+            "tool_name": preferred,
+            "source": "mcp_stdio",
+        }
+    except McpStdioError as e:
+        logger.warning("draw.io MCP stdio call failed: %s", e)
+        return {"status": "error", "error": str(e)[:500], "source": "mcp_stdio"}
+    except Exception as e:
+        logger.exception("draw.io MCP unexpected call failure")
         return {
             "status": "error",
             "error": f"{type(e).__name__}: {e}"[:500],
             "source": "mcp_stdio",
         }
+
+
+def call_drawio_mcp_open_mermaid(mermaid: str) -> dict[str, Any]:
+    """
+    Spawn ``@drawio/mcp`` over stdio and call ``open_drawio_mermaid`` once.
+
+    Thin wrapper around :func:`open_drawio_mcp_session` +
+    :func:`call_open_mermaid` for the single-diagram (non study-sheet) path.
+    Returns a dict with status, edit_url (if any), tool_text, tools, error.
+    Does not raise — callers fall back to local URL generation.
+    """
+    client, meta = open_drawio_mcp_session()
+    if client is None:
+        return meta
+    try:
+        result = call_open_mermaid(client, mermaid, tool_names=meta.get("tools"))
+        if result.get("status") == "ok":
+            result["server"] = meta.get("server")
+        return result
+    finally:
+        client.close()
+
+
+def render_section_diagrams_via_mcp(
+    sections_mermaid: dict[int, tuple[str, str]],
+) -> dict[int, dict[str, Any]]:
+    """
+    Render one diagram per study-sheet section, reusing a single MCP session.
+
+    ``sections_mermaid`` maps 1-based section_index -> (mermaid, diagram_kind).
+    Sections are rendered **one by one** against the same stdio session (one
+    ``npx @drawio/mcp`` spawn total, not one per section). Returns
+    section_index -> result dict (same shape as ``call_drawio_mcp_open_mermaid``,
+    plus ``diagram_kind``). Never raises — MCP failures fall back to a local
+    diagrams.net edit URL per section.
+    """
+    out: dict[int, dict[str, Any]] = {}
+    if not sections_mermaid:
+        return out
+
+    client, meta = open_drawio_mcp_session()
+    tool_names = meta.get("tools") if isinstance(meta.get("tools"), list) else []
+    try:
+        for section_index, (mermaid, diagram_kind) in sections_mermaid.items():
+            if client is not None:
+                result = call_open_mermaid(client, mermaid, tool_names=tool_names)
+            else:
+                result = {"status": "error", "error": meta.get("error") or "mcp_unavailable"}
+            if result.get("status") != "ok" or not result.get("edit_url"):
+                result = {
+                    "status": "ok",
+                    "edit_url": drawio_edit_url(mermaid, title=f"Section {section_index}"),
+                    "source": "local_fallback",
+                    "tool_name": None,
+                    "mcp_error": result.get("error"),
+                }
+            result["diagram_kind"] = diagram_kind
+            result["mermaid"] = mermaid
+            png = render_mermaid_png(mermaid)
+            result["png_url"] = png.get("png_url")
+            result["png_data_url"] = png.get("png_data_url")
+            result["preview_url"] = png.get("png_data_url") or png.get("png_url")
+            result["png_error"] = png.get("error")
+            out[section_index] = result
+    finally:
+        if client is not None:
+            client.close()
+    return out
 
 
 def mermaid_encode(mermaid: str) -> str:

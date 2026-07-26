@@ -145,6 +145,9 @@ class Settings(BaseSettings):
     mcp_drawio_args: str = "-y,@drawio/mcp"  # comma-separated args
     # Self-hosted draw.io base URL (must end with / preferred).
     drawio_base_url: str = "https://app.diagrams.net/"
+    # Cap how many topic-study-sheet sections get an MCP-rendered diagram per
+    # run (one stdio session, called once per section — bounds run latency).
+    mcp_drawio_max_sections: int = 8
 
     # Redis / RQ background ingest
     # Local Redis: redis://127.0.0.1:6379/0

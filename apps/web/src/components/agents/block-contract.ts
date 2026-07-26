@@ -18,7 +18,8 @@ export const BLOCK_CONTRACT = {
     "quote",
     "chart",
     "flow_diagram",
-    "sequence_diagram"
+    "sequence_diagram",
+    "mcp_diagram"
   ],
   "source_hints": [
     "summary",
@@ -52,7 +53,8 @@ export const BLOCK_CONTRACT = {
     "quote": "half",
     "chart": "full",
     "flow_diagram": "full",
-    "sequence_diagram": "full"
+    "sequence_diagram": "full",
+    "mcp_diagram": "full"
   }
 } as const;
 

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 import time
 import uuid
 from typing import Any
@@ -10,6 +11,8 @@ from sqlalchemy.orm import Session
 
 from app.agents.main.runner.constants import PRESENTATION_TOOL
 from app.agents.main.runner.events import EventCallback, _append_step, _emit
+from app.agents.visual_summary.planning.section_diagrams import author_section_diagrams
+from app.agents.visual_summary.planning.study_sheet import STUDY_SHEET_PROFILE
 from app.agents.visual_summary.tools import (
     VISUAL_SUMMARY_AGENT_LABEL,
     run_plan_layout,
@@ -19,6 +22,7 @@ from app.config import settings
 from app.mcp.drawio import (
     attach_drawio_to_spec,
     enabled_mcp_ids_from_run,
+    render_section_diagrams_via_mcp,
     run_drawio_mcp_for_visual,
 )
 from app.models import AgentRun, Document, Workspace
@@ -266,6 +270,84 @@ def _attach_presentation_step(
     return step_index
 
 
+_SECTION_TAG_RE = re.compile(r"^__section:(\d+)$")
+
+
+def _panel_index_from_tags(tags: Any) -> int | None:
+    for t in tags if isinstance(tags, list) else []:
+        m = _SECTION_TAG_RE.match(str(t))
+        if m:
+            return int(m.group(1))
+    return None
+
+
+def _study_sheet_panel_sections(
+    plan: dict[str, Any], structured: dict[str, Any] | None
+) -> list[tuple[int, dict[str, Any]]]:
+    """(panel_index, section_dict) pairs — panel_index matches the __section:N
+    tag assemble_block already stamps on each rendered block (see
+    render/assemble.py), so results key onto blocks without re-deriving order.
+    """
+    sections = structured.get("sections") if isinstance(structured, dict) else None
+    if not isinstance(sections, list):
+        return []
+    out: list[tuple[int, dict[str, Any]]] = []
+    for entry in plan.get("block_outline") or []:
+        if not isinstance(entry, dict):
+            continue
+        try:
+            panel_n = int(entry.get("panel_index") or entry.get("section_index") or 0)
+            sec_idx = int(entry.get("section_index") or 0)
+        except (TypeError, ValueError):
+            continue
+        if panel_n < 1 or sec_idx < 1 or sec_idx > len(sections):
+            continue
+        sec = sections[sec_idx - 1]
+        if isinstance(sec, dict):
+            out.append((panel_n, sec))
+    return out
+
+
+def _apply_section_diagrams_to_spec(
+    spec: dict[str, Any], rendered: dict[int, dict[str, Any]]
+) -> tuple[dict[str, Any], int]:
+    """Replace study-sheet blocks tagged __section:N with an mcp_diagram block
+    for every N present in ``rendered``. Untouched blocks pass through as-is.
+    """
+    blocks = spec.get("blocks")
+    if not isinstance(blocks, list) or not rendered:
+        return spec, 0
+    applied = 0
+    new_blocks: list[Any] = []
+    for b in blocks:
+        panel_n = _panel_index_from_tags(b.get("tags")) if isinstance(b, dict) else None
+        result = rendered.get(panel_n) if panel_n is not None else None
+        if not isinstance(b, dict) or result is None:
+            new_blocks.append(b)
+            continue
+        applied += 1
+        new_blocks.append(
+            {
+                "type": "mcp_diagram",
+                "title": b.get("title"),
+                "tags": b.get("tags"),
+                "width": "full",
+                "mermaid": result.get("mermaid"),
+                "diagram_kind": result.get("diagram_kind"),
+                "edit_url": result.get("edit_url"),
+                "preview_url": result.get("preview_url"),
+                "png_url": result.get("png_url"),
+                "png_data_url": result.get("png_data_url"),
+                "png_error": result.get("png_error"),
+                "source": result.get("source"),
+                "mcp_error": result.get("mcp_error"),
+            }
+        )
+    out = dict(spec)
+    out["blocks"] = new_blocks
+    return out, applied
+
+
 def _run_visual_pipeline(
     db: Session,
     run: AgentRun,
@@ -347,6 +429,7 @@ def _run_visual_pipeline(
     )
 
     plan = (plan_result or {}).get("plan") if isinstance(plan_result, dict) else None
+    structured: dict[str, Any] | None = None
     if isinstance(plan, dict) and plan:
         # Let the UI show placeholder blocks while render runs.
         _emit(
@@ -393,6 +476,66 @@ def _run_visual_pipeline(
 
     # Optional draw.io MCP — always attempt when enabled, even if plan/render failed.
     mcp_ids = enabled_mcp_ids_from_run(run)
+    section_diagrams_applied = False
+    if (
+        "mcp_drawio" in mcp_ids
+        and isinstance(plan, dict)
+        and plan.get("presentation_profile") == STUDY_SHEET_PROFILE
+        and isinstance(run.presentation_spec, dict)
+    ):
+        panel_sections = _study_sheet_panel_sections(
+            plan, structured if isinstance(structured, dict) else None
+        )
+        max_sections = int(getattr(settings, "mcp_drawio_max_sections", 8) or 8)
+        panel_sections = panel_sections[:max_sections]
+
+        def _run_section_diagrams() -> tuple[dict[str, Any], None]:
+            authored = author_section_diagrams(
+                panel_sections,
+                goal=ctx.goal or run.goal or "",
+                db=db,
+                user_id=user_id,
+                workspace_id=run.workspace_id,
+            )
+            if not authored:
+                return {"status": "skipped", "reason": "no_sections_need_diagram"}, None
+            sections_mermaid = {
+                idx: (data["mermaid"], data["diagram_kind"])
+                for idx, data in authored.items()
+            }
+            rendered = render_section_diagrams_via_mcp(sections_mermaid)
+            new_spec, applied = _apply_section_diagrams_to_spec(
+                run.presentation_spec, rendered
+            )
+            run.presentation_spec = new_spec
+            return {
+                "status": "ok",
+                "sections_authored": len(authored),
+                "sections_applied": applied,
+            }, None
+
+        section_diagrams_payload, _ = record_tool(
+            "mcp_drawio_sections",
+            {
+                "connector_id": "mcp_drawio",
+                "presentation_profile": STUDY_SHEET_PROFILE,
+                "candidate_sections": len(panel_sections),
+            },
+            _run_section_diagrams,
+        )
+        if isinstance(section_diagrams_payload, dict):
+            section_diagrams_applied = bool(section_diagrams_payload.get("sections_applied"))
+            _emit(
+                on_event,
+                "presentation",
+                run_id=str(run.id),
+                presentation_spec=run.presentation_spec,
+            )
+
+    # Skip the single whole-run diagram once per-section diagrams already
+    # replaced the relevant blocks — avoids showing both for the same run.
+    if section_diagrams_applied:
+        mcp_ids = [m for m in mcp_ids if m != "mcp_drawio"]
     if "mcp_drawio" in mcp_ids:
         structured_for_mcp = (
             ctx.structured_content
