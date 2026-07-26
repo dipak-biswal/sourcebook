@@ -347,7 +347,37 @@ export function AgentRunDisplay() {
             {selected?.final_answer ? (
               <div className="space-y-3 text-body-sm text-body">
                 <MarkdownContent content={selected.final_answer} />
-                {/* Approval is in the sticky banner above — avoid duplicating it here. */}
+                {selected.status === "completed" &&
+                  (selected.final_answer || "").trim().length >= 40 &&
+                  !approving &&
+                  !rebuildingVisual && (
+                    <div className="flex flex-wrap items-center gap-2 border-t border-hairline pt-3">
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="secondary"
+                        className="h-7 gap-1 text-[11px]"
+                        onClick={() => {
+                          setActiveTab("visual");
+                          onRebuildVisual();
+                        }}
+                      >
+                        <Sparkles className="h-3 w-3" strokeWidth={1.5} />
+                        {gen ? "Rebuild visual" : "Build visual summary"}
+                      </Button>
+                      {gen && (
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="ghost"
+                          className="h-7 gap-1 text-[11px] text-mute"
+                          onClick={() => setActiveTab("visual")}
+                        >
+                          Open Visual tab
+                        </Button>
+                      )}
+                    </div>
+                  )}
               </div>
             ) : waitingApproval ? (
               <p className="text-sm text-mute">

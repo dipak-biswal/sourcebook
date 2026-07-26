@@ -26,11 +26,12 @@ Honest snapshot of the product as of the current codebase.
 | **Tool execution** | Date-first tool policy; **parallel read tools** (thread pool, max 4); write tools pause for approval |
 | **HITL + resume** | `create_note` and **visual summary offer** pause for Approve / Reject; approve executes then **resumes** the loop with SSE |
 | **Visual Summary (Phase A + B)** | After main agent answer → user can approve presentation → structured **handoff** → `plan_layout` (validate + optional replan) → `render_ui` → `presentation_spec` |
+| **Learning curriculum & study boards** | Topic catalog (discover + custom + checkbox intake), section streaming, early/progressive visual panels, composite + compare_paths diagrams, sticky TOC, rebuild visual, archive/restore topics ([`docs/learning_study_board.md`](docs/learning_study_board.md)) |
 | **Visual Summary assembly** | **Code-first block assembly** (UiIntent skeleton) with **planner-LLM authority** over block selection/order/titles/width (grounded `source_hint` validation, code-skeleton fallback, `visual_summary_llm_planner` flag); dedupe + junk-block filtering |
 | **Handoff (spine + v2 modules)** | Extract `summary`, `key_points`, `faq`, `sections`, `themes` (heuristic + LLM); fail if too thin; optional modules (`concepts`, `levels`, `matrix_rows`, `metrics`, `timeline`, …) + `presentation_hints` |
 | **Generative UI** | Block library: summary, key points, key terms, FAQ, steps, callout, table, progress, chart, chips, timeline, comparison, metrics, quote; normalize on API + web |
 | **Agent streaming & trace** | Live SSE (`llm_start` / `llm_end` / steps / status / done); LangSmith-style **trace tree** (main agent + Visual Summary subtree) |
-| **Run panel UX** | Answer / **Visual summary** / Trace tabs; stay on Trace while running; Visual summary opt-in (no auto-switch) |
+| **Run panel UX** | Answer / **Visual summary** / Trace tabs; study runs auto-surface Answer then Visual as sections/panels stream; **Rebuild visual** on completed runs |
 | **Notes** | Full CRUD; editor + sidebar; can be created via agent after HITL |
 | **Usage & rate limits** | Token usage events + Usage page; per-user limits on chat / ingest / agent starts (Redis + in-memory fallback) |
 | **Dashboard & settings** | Home stats/quick actions; profile, password, workspaces |
@@ -202,6 +203,7 @@ sourcebook/
 | [`docs/visual_summary_ui_plan.md`](docs/visual_summary_ui_plan.md) | How Visual Summary should generate use-case UI (affordances, assembly) |
 | [`docs/workspace_derived_prompts.md`](docs/workspace_derived_prompts.md) | WorkspaceContextPacket — no hardcoded verticals |
 | [`docs/agent_execution_model.md`](docs/agent_execution_model.md) | Sequential vs parallel execution across main + visual agents |
+| [`docs/learning_study_board.md`](docs/learning_study_board.md) | Learning workspace curriculum + progressive study boards |
 
 ---
 
@@ -332,6 +334,18 @@ Main agent final_answer (substantive)
      → Reject  → keep text-only answer
 ```
 
+**Study / teaching goals** (and curriculum topic runs) can also:
+
+```text
+Stream ## N. sections → section_draft (Answer tab)
+     → early visual panels (Visual tab, progressive)
+     → complete board (often skip HITL)
+     → optional MCP enrich if draw.io enabled
+     → Rebuild visual anytime on completed runs
+```
+
+See [`docs/learning_study_board.md`](docs/learning_study_board.md). After pull: `cd apps/api && uv run alembic upgrade head` (migration **007** adds `workspaces.curriculum`).
+
 ---
 
 ## Rate limits (defaults)
@@ -356,7 +370,8 @@ Tune via `RATE_LIMIT_*` env vars; set `RATE_LIMIT_ENABLED=false` for heavy local
 | Background ingest + rate limits + usage | **Done** |
 | Main agent tools + HITL + SSE traces | **Done** |
 | Visual Summary Phase A + B (handoff, plan, validate, render) | **Done** |
-| Generative UI blocks + web normalize/render | **Done** |
+| Learning curriculum + progressive study boards | **Done** — topics, stream, early visual, rebuild ([`docs/learning_study_board.md`](docs/learning_study_board.md)) |
+| Generative UI blocks + web normalize/render | **Done** (incl. flow/sequence/compare_paths + composite panels) |
 | Workspace-derived prompts / packet | **Done** — packet + injection + Settings preview ([`docs/workspace_derived_prompts.md`](docs/workspace_derived_prompts.md)) |
 | Use-case UI assembly (code-first, no vertical hardcoding) | **Done** — UiIntent assembly + planner-LLM authority ([`docs/visual_summary_ui_plan.md`](docs/visual_summary_ui_plan.md)) |
 | Hybrid retrieval (pgvector + full-text RRF) + LLM rerank | **Done** |
