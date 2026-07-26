@@ -14,6 +14,7 @@ from app.agents.main.profiles import get_profile, normalize_agent_type
 from app.agents.main.runner import (
     _workspace_name_for_run,
     approve_agent_run,
+    rebuild_visual_summary,
     run_agent,
     run_to_public_dict,
 )
@@ -21,7 +22,12 @@ from app.db import SessionLocal, get_db
 from app.deps import get_current_user
 from app.models import AgentRun, User, Workspace, WorkspaceMember
 from app.rate_limit import rate_limit
-from app.schemas import AgentApproveRequest, AgentRunCreate, AgentRunResponse
+from app.schemas import (
+    AgentApproveRequest,
+    AgentRunCreate,
+    AgentRunResponse,
+    RebuildVisualRequest,
+)
 
 router = APIRouter(prefix="/agents", tags=["agents"])
 
@@ -131,6 +137,63 @@ def _stream_agent_work(
         yield _sse(item)
 
 
+def _resolve_run_goal(
+    db: Session,
+    *,
+    workspace_id: uuid.UUID,
+    goal: str,
+    topic_id: str | None,
+) -> tuple[str, dict | None]:
+    """Return (goal, curriculum_meta). topic_id composes goal from saved prefs."""
+    goal = (goal or "").strip()
+    tid = (topic_id or "").strip()
+    if not tid:
+        if not goal:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST, detail="goal is empty"
+            )
+        return goal, None
+
+    from app.curriculum.compose import compose_context_block, compose_goal
+    from app.curriculum.domain import domain_label
+    from app.curriculum.schema import find_topic
+    from app.curriculum.service import get_curriculum, set_last_selected
+
+    ws = db.get(Workspace, workspace_id)
+    if not ws:
+        raise HTTPException(status_code=404, detail="Workspace not found")
+    cur = get_curriculum(ws)
+    topic = find_topic(cur, tid)
+    if not topic or topic.get("status") == "archived":
+        raise HTTPException(status_code=404, detail="Curriculum topic not found")
+    domain = str(
+        cur.get("domain")
+        or domain_label(
+            name=ws.name or "",
+            description=ws.description,
+            tags=ws.tags if isinstance(ws.tags, list) else None,
+        )
+    )
+    prefs = topic.get("preferences") if isinstance(topic.get("preferences"), dict) else {}
+    composed = compose_goal(topic, preferences=prefs, domain=domain)
+    # Explicit goal overrides composed text when both provided
+    final_goal = goal if goal else composed
+    try:
+        set_last_selected(db, ws, tid)
+    except Exception:
+        pass
+    meta = {
+        "topic_id": tid,
+        "topic_title": topic.get("title"),
+        "preferences": prefs,
+        "context_block": compose_context_block(
+            topic, preferences=prefs, domain=domain
+        ),
+        "composed_goal": composed,
+    }
+    return final_goal, meta
+
+
 @router.post("/runs", response_model=AgentRunResponse, status_code=201)
 def start_agent_run(
     body: AgentRunCreate,
@@ -139,10 +202,12 @@ def start_agent_run(
     _: None = Depends(rate_limit("agent")),
 ):
     _require_member(db, current_user.id, body.workspace_id)
-    if not body.goal.strip():
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST, detail="goal is empty"
-        )
+    goal, curriculum_meta = _resolve_run_goal(
+        db,
+        workspace_id=body.workspace_id,
+        goal=body.goal,
+        topic_id=body.topic_id,
+    )
 
     agent_type = normalize_agent_type(body.agent_type)
     profile = get_profile(agent_type)
@@ -157,11 +222,14 @@ def start_agent_run(
             db,
             workspace_id=body.workspace_id,
             user_id=current_user.id,
-            goal=body.goal.strip(),
+            goal=goal,
             max_steps=min(max(max_steps, 1), 10),
             agent_type=agent_type,
             enabled_mcp_ids=list(body.enabled_mcp_ids or []),
+            curriculum_meta=curriculum_meta,
         )
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e)
@@ -186,14 +254,15 @@ def start_agent_run_stream(
     Events: run_start, llm_start, llm_delta, llm_end, step, status, done, error
     """
     _require_member(db, current_user.id, body.workspace_id)
-    if not body.goal.strip():
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST, detail="goal is empty"
-        )
+    goal, curriculum_meta = _resolve_run_goal(
+        db,
+        workspace_id=body.workspace_id,
+        goal=body.goal,
+        topic_id=body.topic_id,
+    )
 
     workspace_id = body.workspace_id
     user_id = current_user.id
-    goal = body.goal.strip()
     agent_type = normalize_agent_type(body.agent_type)
     enabled_mcp_ids = list(body.enabled_mcp_ids or [])
     profile = get_profile(agent_type)
@@ -213,6 +282,7 @@ def start_agent_run_stream(
             max_steps=max_steps,
             agent_type=agent_type,
             enabled_mcp_ids=enabled_mcp_ids,
+            curriculum_meta=curriculum_meta,
             on_event=on_event,
         )
         # reload with steps
@@ -315,6 +385,102 @@ def approve_run_stream(
             approve=approve,
             answers=answers,
             enabled_mcp_ids=enabled_mcp_ids,
+            on_event=on_event,
+        )
+        loaded = (
+            session.query(AgentRun)
+            .options(joinedload(AgentRun.steps))
+            .filter(AgentRun.id == rid)
+            .first()
+        )
+        on_event(
+            "done",
+            {
+                "run": run_to_public_dict(
+                    loaded or run,
+                    workspace_name=_workspace_name_for_run(session, loaded or run),
+                )
+            },
+        )
+
+    return StreamingResponse(
+        _stream_agent_work(work),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )
+
+
+@router.post("/runs/{run_id}/rebuild-visual", response_model=AgentRunResponse)
+def rebuild_visual(
+    run_id: uuid.UUID,
+    body: RebuildVisualRequest | None = None,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+    _: None = Depends(rate_limit("agent")),
+):
+    """Rebuild Visual Summary for a completed run (full pipeline, no HITL)."""
+    run = _load_run(db, run_id, current_user.id)
+    if not run:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Run not found"
+        )
+    try:
+        rebuild_visual_summary(
+            db,
+            run,
+            enabled_mcp_ids=(body.enabled_mcp_ids if body else None),
+        )
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)
+        ) from e
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=_sanitize_stream_error(str(e)),
+        ) from e
+    loaded = _load_run(db, run_id, current_user.id)
+    if not loaded:
+        raise HTTPException(status_code=500, detail="Run missing after rebuild")
+    return _as_run_response(loaded, db)
+
+
+@router.post("/runs/{run_id}/rebuild-visual/stream")
+def rebuild_visual_stream(
+    run_id: uuid.UUID,
+    body: RebuildVisualRequest | None = None,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+    _: None = Depends(rate_limit("agent")),
+):
+    """SSE stream while Visual Summary rebuilds for a completed run."""
+    existing = _load_run(db, run_id, current_user.id)
+    if not existing:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Run not found"
+        )
+
+    rid = run_id
+    uid = current_user.id
+    mcp_ids = body.enabled_mcp_ids if body else None
+
+    def work(session: Session, on_event) -> None:
+        run = (
+            session.query(AgentRun)
+            .options(joinedload(AgentRun.steps))
+            .filter(AgentRun.id == rid, AgentRun.user_id == uid)
+            .first()
+        )
+        if not run:
+            raise ValueError("Run not found")
+        rebuild_visual_summary(
+            session,
+            run,
+            enabled_mcp_ids=mcp_ids,
             on_event=on_event,
         )
         loaded = (

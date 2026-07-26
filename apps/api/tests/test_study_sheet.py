@@ -27,7 +27,7 @@ def test_infer_section_types():
                 "bullets": ["Update DB | Publish | Risk", "A | B | C"],
             }
         )
-        == "comparison"
+        == "compare_paths"
     )
     assert (
         infer_section_block_type(
@@ -140,7 +140,10 @@ def test_study_sheet_plan_from_numbered_answer():
     assert plan["presentation_profile"] == STUDY_SHEET_PROFILE
     outline = plan["block_outline"]
     assert len(outline) >= 8
-    assert all(e.get("width") == "full" for e in outline)
+    assert all(e.get("width") in ("full", "half") for e in outline)
+    # Dense board: at least one half-width prose panel and one full diagram/table.
+    assert any(e.get("width") == "half" for e in outline)
+    assert any(e.get("width") == "full" for e in outline)
     assert all(e.get("section_index") for e in outline)
     # Order preserved — first panel about "Why"
     assert "Why" in outline[0]["title"] or "1." in outline[0]["title"]
@@ -158,7 +161,7 @@ def test_assemble_study_sheet_panels():
     assert plan is not None
     blocks, dropped = assemble_blocks(plan["block_outline"], structured)
     assert len(blocks) >= 6, (len(blocks), dropped, [b.type for b in blocks])
-    assert all(b.width == "full" for b in blocks)
+    assert all(b.width in ("full", "half") for b in blocks)
     # Panel chrome tags present
     assert any(
         any(t.startswith("__section:") for t in (b.tags or [])) for b in blocks

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   AlertTriangle,
   Check,
@@ -8,6 +8,7 @@ import {
   Download,
   ExternalLink,
   FileText,
+  List,
   Loader2,
   Sparkles,
   StickyNote,
@@ -17,7 +18,11 @@ import { Link } from "react-router-dom";
 import { api } from "@/api";
 import { Button } from "@/components/ui/button";
 import { TopicCardCarousel } from "@/components/agents/CardCarousel";
-import { FlowDiagramBlock, SequenceDiagramBlock } from "@/components/agents/DiagramBlocks";
+import {
+  ComparePathsBlock,
+  FlowDiagramBlock,
+  SequenceDiagramBlock,
+} from "@/components/agents/DiagramBlocks";
 import { citationViewerPath } from "@/lib/document-links";
 import {
   Table,
@@ -112,6 +117,7 @@ const FULL_WIDTH_TYPES = new Set([
   "key_terms",
   "flow_diagram",
   "sequence_diagram",
+  "compare_paths",
 ]);
 
 function isFullWidth(block: GenUIBlock): boolean {
@@ -140,6 +146,94 @@ function sectionIndexFromBlock(block: GenUIBlock, fallback: number): number {
   const m = (block.title ?? "").match(/^\s*(\d+)\s*[.):\-–—]/);
   if (m) return Number(m[1]);
   return fallback;
+}
+
+function studySectionDomId(sectionNum: number): string {
+  return `study-section-${sectionNum}`;
+}
+
+function stripSectionTitle(title: string | null | undefined, sectionNum: number): string {
+  const t = (title ?? "").trim();
+  const m = t.match(/^\d+\s*[.):\-–—]\s*(.+)$/);
+  const bare = (m ? m[1] : t).trim();
+  return bare || `Section ${sectionNum}`;
+}
+
+type TocEntry = { sectionNum: number; title: string; domId: string };
+
+function buildStudyToc(blocks: GenUIBlock[]): TocEntry[] {
+  const out: TocEntry[] = [];
+  const seen = new Set<number>();
+  blocks.forEach((b, i) => {
+    const sectionNum = sectionIndexFromBlock(b, i + 1);
+    if (seen.has(sectionNum)) return;
+    seen.add(sectionNum);
+    out.push({
+      sectionNum,
+      title: stripSectionTitle(b.title, sectionNum),
+      domId: studySectionDomId(sectionNum),
+    });
+  });
+  return out.sort((a, b) => a.sectionNum - b.sectionNum);
+}
+
+function StudySheetToc({
+  entries,
+  activeId,
+  onJump,
+}: {
+  entries: TocEntry[];
+  activeId: string | null;
+  onJump: (domId: string) => void;
+}) {
+  if (entries.length < 3) return null;
+  return (
+    <nav
+      aria-label="Study sheet sections"
+      className="sticky top-0 z-20 -mx-1 mb-1 border-b border-hairline/80 bg-canvas/95 px-1 py-2 backdrop-blur supports-[backdrop-filter]:bg-canvas/80"
+    >
+      <div className="mb-1.5 flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wide text-mute">
+        <List className="h-3 w-3" strokeWidth={1.5} />
+        Jump to section
+        {activeId && (
+          <span className="ml-auto font-medium normal-case tracking-normal text-mute">
+            {entries.find((e) => e.domId === activeId)?.sectionNum ?? ""}
+            {" / "}
+            {entries.length}
+          </span>
+        )}
+      </div>
+      <div className="flex gap-1.5 overflow-x-auto pb-0.5 [scrollbar-width:thin]">
+        {entries.map((e) => {
+          const active = e.domId === activeId;
+          return (
+            <button
+              key={e.domId}
+              type="button"
+              onClick={() => onJump(e.domId)}
+              className={cn(
+                "inline-flex max-w-[11rem] shrink-0 items-center gap-1.5 rounded-full border px-2.5 py-1 text-left text-[11px] transition-colors",
+                active
+                  ? "border-ink bg-ink text-[var(--canvas)]"
+                  : "border-hairline bg-canvas text-body hover:bg-canvas-soft-2",
+              )}
+              title={e.title}
+            >
+              <span
+                className={cn(
+                  "inline-flex h-4 min-w-4 items-center justify-center rounded-full px-1 text-[10px] font-bold",
+                  active ? "bg-[var(--canvas)]/20" : "bg-canvas-soft-2 text-mute",
+                )}
+              >
+                {e.sectionNum}
+              </span>
+              <span className="truncate font-medium">{e.title}</span>
+            </button>
+          );
+        })}
+      </div>
+    </nav>
+  );
 }
 
 function isStudySheetPayload(payload: {
@@ -919,6 +1013,8 @@ function GenerativeUIBlock({
       return <FlowDiagramBlock block={block} onCardExpand={onCardExpand} />;
     case "sequence_diagram":
       return <SequenceDiagramBlock block={block} onCardExpand={onCardExpand} />;
+    case "compare_paths":
+      return <ComparePathsBlock block={block} />;
     case "mcp_diagram":
       return <McpDiagramBlock block={block} />;
     default:
@@ -1014,6 +1110,12 @@ export function GenerativeUIView({
 }) {
   const blocks = payload.blocks ?? [];
   const studySheet = isStudySheetPayload(payload);
+  const tocEntries = useMemo(
+    () => (studySheet ? buildStudyToc(blocks) : []),
+    [studySheet, blocks],
+  );
+  const [activeSectionId, setActiveSectionId] = useState<string | null>(null);
+  const sectionElsRef = useRef<Map<string, HTMLElement>>(new Map());
   const sourceFiles = [
     ...new Set(
       (payload.source_files ?? [])
@@ -1022,6 +1124,58 @@ export function GenerativeUIView({
     ),
   ];
   const [activeTag, setActiveTag] = useState<string | null>(null);
+
+  // Scroll-spy: highlight the section most visible in the viewport.
+  useEffect(() => {
+    if (!studySheet || tocEntries.length < 3) return;
+    const nodes = tocEntries
+      .map((e) => document.getElementById(e.domId))
+      .filter((el): el is HTMLElement => !!el);
+    if (!nodes.length) return;
+
+    const ratios = new Map<string, number>();
+    const observer = new IntersectionObserver(
+      (entries) => {
+        for (const entry of entries) {
+          ratios.set(entry.target.id, entry.intersectionRatio);
+        }
+        let bestId: string | null = null;
+        let best = 0;
+        for (const [id, r] of ratios) {
+          if (r > best) {
+            best = r;
+            bestId = id;
+          }
+        }
+        // Prefer the top-most intersecting section when ratios are tiny.
+        if (best < 0.08) {
+          const visible = entries
+            .filter((en) => en.isIntersecting)
+            .sort(
+              (a, b) => a.boundingClientRect.top - b.boundingClientRect.top,
+            );
+          if (visible[0]?.target.id) bestId = visible[0].target.id;
+        }
+        if (bestId) setActiveSectionId(bestId);
+      },
+      {
+        root: null,
+        // Bias toward the upper portion of the scrollport (under sticky TOC).
+        rootMargin: "-12% 0px -55% 0px",
+        threshold: [0, 0.1, 0.25, 0.5, 0.75, 1],
+      },
+    );
+    for (const n of nodes) observer.observe(n);
+    return () => observer.disconnect();
+  }, [studySheet, tocEntries, blocks.length]);
+
+  const jumpToSection = useCallback((domId: string) => {
+    const el =
+      sectionElsRef.current.get(domId) || document.getElementById(domId);
+    if (!el) return;
+    setActiveSectionId(domId);
+    el.scrollIntoView({ behavior: "smooth", block: "start" });
+  }, []);
   const onChipSelect = useCallback(
     (tag: string | null) => {
       setActiveTag(tag);
@@ -1119,8 +1273,9 @@ export function GenerativeUIView({
   return (
     <div
       className={cn(
-        // Teaching canvas: wide enough for diagrams, content-height (no empty A4 slab).
-        "mx-auto w-full max-w-4xl space-y-5 rounded-vercel-md border border-hairline bg-canvas p-4 shadow-[var(--elevation-2)] sm:p-6",
+        // Teaching canvas: wider for study boards (half/full panel grid).
+        "mx-auto w-full space-y-5 rounded-vercel-md border border-hairline bg-canvas p-4 shadow-[var(--elevation-2)] sm:p-6",
+        studySheet ? "max-w-6xl" : "max-w-4xl",
         className,
       )}
     >
@@ -1134,7 +1289,9 @@ export function GenerativeUIView({
           </div>
           <p className="mt-0.5 text-[11px] text-mute">
             {studySheet
-              ? "Topic study sheet · sections stacked in order"
+              ? tocEntries.length >= 3
+                ? `Topic study sheet · ${tocEntries.length} sections · jump via TOC`
+                : "Topic study sheet · sections in order"
               : payload.presentation_profile
                 ? `${payload.presentation_profile.replace(/_/g, " ")} · `
                 : ""}
@@ -1256,16 +1413,28 @@ export function GenerativeUIView({
           </p>
         )}
 
+      {studySheet && (
+        <StudySheetToc
+          entries={tocEntries}
+          activeId={activeSectionId}
+          onJump={jumpToSection}
+        />
+      )}
+
       <div
         className={cn(
           "grid grid-cols-1 gap-4",
-          // Study sheets: always single column, full-width panels one after another.
-          !studySheet && "md:grid-cols-2",
+          // Study sheets use a denser board: half-width cards pair on md+.
+          "md:grid-cols-2",
         )}
       >
         {blocks.map((b, i) => {
           if (!blockMatchesTag(b, activeTag)) return null;
           const sectionNum = studySheet ? sectionIndexFromBlock(b, i + 1) : null;
+          const domId =
+            studySheet && sectionNum != null
+              ? studySectionDomId(sectionNum)
+              : undefined;
           const highlighted =
             activeTag &&
             b.type !== "chips" &&
@@ -1286,15 +1455,24 @@ export function GenerativeUIView({
                   tags: (b.tags ?? []).filter((t) => !t.startsWith("__section:")),
                 }
               : b;
+          const isActiveSection = !!domId && domId === activeSectionId;
           return (
             <div
               key={`${b.type}-${i}`}
+              id={domId}
+              ref={(el) => {
+                if (!domId) return;
+                if (el) sectionElsRef.current.set(domId, el);
+                else sectionElsRef.current.delete(domId);
+              }}
               className={cn(
                 "min-w-0 self-start transition-opacity duration-200",
-                (studySheet || isFullWidth(b)) && "md:col-span-2",
+                // Honor half/full width on study boards (dense Outbox-style grid).
+                isFullWidth(b) && "md:col-span-2",
                 highlighted && "rounded-[10px] ring-1 ring-ink/15",
                 studySheet &&
-                  "overflow-hidden rounded-[12px] border border-hairline shadow-sm",
+                  "scroll-mt-24 overflow-hidden rounded-[12px] border border-hairline shadow-sm",
+                isActiveSection && "ring-1 ring-ink/20",
                 chrome,
               )}
             >
@@ -1303,8 +1481,8 @@ export function GenerativeUIView({
                   <span className="inline-flex h-6 min-w-6 items-center justify-center rounded-full bg-ink px-1.5 text-[11px] font-bold text-[var(--canvas)]">
                     {sectionNum}
                   </span>
-                  <span className="text-[11px] font-bold uppercase tracking-wide text-mute">
-                    Section
+                  <span className="min-w-0 flex-1 truncate text-[11px] font-bold uppercase tracking-wide text-mute">
+                    {stripSectionTitle(b.title, sectionNum)}
                   </span>
                 </div>
               )}

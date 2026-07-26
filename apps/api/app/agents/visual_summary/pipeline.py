@@ -13,6 +13,10 @@ from app.agents.main.runner.constants import PRESENTATION_TOOL
 from app.agents.main.runner.events import EventCallback, _append_step, _emit
 from app.agents.visual_summary.planning.section_diagrams import author_section_diagrams
 from app.agents.visual_summary.planning.study_sheet import STUDY_SHEET_PROFILE
+from app.agents.visual_summary.streaming.progressive import (
+    progressive_assemble_presentation,
+    should_use_progressive_render,
+)
 from app.agents.visual_summary.tools import (
     VISUAL_SUMMARY_AGENT_LABEL,
     run_plan_layout,
@@ -78,6 +82,28 @@ def _presentation_context_for_run(db: Session, run: AgentRun) -> PresentationCon
         workspace_packet=packet,
         evidence=agent_evidence,
     )
+    # Prefer main-agent streamed sections when they are richer than extract.
+    streamed = getattr(run, "_streamed_sections", None)
+    if not streamed and isinstance(run.run_options, dict):
+        streamed = run.run_options.get("streamed_sections")
+    if isinstance(streamed, list) and len(streamed) >= 2:
+        clean_secs: list[dict] = []
+        for s in streamed:
+            if not isinstance(s, dict):
+                continue
+            heading = str(s.get("heading") or "").strip()
+            body = str(s.get("body") or "").strip()
+            bullets = s.get("bullets") if isinstance(s.get("bullets"), list) else []
+            bullets = [str(b).strip() for b in bullets if str(b).strip()]
+            if heading and (body or bullets):
+                clean_secs.append(
+                    {"heading": heading, "body": body, "bullets": bullets}
+                )
+        existing = structured_content.get("sections") or []
+        if len(clean_secs) >= max(2, len(existing) if isinstance(existing, list) else 0):
+            structured_content = dict(structured_content)
+            structured_content["sections"] = clean_secs
+            structured_source = f"{structured_source}+streamed"
     return PresentationContext(
         workspace_id=run.workspace_id,
         user_id=user_id,
@@ -311,8 +337,9 @@ def _study_sheet_panel_sections(
 def _apply_section_diagrams_to_spec(
     spec: dict[str, Any], rendered: dict[int, dict[str, Any]]
 ) -> tuple[dict[str, Any], int]:
-    """Replace study-sheet blocks tagged __section:N with an mcp_diagram block
-    for every N present in ``rendered``. Untouched blocks pass through as-is.
+    """Attach draw.io/MCP figure fields onto existing panels (augment, never replace).
+
+    Teaching text (items/body/nodes) stays; optional mermaid/PNG enrich the card.
     """
     blocks = spec.get("blocks")
     if not isinstance(blocks, list) or not rendered:
@@ -326,26 +353,145 @@ def _apply_section_diagrams_to_spec(
             new_blocks.append(b)
             continue
         applied += 1
-        new_blocks.append(
-            {
-                "type": "mcp_diagram",
-                "title": b.get("title"),
-                "tags": b.get("tags"),
-                "width": "full",
-                "mermaid": result.get("mermaid"),
-                "diagram_kind": result.get("diagram_kind"),
-                "edit_url": result.get("edit_url"),
-                "preview_url": result.get("preview_url"),
-                "png_url": result.get("png_url"),
-                "png_data_url": result.get("png_data_url"),
-                "png_error": result.get("png_error"),
-                "source": result.get("source"),
-                "mcp_error": result.get("mcp_error"),
-            }
-        )
+        enriched = dict(b)
+        # Keep original type (flow_diagram / key_points / …); only attach MCP fields.
+        for key in (
+            "mermaid",
+            "diagram_kind",
+            "edit_url",
+            "preview_url",
+            "png_url",
+            "png_data_url",
+            "png_error",
+            "source",
+            "mcp_error",
+        ):
+            if result.get(key) is not None:
+                enriched[key] = result.get(key)
+        new_blocks.append(enriched)
     out = dict(spec)
     out["blocks"] = new_blocks
     return out, applied
+
+
+def _progressive_render_ui(
+    db: Session,
+    run: AgentRun,
+    *,
+    ctx: PresentationContext,
+    plan: dict[str, Any],
+    structured: dict[str, Any],
+    user_id: uuid.UUID,
+    workspace_id: uuid.UUID,
+    on_event: EventCallback = None,
+) -> dict[str, Any]:
+    """
+    Assemble presentation panels progressively and stream each paint over SSE.
+
+    Emits ``presentation_panel_ready`` (and a ``status`` snapshot) after each
+    text/figure phase so the Visual tab can update without waiting for the
+    full board. Commits partial ``presentation_spec`` for reconnect safety.
+    """
+    source_files: list[str] = []
+    for hit in (ctx.agent_evidence.document_hits if ctx.agent_evidence else [])[:6]:
+        name = getattr(hit, "filename", None) or "document"
+        if name not in source_files:
+            source_files.append(name)
+    for name in ctx.document_filenames or []:
+        if name and name not in source_files:
+            source_files.append(name)
+
+    def on_panel(payload: dict[str, Any]) -> None:
+        phase = str(payload.get("phase") or "")
+        spec = payload.get("presentation_spec")
+        if not isinstance(spec, dict):
+            return
+        run.presentation_spec = spec
+        try:
+            db.commit()
+        except Exception:
+            db.rollback()
+        if phase == "complete":
+            return
+        _emit(
+            on_event,
+            "presentation_panel_ready",
+            run_id=str(run.id),
+            phase=phase,
+            panel_index=payload.get("panel_index"),
+            block=payload.get("block"),
+            expected_count=payload.get("expected_count"),
+            ready_count=payload.get("ready_count"),
+            presentation_spec=spec,
+        )
+        _emit(
+            on_event,
+            "status",
+            run_id=str(run.id),
+            status=run.status,
+            presentation_spec=spec,
+            final_answer=run.final_answer,
+        )
+
+    spec = progressive_assemble_presentation(
+        plan,
+        structured,
+        goal=ctx.goal or run.goal or "",
+        workspace_name=ctx.workspace_name or "",
+        source_files=source_files,
+        on_panel=on_panel,
+    )
+    blocks = spec.get("blocks") if isinstance(spec, dict) else None
+    if not blocks:
+        return {
+            "status": "empty",
+            "spec": spec,
+            "block_count": 0,
+            "assembly_meta": (spec or {}).get("assembly_meta")
+            if isinstance(spec, dict)
+            else None,
+        }
+
+    # Usage log — progressive path is code-only (0 LLM tokens).
+    from app.usage import log_usage
+
+    log_usage(
+        db,
+        user_id=user_id,
+        workspace_id=workspace_id,
+        kind="visual_summary_render",
+        model="code_assembly_progressive",
+        prompt_tokens=0,
+        completion_tokens=0,
+        total_tokens=0,
+        meta={
+            "goal": (ctx.goal or "")[:200],
+            "render_fallback_used": False,
+            "block_count": len(blocks),
+            "progressive": True,
+            "plan_prevalidated": True,
+        },
+    )
+
+    run.presentation_spec = spec
+    try:
+        db.commit()
+    except Exception:
+        db.rollback()
+
+    return {
+        "status": "rendered",
+        "spec": spec,
+        "presentation_profile": spec.get("presentation_profile"),
+        "block_count": len(blocks),
+        "model": "code_assembly_progressive",
+        "prompt": "PROGRESSIVE CODE ASSEMBLY — panels streamed text-first then figure",
+        "llm_output": None,
+        "prompt_tokens": 0,
+        "completion_tokens": 0,
+        "total_tokens": 0,
+        "assembly_meta": spec.get("assembly_meta"),
+    }
 
 
 def _run_visual_pipeline(
@@ -451,22 +597,66 @@ def _run_visual_pipeline(
         # run_plan_layout — render without re-validating (validate-once).
         validated = plan_payload.get("validation_status") == "passed"
         structured = plan_result.get("structured_content")
-        render_payload, _ = record_tool(
-            "render_ui",
-            {"layout_plan_json": "{}"},
-            lambda: (
-                run_render_ui(
-                    db,
-                    ctx,
-                    plan=plan,
-                    user_id=user_id,
-                    workspace_id=run.workspace_id,
-                    structured=structured if isinstance(structured, dict) else None,
-                    validated=validated,
+        structured_dict = structured if isinstance(structured, dict) else None
+
+        # Progressive path: assemble panels one-by-one (text-first, then figure)
+        # so the Visual tab can paint before the full board is ready.
+        if should_use_progressive_render(plan) and structured_dict is not None:
+            render_payload, _ = record_tool(
+                "render_ui",
+                {"layout_plan_json": "{}", "mode": "progressive"},
+                lambda: (
+                    _progressive_render_ui(
+                        db,
+                        run,
+                        ctx=ctx,
+                        plan=plan,
+                        structured=structured_dict,
+                        user_id=user_id,
+                        workspace_id=run.workspace_id,
+                        on_event=on_event,
+                    ),
+                    None,
                 ),
-                None,
-            ),
-        )
+            )
+            # Empty progressive → fall back to batch code/LLM render.
+            if (
+                isinstance(render_payload, dict)
+                and render_payload.get("status") == "empty"
+            ):
+                render_payload, _ = record_tool(
+                    "render_ui",
+                    {"layout_plan_json": "{}", "mode": "batch_fallback"},
+                    lambda: (
+                        run_render_ui(
+                            db,
+                            ctx,
+                            plan=plan,
+                            user_id=user_id,
+                            workspace_id=run.workspace_id,
+                            structured=structured_dict,
+                            validated=validated,
+                        ),
+                        None,
+                    ),
+                )
+        else:
+            render_payload, _ = record_tool(
+                "render_ui",
+                {"layout_plan_json": "{}"},
+                lambda: (
+                    run_render_ui(
+                        db,
+                        ctx,
+                        plan=plan,
+                        user_id=user_id,
+                        workspace_id=run.workspace_id,
+                        structured=structured_dict,
+                        validated=validated,
+                    ),
+                    None,
+                ),
+            )
         _apply_render_ui_result(
             run,
             tool_name="render_ui",

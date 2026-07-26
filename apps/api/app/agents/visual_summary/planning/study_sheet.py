@@ -133,7 +133,15 @@ def infer_section_block_type(sec: dict[str, Any]) -> str:
     bullets = sec.get("bullets") or []
     n_bullets = len(bullets) if isinstance(bullets, list) else 0
 
-    if re.search(r"\b(without|vs\.?|versus|compar|trade[- ]?off|with\s+vs)\b", blob):
+    if re.search(r"\b(without|vs\.?|versus|with\s+vs)\b", blob):
+        # Dual-path figure when content suggests process risk, else table.
+        if _section_has_arrow_flow(sec) or re.search(
+            r"\b(lost|fail|risk|outbox|publish|broker)\b", blob
+        ):
+            return "compare_paths"
+        if _section_has_pipe_table(sec) or n_bullets >= 2:
+            return "comparison"
+    if re.search(r"\b(compar|trade[- ]?off)\b", blob):
         if _section_has_pipe_table(sec) or n_bullets >= 2:
             return "comparison"
     if re.search(r"\b(schema|table|matrix|failure\s+scenar|columns?)\b", blob):
@@ -200,6 +208,7 @@ def _source_hint_for_type(btype: str) -> str:
         "comparison": "comparisons",
         "flow_diagram": "process_flow",
         "sequence_diagram": "interaction_sequence",
+        "compare_paths": "compare_paths",
         "callout": "priority_message",
         "key_terms": "concepts",
         "faq": "faq",
@@ -255,12 +264,27 @@ def build_topic_study_sheet_plan(
         title = _display_title(
             str(sec.get("heading") or f"Section {panel_n}"), panel_n
         )
+        # Dense board: prose/checklist panels half-width; diagrams/tables full.
+        width = (
+            "full"
+            if btype
+            in (
+                "table",
+                "comparison",
+                "compare_paths",
+                "flow_diagram",
+                "sequence_diagram",
+                "steps",
+                "timeline",
+            )
+            else "half"
+        )
         entry = {
             "type": btype,
             "title": title[:120],
             "purpose": f"Study sheet panel {panel_n}",
             "source_hint": _source_hint_for_type(btype),
-            "width": "full",
+            "width": width,
             # Index into structured.sections for assemble_block lookup.
             "section_index": sec_idx,
             # Display order for chrome (1..N panels).

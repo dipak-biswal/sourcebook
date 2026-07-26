@@ -44,6 +44,56 @@ def _finalize_completed_run(
                 on_event=on_event,
             )
     run.final_answer = answer
+    # Ensure study-sheet sections are split even if mid-stream missed them
+    # (e.g. synthesis path or single-shot final without streaming).
+    try:
+        from app.agents.main.runner.section_stream import (
+            SectionStreamTracker,
+            attach_streamed_sections_to_run,
+            should_stream_sections,
+        )
+
+        if should_stream_sections(run.goal or "", text_so_far=answer or ""):
+            from app.agents.main.runner.section_stream import maybe_paint_early_visual
+
+            existing = getattr(run, "_streamed_sections", None)
+            if not existing:
+                tracker = SectionStreamTracker(
+                    on_event=on_event,
+                    run_id=str(run.id),
+                    goal=run.goal or "",
+                )
+                tracker.finish(answer or "")
+                attach_streamed_sections_to_run(run, tracker)
+                maybe_paint_early_visual(
+                    db, run, tracker, on_event=on_event, force_complete=True
+                )
+            else:
+                # Re-paint complete board from sections already on the run.
+                tracker = SectionStreamTracker(
+                    on_event=on_event,
+                    run_id=str(run.id),
+                    goal=run.goal or "",
+                )
+                # Reconstruct tracker sections from stored structured shape.
+                for i, s in enumerate(existing, start=1):
+                    if not isinstance(s, dict):
+                        continue
+                    tracker._sections.append(
+                        {
+                            "index": i,
+                            "heading": s.get("heading") or f"{i}.",
+                            "title": str(s.get("heading") or "").split(".", 1)[-1].strip(),
+                            "body": s.get("body") or "",
+                            "bullets": s.get("bullets") or [],
+                        }
+                    )
+                    tracker._emitted.add(i)
+                maybe_paint_early_visual(
+                    db, run, tracker, on_event=on_event, force_complete=True
+                )
+    except Exception:
+        pass
     run.status = "completed"
     return _offer_presentation_if_needed(
         db,
@@ -61,8 +111,52 @@ def _offer_presentation_if_needed(
     on_event: EventCallback = None,
 ) -> int:
     """Pause for human-in-the-loop before building generative UI."""
-    if run.presentation_spec:
-        return step_index
+    # Early visual already built a study board — skip HITL; board is ready.
+    if isinstance(run.presentation_spec, dict):
+        blocks = run.presentation_spec.get("blocks") or []
+        early = bool(
+            run.presentation_spec.get("early_visual")
+            or (run.presentation_spec.get("assembly_meta") or {}).get("early_visual")
+        )
+        if early and isinstance(blocks, list) and len(blocks) >= 2:
+            run.presentation_spec = {
+                **run.presentation_spec,
+                "status": "complete",
+            }
+            # Optional draw.io enrich (no HITL) when user enabled MCP on the run.
+            try:
+                from app.agents.main.runner.early_visual import (
+                    enrich_early_visual_with_mcp,
+                )
+
+                enrich_early_visual_with_mcp(
+                    db,
+                    run,
+                    on_event=on_event,
+                    user_id=run.user_id,
+                )
+            except Exception:
+                pass
+            _emit(
+                on_event,
+                "status",
+                run_id=str(run.id),
+                status=run.status,
+                presentation_spec=run.presentation_spec,
+                final_answer=run.final_answer,
+                pending_tool=None,
+            )
+            _emit(
+                on_event,
+                "presentation",
+                run_id=str(run.id),
+                presentation_spec=run.presentation_spec,
+                early_visual=True,
+            )
+            return step_index
+        # Non-early full spec already present
+        if blocks and not early:
+            return step_index
     if not should_offer_presentation(
         goal=run.goal or "",
         final_answer=run.final_answer,

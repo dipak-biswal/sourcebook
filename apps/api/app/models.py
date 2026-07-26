@@ -45,6 +45,9 @@ class Workspace(Base):
     # Cached LLM-derived context packet: {"fingerprint", "packet", "version"}.
     # Recomputed when name/description/tags/ready documents change.
     context_cache: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    # Learning topic catalog + per-topic preferences (curriculum module).
+    # Shape: {version, domain, topics[], last_selected_topic_id, fetched_at, ...}
+    curriculum: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )

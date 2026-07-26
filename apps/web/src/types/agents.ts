@@ -36,10 +36,16 @@ export type AgentPageContextValue = {
   activeToolCalls: { tool_name: string; startTime: number }[];
   loopWarning: string | null;
   liveSkeleton: import("@/api").PresentationSkeleton | null;
+  /** Progressive visual: ready_count / expected_count while panels stream. */
+  liveVisualProgress: { ready: number; expected: number } | null;
+  /** Sections closed while the main agent streams a teaching answer. */
+  liveSections: import("@/api").SectionDraft[];
   onChangeWorkspace: (id: string) => void;
   onSelectRun: (id: string) => void;
   onGoalChange: (v: string) => void;
   onRun: (e: React.SubmitEvent<HTMLFormElement>) => void;
+  /** Start a run from a curriculum topic (uses saved preferences on the server). */
+  onRunTopic: (topicId: string, composedGoal: string) => void;
   onApprove: (
     approve: boolean,
     options?: {
@@ -49,6 +55,9 @@ export type AgentPageContextValue = {
   ) => void;
   onCancelRun: () => void;
   cancelling: boolean;
+  /** Rebuild full visual summary for a completed run. */
+  onRebuildVisual: () => void;
+  rebuildingVisual: boolean;
   onDeleteRun: (id: string) => void;
   onSaveLearningNote: (title: string, body: string) => void;
   onRefresh: () => void;

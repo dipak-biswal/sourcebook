@@ -47,14 +47,21 @@ def _invoke_llm_turn(
     turn_id: str,
     trace_live: LiveTraceContext | None = None,
     on_trace: Callable[[], None] | None = None,
+    on_content_progress: Callable[[str], None] | None = None,
 ) -> tuple[AIMessage, float]:
-    """Stream one LLM turn; emit llm_delta chunks for live trace UI."""
+    """Stream one LLM turn; emit llm_delta chunks for live trace UI.
+
+    ``on_content_progress`` receives the full text accumulated so far (used
+    for study-sheet section streaming).
+    """
     t0 = time.perf_counter()
     gathered: AIMessage | None = None
+    accumulated = ""
     for chunk in model.stream(messages):
         gathered = chunk if gathered is None else gathered + chunk  # type: ignore[operator,assignment]
         delta = _content_str(getattr(chunk, "content", None))
         if delta:
+            accumulated += delta
             if trace_live is not None:
                 trace_live.stream_by_turn[turn_id] = (
                     trace_live.stream_by_turn.get(turn_id, "") + delta
@@ -66,10 +73,23 @@ def _invoke_llm_turn(
                 turn_id=turn_id,
                 delta=delta,
             )
+            if on_content_progress is not None:
+                try:
+                    on_content_progress(accumulated)
+                except Exception:
+                    pass
             if on_trace:
                 on_trace()
     if gathered is None:
         gathered = AIMessage(content="")
+    # Prefer full gathered content for final progress callback (tool-free turns).
+    if on_content_progress is not None:
+        full = _content_str(gathered.content) or accumulated
+        if full and full != accumulated:
+            try:
+                on_content_progress(full)
+            except Exception:
+                pass
     llm_ms = (time.perf_counter() - t0) * 1000
     return gathered, llm_ms
 

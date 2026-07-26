@@ -24,6 +24,12 @@ from app.agents.main.runner.llm import (
     _log_agent_usage,
     _tokens_for_turn,
 )
+from app.agents.main.runner.section_stream import (
+    SectionStreamTracker,
+    attach_streamed_sections_to_run,
+    maybe_paint_early_visual,
+    should_stream_sections,
+)
 from app.agents.main.runner.messages import _content_str, _hash_args, _serialize_messages
 from app.agents.main.runner.read_tools import _process_read_tool_calls
 from app.agents.visual_summary.pipeline import (
@@ -148,6 +154,26 @@ def _run_tool_loop(
             on_event=on_event,
         )
 
+    # Study-sheet / teaching goals: parse closed ## N. sections while the
+    # final answer streams so the Answer tab (and later Visual) can paint early.
+    section_tracker = SectionStreamTracker(
+        on_event=on_event,
+        run_id=str(run.id),
+        goal=run.goal or "",
+    )
+    stream_sections = (
+        finalize_mode == "main"
+        and resolved_agent_type != "visual_summary"
+        and should_stream_sections(run.goal or "")
+    )
+
+    def _on_section_progress(text: str) -> None:
+        newly = section_tracker.feed(text)
+        if newly:
+            maybe_paint_early_visual(
+                db, run, section_tracker, on_event=on_event, force_complete=False
+            )
+
     try:
         for _ in range(max(1, max_steps)):
             turn_id = str(uuid.uuid4())
@@ -175,6 +201,9 @@ def _run_tool_loop(
                 turn_id=turn_id,
                 trace_live=trace_live,
                 on_trace=refresh_trace,
+                on_content_progress=(
+                    _on_section_progress if stream_sections else None
+                ),
             )
 
             p, c, t = _tokens_for_turn(messages, ai)
@@ -312,6 +341,17 @@ def _run_tool_loop(
                     on_event=on_event,
                     duration_ms=llm_ms if not ai.tool_calls else None,
                 )
+                # Final (no-tool) answer turn: flush last open section + paint board.
+                if stream_sections and not ai.tool_calls:
+                    section_tracker.finish(content)
+                    attach_streamed_sections_to_run(run, section_tracker)
+                    maybe_paint_early_visual(
+                        db,
+                        run,
+                        section_tracker,
+                        on_event=on_event,
+                        force_complete=True,
+                    )
 
             live_calls = list(ai.tool_calls or [])
             if duplicate_ids:

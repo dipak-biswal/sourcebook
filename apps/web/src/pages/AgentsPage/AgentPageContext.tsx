@@ -57,6 +57,7 @@ export function AgentPageProvider({
   const [running, setRunning] = useState(false);
   const [approving, setApproving] = useState(false);
   const [cancelling, setCancelling] = useState(false);
+  const [rebuildingVisual, setRebuildingVisual] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [savingNote, setSavingNote] = useState(false);
   const [liveGoal, setLiveGoal] = useState<string | null>(null);
@@ -71,6 +72,13 @@ export function AgentPageProvider({
   const [loopWarning, setLoopWarning] = useState<string | null>(null);
   const [liveSkeleton, setLiveSkeleton] =
     useState<import("@/api").PresentationSkeleton | null>(null);
+  const [liveVisualProgress, setLiveVisualProgress] = useState<{
+    ready: number;
+    expected: number;
+  } | null>(null);
+  const [liveSections, setLiveSections] = useState<
+    import("@/api").SectionDraft[]
+  >([]);
 
   const { data: workspaces = [], isLoading: loading } = useWorkspaces();
   const { workspaceId: effectiveWorkspaceId, setWorkspaceId: persistWorkspace } =
@@ -172,12 +180,31 @@ export function AgentPageProvider({
     setActiveToolCalls([]);
     setLoopWarning(null);
     setLiveSkeleton(null);
+    setLiveVisualProgress(null);
+    setLiveSections([]);
   }
 
-  async function onRun(e: SubmitEvent<HTMLFormElement>) {
-    e.preventDefault();
-    if (!effectiveWorkspaceId || !goal.trim() || running) return;
-    const goalText = goal.trim();
+  function applyPresentationSpec(
+    spec: import("@/api").AgentRun["presentation_spec"] | null | undefined,
+  ) {
+    if (!spec) return;
+    // Keep skeleton until the board is complete so remaining slots stay visible
+    // only when we have zero blocks yet; once panels stream, show gen UI.
+    const blocks = (spec as { blocks?: unknown[] }).blocks;
+    const hasBlocks = Array.isArray(blocks) && blocks.length > 0;
+    const status = (spec as { status?: string }).status;
+    if (hasBlocks || status === "complete") {
+      if (status === "complete" || status === undefined) {
+        setLiveSkeleton(null);
+      }
+    }
+    setSelected((prev) =>
+      prev ? { ...prev, presentation_spec: spec ?? null } : prev,
+    );
+  }
+
+  async function startRunStream(goalText: string, topicId?: string) {
+    if (!effectiveWorkspaceId || running) return;
     resetLiveTrace(goalText);
     setRunning(true);
     setError(null);
@@ -248,16 +275,67 @@ export function AgentPageProvider({
             onLoopWarning: (p) => {
               setLoopWarning(p.message);
             },
+            onSectionDraft: (p) => {
+              setLiveSections((prev) => {
+                const idx = p.index;
+                if (idx == null) return [...prev, p];
+                const next = prev.filter((s) => s.index !== idx);
+                next.push(p);
+                next.sort(
+                  (a, b) => (a.index ?? 0) - (b.index ?? 0),
+                );
+                return next;
+              });
+            },
+            onSectionStreamComplete: (p) => {
+              if (p.sections?.length) {
+                setLiveSections(
+                  [...p.sections].sort(
+                    (a, b) => (a.index ?? 0) - (b.index ?? 0),
+                  ),
+                );
+              }
+            },
+            onPresentationSkeleton: (p) => {
+              setLiveSkeleton(p);
+              setLiveVisualProgress(
+                p.outline?.length
+                  ? { ready: 0, expected: p.outline.length }
+                  : null,
+              );
+            },
+            onPresentationPanelReady: (p) => {
+              if (
+                typeof p.ready_count === "number" &&
+                typeof p.expected_count === "number"
+              ) {
+                setLiveVisualProgress({
+                  ready: p.ready_count,
+                  expected: p.expected_count,
+                });
+              }
+              applyPresentationSpec(p.presentation_spec);
+            },
+            onStatus: (p) => {
+              if (p.presentation_spec) {
+                applyPresentationSpec(p.presentation_spec);
+              }
+              if (p.token_usage != null) setLiveTokenUsage(p.token_usage);
+            },
           },
           (final) => {
             setSelected(final);
             setSelectedId(final.id);
             setLiveExecutionTrace(final.execution_trace ?? null);
+            if (final.presentation_spec) {
+              applyPresentationSpec(final.presentation_spec);
+            }
           },
         ),
         {
           maxSteps: DEFAULT_MAX_STEPS,
           enabledMcpIds: Array.from(enabledMcpIds),
+          ...(topicId ? { topicId } : {}),
         },
       );
       if (run) {
@@ -285,6 +363,18 @@ export function AgentPageProvider({
       setLiveGoal(null);
       setActiveToolCalls([]);
     }
+  }
+
+  async function onRun(e: SubmitEvent<HTMLFormElement>) {
+    e.preventDefault();
+    if (!goal.trim()) return;
+    await startRunStream(goal.trim());
+  }
+
+  async function onRunTopic(topicId: string, composedGoal: string) {
+    if (!topicId) return;
+    setGoal(composedGoal);
+    await startRunStream(composedGoal, topicId);
   }
 
   async function onApprove(
@@ -402,15 +492,27 @@ export function AgentPageProvider({
               },
               onPresentationSkeleton: (p) => {
                 setLiveSkeleton(p);
+                setLiveVisualProgress(
+                  p.outline?.length
+                    ? { ready: 0, expected: p.outline.length }
+                    : null,
+                );
+              },
+              onPresentationPanelReady: (p) => {
+                if (
+                  typeof p.ready_count === "number" &&
+                  typeof p.expected_count === "number"
+                ) {
+                  setLiveVisualProgress({
+                    ready: p.ready_count,
+                    expected: p.expected_count,
+                  });
+                }
+                applyPresentationSpec(p.presentation_spec);
               },
               onStatus: (p) => {
                 if (p.presentation_spec) {
-                  setLiveSkeleton(null);
-                  setSelected((prev) =>
-                    prev
-                      ? { ...prev, presentation_spec: p.presentation_spec ?? null }
-                      : prev,
-                  );
+                  applyPresentationSpec(p.presentation_spec);
                 }
                 if (p.token_usage != null) setLiveTokenUsage(p.token_usage);
               },
@@ -418,6 +520,7 @@ export function AgentPageProvider({
             (final) => {
               setSelected(final);
               setLiveSkeleton(null);
+              setLiveVisualProgress(null);
               setLiveExecutionTrace(final.execution_trace ?? null);
             },
             false,
@@ -428,6 +531,7 @@ export function AgentPageProvider({
         );
         if (run) {
           setSelected(run);
+          setLiveVisualProgress(null);
           await queryClient.invalidateQueries({
             queryKey: ["agentRuns", effectiveWorkspaceId],
           });
@@ -586,6 +690,7 @@ export function AgentPageProvider({
       setSelected(run);
       setLiveExecutionTrace(run.execution_trace ?? null);
       setLiveSkeleton(null);
+      setLiveVisualProgress(null);
       setActiveToolCalls([]);
       setRunning(false);
       await queryClient.invalidateQueries({
@@ -598,6 +703,123 @@ export function AgentPageProvider({
       toastError("Cancel failed", msg);
     } finally {
       setCancelling(false);
+    }
+  }
+
+  async function onRebuildVisual() {
+    if (!selected || rebuildingVisual || running || approving) return;
+    const answer = (selected.final_answer || "").trim();
+    if (answer.length < 40) {
+      toastError("Nothing to visualize", "This run has no full answer yet.");
+      return;
+    }
+    setRebuildingVisual(true);
+    setApproving(true); // reuse visual-phase UI (skeleton / progress)
+    setError(null);
+    setLiveSkeleton(null);
+    setLiveVisualProgress(null);
+    try {
+      const run = await api.rebuildVisualStream(
+        selected.id,
+        makeAgentStreamHandlers(
+          {
+            onTrace: setLiveExecutionTrace,
+            onLlmStart: (event) => {
+              setLiveLlmEvents((prev) => [
+                ...prev.filter((e) => e.status === "done"),
+                event,
+              ]);
+              setLiveTrace((prev) => [...prev, { kind: "llm", event }]);
+            },
+            onLlmDelta: (p) => {
+              setLiveLlmEvents((prev) =>
+                prev.map((e) =>
+                  e.status === "running"
+                    ? appendLlmStream(e, p.delta, p.turn_id)
+                    : e,
+                ),
+              );
+              setLiveTrace((prev) =>
+                patchRunningLlmWithDelta(prev, p.delta, p.turn_id),
+              );
+            },
+            onLlmEnd: (p) => {
+              const patch = makeLlmEndPatch(p);
+              setLiveLlmEvents((prev) =>
+                prev.map((e) =>
+                  e.status === "running"
+                    ? { ...e, ...patch, status: "done" as const }
+                    : e,
+                ),
+              );
+            },
+            onStep: (step) => {
+              setLiveSteps((prev) => upsertSteps(prev, step));
+              setLiveTrace((prev) => upsertTraceStep(prev, step));
+            },
+            onTokenUsage: (usage) => setLiveTokenUsage(usage),
+            onToolStart: (p) => {
+              setActiveToolCalls((prev) => [
+                ...prev,
+                { tool_name: p.tool_name, startTime: Date.now() },
+              ]);
+            },
+            onPresentationSkeleton: (p) => {
+              setLiveSkeleton(p);
+              setLiveVisualProgress(
+                p.outline?.length
+                  ? { ready: 0, expected: p.outline.length }
+                  : null,
+              );
+            },
+            onPresentationPanelReady: (p) => {
+              if (
+                typeof p.ready_count === "number" &&
+                typeof p.expected_count === "number"
+              ) {
+                setLiveVisualProgress({
+                  ready: p.ready_count,
+                  expected: p.expected_count,
+                });
+              }
+              applyPresentationSpec(p.presentation_spec);
+            },
+            onStatus: (p) => {
+              if (p.presentation_spec) {
+                applyPresentationSpec(p.presentation_spec);
+              }
+              if (p.token_usage != null) setLiveTokenUsage(p.token_usage);
+            },
+          },
+          (final) => {
+            setSelected(final);
+            setLiveSkeleton(null);
+            setLiveVisualProgress(null);
+            setLiveExecutionTrace(final.execution_trace ?? null);
+          },
+          false,
+        ),
+        {
+          enabledMcpIds: Array.from(enabledMcpIds),
+        },
+      );
+      if (run) {
+        setSelected(run);
+        await queryClient.invalidateQueries({
+          queryKey: ["agentRuns", effectiveWorkspaceId],
+        });
+        success("Visual summary rebuilt");
+      }
+    } catch (err) {
+      const msg = formatError(err);
+      setError(msg);
+      toastError("Rebuild failed", msg);
+    } finally {
+      setRebuildingVisual(false);
+      setApproving(false);
+      setActiveToolCalls([]);
+      setLiveSkeleton(null);
+      setLiveVisualProgress(null);
     }
   }
 
@@ -632,6 +854,7 @@ export function AgentPageProvider({
     running,
     approving,
     cancelling,
+    rebuildingVisual,
     sidebarOpen,
     savingNote,
     loading,
@@ -648,12 +871,16 @@ export function AgentPageProvider({
     activeToolCalls,
     loopWarning,
     liveSkeleton,
+    liveVisualProgress,
+    liveSections,
     onChangeWorkspace,
     onSelectRun: onSelect,
     onGoalChange: setGoal,
     onRun,
+    onRunTopic,
     onApprove,
     onCancelRun,
+    onRebuildVisual,
     onDeleteRun,
     onSaveLearningNote,
     onRefresh: () => {

@@ -576,7 +576,11 @@ export const api = {
     workspaceId: string,
     goal: string,
     handlers: AgentStreamHandlers = {},
-    options: { maxSteps?: number; enabledMcpIds?: string[] } = {},
+    options: {
+      maxSteps?: number;
+      enabledMcpIds?: string[];
+      topicId?: string;
+    } = {},
   ) =>
     streamAgentRun(
       "/agents/runs/stream",
@@ -586,8 +590,69 @@ export const api = {
         max_steps: options.maxSteps,
         agent_type: "general",
         enabled_mcp_ids: options.enabledMcpIds ?? [],
+        ...(options.topicId ? { topic_id: options.topicId } : {}),
       },
       handlers,
+    ),
+
+  getCurriculum: (
+    workspaceId: string,
+    options: { refresh?: boolean; includeArchived?: boolean } | boolean = false,
+  ) => {
+    // Back-compat: second arg used to be a boolean refresh flag.
+    const opts =
+      typeof options === "boolean"
+        ? { refresh: options, includeArchived: false }
+        : options;
+    const params = new URLSearchParams();
+    if (opts.refresh) params.set("refresh", "true");
+    if (opts.includeArchived) params.set("include_archived", "true");
+    const q = params.toString();
+    return request<CurriculumResponse>(
+      `/workspaces/${workspaceId}/curriculum${q ? `?${q}` : ""}`,
+    );
+  },
+
+  refreshCurriculum: (workspaceId: string) =>
+    request<CurriculumResponse>(`/workspaces/${workspaceId}/curriculum/refresh`, {
+      method: "POST",
+    }),
+
+  addCurriculumTopic: (workspaceId: string, title: string) =>
+    request<CurriculumTopic>(`/workspaces/${workspaceId}/curriculum/topics`, {
+      method: "POST",
+      body: JSON.stringify({ title }),
+    }),
+
+  getTopicIntake: (workspaceId: string, topicId: string) =>
+    request<CurriculumIntakeForm>(
+      `/workspaces/${workspaceId}/curriculum/topics/${encodeURIComponent(topicId)}/intake`,
+    ),
+
+  submitTopicIntake: (
+    workspaceId: string,
+    topicId: string,
+    answers: Record<string, string | string[]>,
+  ) =>
+    request<CurriculumIntakeResult>(
+      `/workspaces/${workspaceId}/curriculum/topics/${encodeURIComponent(topicId)}/intake`,
+      {
+        method: "POST",
+        body: JSON.stringify({ answers }),
+      },
+    ),
+
+  patchCurriculumTopic: (
+    workspaceId: string,
+    topicId: string,
+    patch: { status?: string; preferences?: Record<string, string[]> },
+  ) =>
+    request<CurriculumTopic>(
+      `/workspaces/${workspaceId}/curriculum/topics/${encodeURIComponent(topicId)}`,
+      {
+        method: "PATCH",
+        body: JSON.stringify(patch),
+      },
     ),
 
   /** Built-in tools + MCP connectors catalog for the Agents page. */
@@ -639,6 +704,22 @@ export const api = {
       {
         approve,
         ...(options.answers != null ? { answers: options.answers } : {}),
+        ...(options.enabledMcpIds != null
+          ? { enabled_mcp_ids: options.enabledMcpIds }
+          : {}),
+      },
+      handlers,
+    ),
+
+  /** Rebuild Visual Summary for a completed run (full pipeline, SSE). */
+  rebuildVisualStream: (
+    runId: string,
+    handlers: AgentStreamHandlers = {},
+    options: { enabledMcpIds?: string[] } = {},
+  ) =>
+    streamAgentRun(
+      `/agents/runs/${runId}/rebuild-visual/stream`,
+      {
         ...(options.enabledMcpIds != null
           ? { enabled_mcp_ids: options.enabledMcpIds }
           : {}),
@@ -818,6 +899,54 @@ export type DailyTotal = {
   event_count: number;
 };
 
+/** Learning topic catalog from GET /workspaces/{id}/curriculum. */
+export type CurriculumTopic = {
+  id: string;
+  title: string;
+  summary: string;
+  tags: string[];
+  source: string;
+  status: string;
+  preferences: Record<string, string[]>;
+  updated_at?: string | null;
+};
+
+export type CurriculumResponse = {
+  enabled: boolean;
+  domain: string;
+  source: string;
+  fetched_at?: string | null;
+  topics: CurriculumTopic[];
+  last_selected_topic_id?: string | null;
+};
+
+export type CurriculumIntakeOption = { id: string; label: string };
+
+export type CurriculumIntakeQuestion = {
+  id: string;
+  prompt: string;
+  input: "checkbox";
+  required?: boolean;
+  allow_multiple?: boolean;
+  options?: CurriculumIntakeOption[];
+};
+
+export type CurriculumIntakeForm = {
+  title: string;
+  subtitle: string;
+  questions: CurriculumIntakeQuestion[];
+  domain?: string;
+  topic_id?: string;
+  topic_title?: string;
+  saved_answers?: Record<string, string[]>;
+};
+
+export type CurriculumIntakeResult = {
+  topic: CurriculumTopic;
+  composed_goal: string;
+  context_block: string;
+};
+
 /** Catalog entry from GET /agents/connectors. */
 export type AgentConnector = {
   id: string;
@@ -923,11 +1052,38 @@ export type AgentStreamHandlers = {
   }) => void;
   onLoopWarning?: (payload: { message: string }) => void;
   onPresentationSkeleton?: (payload: PresentationSkeleton) => void;
+  onPresentationPanelReady?: (payload: PresentationPanelReady) => void;
+  /** Main agent closed a teaching section while streaming the answer. */
+  onSectionDraft?: (payload: SectionDraft) => void;
+  onSectionStreamComplete?: (payload: {
+    section_count?: number;
+    sections?: SectionDraft[];
+  }) => void;
+};
+
+export type SectionDraft = {
+  phase?: "closed" | "final" | string;
+  index?: number;
+  heading?: string;
+  title?: string;
+  body?: string;
+  bullets?: string[];
+  section_count?: number;
 };
 
 export type PresentationSkeleton = {
   outline: { type: string; title?: string; width?: "full" | "half" | null }[];
   presentation_profile?: string;
+};
+
+/** Progressive Visual Summary: one panel painted (text or figure upgrade). */
+export type PresentationPanelReady = {
+  phase?: "text" | "figure" | string;
+  panel_index?: number;
+  block?: Record<string, unknown> | null;
+  expected_count?: number;
+  ready_count?: number;
+  presentation_spec?: AgentRun["presentation_spec"];
 };
 
 const TERMINAL_RUN_STATUSES = new Set([
@@ -1040,6 +1196,59 @@ async function streamAgentRun(
               | string
               | undefined,
           });
+        } else if (type === "presentation_panel_ready") {
+          handlers.onPresentationPanelReady?.({
+            phase: payload.phase as PresentationPanelReady["phase"],
+            panel_index:
+              typeof payload.panel_index === "number"
+                ? payload.panel_index
+                : undefined,
+            block: (payload.block as Record<string, unknown> | null) ?? null,
+            expected_count:
+              typeof payload.expected_count === "number"
+                ? payload.expected_count
+                : undefined,
+            ready_count:
+              typeof payload.ready_count === "number"
+                ? payload.ready_count
+                : undefined,
+            presentation_spec:
+              payload.presentation_spec as AgentRun["presentation_spec"],
+          });
+        } else if (type === "section_draft") {
+          handlers.onSectionDraft?.({
+            phase: payload.phase as SectionDraft["phase"],
+            index:
+              typeof payload.index === "number" ? payload.index : undefined,
+            heading: payload.heading ? String(payload.heading) : undefined,
+            title: payload.title ? String(payload.title) : undefined,
+            body: payload.body != null ? String(payload.body) : undefined,
+            bullets: Array.isArray(payload.bullets)
+              ? payload.bullets.map((b) => String(b))
+              : undefined,
+            section_count:
+              typeof payload.section_count === "number"
+                ? payload.section_count
+                : undefined,
+          });
+        } else if (type === "section_stream_complete") {
+          handlers.onSectionStreamComplete?.({
+            section_count:
+              typeof payload.section_count === "number"
+                ? payload.section_count
+                : undefined,
+            sections: Array.isArray(payload.sections)
+              ? (payload.sections as SectionDraft[])
+              : undefined,
+          });
+        } else if (type === "presentation") {
+          // Full/partial presentation snapshot (MCP enrich, progressive final).
+          if (payload.presentation_spec) {
+            handlers.onStatus?.({
+              presentation_spec:
+                payload.presentation_spec as AgentRun["presentation_spec"],
+            });
+          }
         } else if (type === "trace" && payload.execution_trace) {
           handlers.onTrace?.(payload.execution_trace as ExecutionTrace);
         } else if (type === "status") {

@@ -69,6 +69,13 @@ BLOCK_SPECS: tuple[BlockSpec, ...] = (
         "interaction_walkthrough",
         width="full",
     ),
+    BlockSpec(
+        "compare_paths",
+        "Without vs With",
+        "compare_paths",
+        "path_comparison",
+        width="full",
+    ),
     # Rendered by the real draw.io MCP server (open_drawio_mermaid), one per
     # study-sheet section — not planner/render-assembled like the specs
     # above. See app.agents.visual_summary.planning.section_diagrams.

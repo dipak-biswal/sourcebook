@@ -103,11 +103,14 @@ class ChatResponse(BaseModel):
 
 class AgentRunCreate(BaseModel):
     workspace_id: uuid.UUID
-    goal: str
+    goal: str = ""
     max_steps: int | None = None
     agent_type: str = "general"
     # MCP connector ids toggled on in the Agents page (e.g. "mcp_drawio").
     enabled_mcp_ids: list[str] = []
+    # Optional curriculum topic — when set, server composes the goal from
+    # topic + saved preferences (goal may be empty or used as override).
+    topic_id: str | None = None
 
 
 class AgentStepResponse(BaseModel):
@@ -148,6 +151,11 @@ class AgentApproveRequest(BaseModel):
     # (string for text fields, string or list[str] for checkbox option ids).
     answers: dict[str, str | list[str]] | None = None
     # MCP connectors the user wants for Visual Summary (e.g. ["mcp_drawio"]).
+    enabled_mcp_ids: list[str] | None = None
+
+
+class RebuildVisualRequest(BaseModel):
+    # MCP connectors for the rebuild (defaults to run_options / none).
     enabled_mcp_ids: list[str] | None = None
 
 

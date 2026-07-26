@@ -20,6 +20,7 @@ __all__ = [
     "PRESENTATION_TOOL",
     "WRITE_TOOLS",
     "approve_agent_run",
+    "rebuild_visual_summary",
     "run_agent",
     "run_to_public_dict",
     "step_to_dict",
@@ -39,7 +40,7 @@ def __getattr__(name: str) -> Any:
         from app.agents.main.runner import events as _e
 
         return getattr(_e, name)
-    if name in ("run_agent", "approve_agent_run"):
+    if name in ("run_agent", "approve_agent_run", "rebuild_visual_summary"):
         from app.agents.main.runner import lifecycle as _l
 
         return getattr(_l, name)

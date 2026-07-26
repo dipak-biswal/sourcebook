@@ -23,6 +23,71 @@ function DiagramLabel({
   );
 }
 
+/** Teaching bullets/body kept alongside a line diagram (composite panel). */
+function ProseCompanion({ block }: { block: GenUIBlock }) {
+  const items = (block.items ?? []).filter((i) => i.trim());
+  const body = (block.body ?? "").trim();
+  if (!items.length && !body) return null;
+  return (
+    <div className="mt-3 rounded-[10px] border border-hairline bg-canvas px-3 py-2.5">
+      <div className="mb-1.5 text-[10px] font-bold uppercase tracking-wide text-mute">
+        Key points
+      </div>
+      {body && !items.length ? (
+        <TeachingText text={body} />
+      ) : null}
+      {items.length > 0 && (
+        <ul className="space-y-1.5">
+          {items.map((item, j) => (
+            <li key={j} className="flex gap-2 text-xs leading-relaxed text-body">
+              <span className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-ink" />
+              <TeachingText text={item} />
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
+
+/** Optional draw.io / Mermaid enrich attached without replacing the panel. */
+function McpEnrichStrip({ block }: { block: GenUIBlock }) {
+  const src =
+    (typeof block.preview_url === "string" && block.preview_url) ||
+    (typeof block.png_data_url === "string" && block.png_data_url) ||
+    "";
+  const edit =
+    typeof block.edit_url === "string" && block.edit_url ? block.edit_url : null;
+  if (!src && !edit) return null;
+  return (
+    <div className="mt-3 space-y-2 rounded-[10px] border border-dashed border-hairline bg-canvas-soft/50 px-3 py-2">
+      <div className="flex flex-wrap items-center gap-2 text-[10px] font-bold uppercase tracking-wide text-mute">
+        <span>Rich diagram</span>
+        {block.diagram_kind ? <span>· {block.diagram_kind}</span> : null}
+        {edit ? (
+          <a
+            href={edit}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="ml-auto font-medium normal-case tracking-normal text-ink underline-offset-2 hover:underline"
+          >
+            Edit in draw.io
+          </a>
+        ) : null}
+      </div>
+      {src ? (
+        <img
+          src={src}
+          alt={block.title ? `${block.title} diagram` : "Diagram"}
+          className="mx-auto max-h-64 w-full object-contain"
+          loading="lazy"
+          decoding="async"
+        />
+      ) : null}
+    </div>
+  );
+}
+
 function DiagramMarker({ id }: { id: string }) {
   return (
     <marker
@@ -542,6 +607,8 @@ export function FlowDiagramBlock({
           />
         )}
       </FigureChrome>
+      <ProseCompanion block={block} />
+      <McpEnrichStrip block={block} />
     </div>
   );
 }
@@ -756,6 +823,230 @@ export function SequenceDiagramBlock({
           />
         )}
       </FigureChrome>
+      <ProseCompanion block={block} />
+      <McpEnrichStrip block={block} />
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Compare paths: dual rows (Without vs With) with optional fail edges + X.
+// ---------------------------------------------------------------------------
+
+const CP_NODE_W = 132;
+const CP_NODE_H = 52;
+const CP_GAP = 40;
+const CP_PAD_X = 12;
+const CP_ROW_H = 120;
+
+type ComparePathEdge = {
+  source: string;
+  target: string;
+  label?: string | null;
+  style?: string | null;
+};
+type ComparePathNode = { id: string; label: string };
+type ComparePathRow = {
+  id: string;
+  label: string;
+  nodes: ComparePathNode[];
+  edges: ComparePathEdge[];
+  result?: string | null;
+};
+
+export function ComparePathsBlock({ block }: { block: GenUIBlock }) {
+  const markerOk = useId();
+  const markerFail = useId();
+  const paths = (block.paths ?? []) as ComparePathRow[];
+  const usable = paths.filter(
+    (p) => (p.nodes?.length ?? 0) >= 2 && (p.edges?.length ?? 0) >= 1,
+  );
+  if (usable.length < 2) return null;
+
+  const maxNodes = Math.max(...usable.map((p) => p.nodes.length), 2);
+  const width =
+    CP_PAD_X * 2 + maxNodes * CP_NODE_W + (maxNodes - 1) * CP_GAP;
+  const height = usable.length * CP_ROW_H;
+
+  return (
+    <div>
+      <DiagramLabel type="compare_paths" title={block.title} />
+      <FigureChrome>
+        <p className="mb-2 text-[11px] text-mute">
+          Compare alternative paths — a red X marks where things fail.
+        </p>
+        <div className="overflow-x-auto pb-1">
+          <div
+            className="relative mx-auto"
+            style={{ width, height, minWidth: width }}
+          >
+            <svg
+              className="pointer-events-none absolute inset-0 overflow-visible"
+              width={width}
+              height={height}
+              viewBox={`0 0 ${width} ${height}`}
+            >
+              <defs>
+                <marker
+                  id={`cp-ok-${markerOk}`}
+                  viewBox="0 0 10 10"
+                  refX="8"
+                  refY="5"
+                  markerWidth="7"
+                  markerHeight="7"
+                  orient="auto-start-reverse"
+                >
+                  <path d="M 0 0 L 10 5 L 0 10 z" className="fill-mute" />
+                </marker>
+                <marker
+                  id={`cp-fail-${markerFail}`}
+                  viewBox="0 0 10 10"
+                  refX="8"
+                  refY="5"
+                  markerWidth="7"
+                  markerHeight="7"
+                  orient="auto-start-reverse"
+                >
+                  <path d="M 0 0 L 10 5 L 0 10 z" className="fill-red-500" />
+                </marker>
+              </defs>
+              {usable.map((path, row) => {
+                const y = row * CP_ROW_H + 36;
+                const pos = new Map(
+                  path.nodes.map((n, i) => [
+                    n.id,
+                    {
+                      x: CP_PAD_X + i * (CP_NODE_W + CP_GAP),
+                      y,
+                      cx: CP_PAD_X + i * (CP_NODE_W + CP_GAP) + CP_NODE_W / 2,
+                      cy: y + CP_NODE_H / 2,
+                    },
+                  ]),
+                );
+                return (
+                  <g key={path.id || row}>
+                    {path.edges.map((e, ei) => {
+                      const s = pos.get(e.source);
+                      const t = pos.get(e.target);
+                      if (!s || !t) return null;
+                      const fail = e.style === "fail";
+                      const x1 = s.x + CP_NODE_W;
+                      const y1 = s.cy;
+                      const x2 = t.x;
+                      const y2 = t.cy;
+                      const midX = (x1 + x2) / 2;
+                      return (
+                        <g key={ei}>
+                          <path
+                            d={`M ${x1} ${y1} C ${midX} ${y1}, ${midX} ${y2}, ${x2} ${y2}`}
+                            fill="none"
+                            strokeWidth={fail ? 2 : 1.5}
+                            className={fail ? "stroke-red-500" : "stroke-mute"}
+                            strokeDasharray={fail ? "5 4" : undefined}
+                            markerEnd={`url(#cp-${fail ? "fail" : "ok"}-${fail ? markerFail : markerOk})`}
+                          />
+                          {fail && (
+                            <>
+                              <circle
+                                cx={midX}
+                                cy={(y1 + y2) / 2}
+                                r={10}
+                                className="fill-red-500/15 stroke-red-500"
+                                strokeWidth={1.5}
+                              />
+                              <text
+                                x={midX}
+                                y={(y1 + y2) / 2 + 4}
+                                textAnchor="middle"
+                                className="fill-red-600 text-[12px] font-bold"
+                              >
+                                {"\u2715"}
+                              </text>
+                            </>
+                          )}
+                          {e.label && (
+                            <text
+                              x={midX}
+                              y={(y1 + y2) / 2 - (fail ? 14 : 8)}
+                              textAnchor="middle"
+                              className={
+                                fail
+                                  ? "fill-red-600 text-[10px] font-semibold"
+                                  : "fill-mute text-[10px]"
+                              }
+                            >
+                              {e.label}
+                            </text>
+                          )}
+                        </g>
+                      );
+                    })}
+                  </g>
+                );
+              })}
+            </svg>
+            {usable.map((path, row) => {
+              const isBad = path.edges.some((e) => e.style === "fail");
+              return (
+                <div
+                  key={path.id || row}
+                  className="absolute inset-x-0"
+                  style={{ top: row * CP_ROW_H }}
+                >
+                  <div
+                    className={cn(
+                      "mb-1 inline-flex rounded-full border px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide",
+                      isBad
+                        ? "border-red-500/40 bg-red-500/10 text-red-700"
+                        : "border-success-border bg-success-soft text-success-text",
+                    )}
+                  >
+                    {path.label}
+                  </div>
+                  {path.nodes.map((n, i) => (
+                    <div
+                      key={n.id}
+                      className={cn(
+                        "absolute flex items-center justify-center rounded-[10px] border px-2 py-1.5 text-center shadow-sm",
+                        isBad && i === path.nodes.length - 1
+                          ? "border-red-500/50 bg-red-500/10 text-red-900"
+                          : "border-hairline bg-canvas text-ink",
+                      )}
+                      style={{
+                        left: CP_PAD_X + i * (CP_NODE_W + CP_GAP),
+                        top: 36,
+                        width: CP_NODE_W,
+                        height: CP_NODE_H,
+                      }}
+                    >
+                      <span className="line-clamp-2 text-[11px] font-semibold leading-snug">
+                        {n.label}
+                      </span>
+                    </div>
+                  ))}
+                  {path.result && (
+                    <div
+                      className={cn(
+                        "absolute text-[10px] font-medium",
+                        isBad ? "text-red-700" : "text-success-text",
+                      )}
+                      style={{
+                        left: CP_PAD_X,
+                        top: 36 + CP_NODE_H + 6,
+                        maxWidth: width - CP_PAD_X * 2,
+                      }}
+                    >
+                      Result: {path.result}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      </FigureChrome>
+      <ProseCompanion block={block} />
+      <McpEnrichStrip block={block} />
     </div>
   );
 }

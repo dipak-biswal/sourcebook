@@ -3,6 +3,7 @@ import {
   ArrowRightLeft,
   BarChart3,
   BookOpen,
+  GitCompareArrows,
   HelpCircle,
   Lightbulb,
   ListOrdered,
@@ -32,6 +33,7 @@ export const BLOCK_TYPE_ICONS: Record<string, LucideIcon> = {
   chart: BarChart3,
   flow_diagram: Workflow,
   sequence_diagram: ArrowRightLeft,
+  compare_paths: GitCompareArrows,
   mcp_diagram: Workflow,
 };
 
@@ -57,7 +59,12 @@ export type GenUIBlock = {
   width?: "full" | "half" | null;
   /** flow_diagram: boxes/arrows describing a process or mechanism. */
   nodes?: { id: string; label: string; detail?: string | null }[] | null;
-  edges?: { source: string; target: string; label?: string | null }[] | null;
+  edges?: {
+    source: string;
+    target: string;
+    label?: string | null;
+    style?: string | null;
+  }[] | null;
   /** sequence_diagram: lifelines + ordered messages between named actors. */
   actors?: string[] | null;
   messages?:
@@ -67,6 +74,21 @@ export type GenUIBlock = {
         label: string;
         order: number;
         note?: string | null;
+      }[]
+    | null;
+  /** compare_paths: dual rows (Without vs With) with optional fail edges. */
+  paths?:
+    | {
+        id: string;
+        label: string;
+        nodes: { id: string; label: string; detail?: string | null }[];
+        edges: {
+          source: string;
+          target: string;
+          label?: string | null;
+          style?: string | null;
+        }[];
+        result?: string | null;
       }[]
     | null;
   /** mcp_diagram: real draw.io MCP render, spliced in post-render per section. */

@@ -27,6 +27,7 @@ BlockType = Literal[
     "chart",
     "flow_diagram",
     "sequence_diagram",
+    "compare_paths",
     "mcp_diagram",
 ]
 
@@ -93,6 +94,18 @@ class DiagramEdge(BaseModel):
     source: str  # DiagramNode.id
     target: str  # DiagramNode.id
     label: str | None = None
+    # "fail" draws a broken edge with an X (without-path failures).
+    style: str | None = None
+
+
+class ComparePath(BaseModel):
+    """One row in a dual-path comparison diagram (e.g. Without vs With)."""
+
+    id: str
+    label: str
+    nodes: list[DiagramNode] = Field(default_factory=list)
+    edges: list[DiagramEdge] = Field(default_factory=list)
+    result: str | None = None
 
 
 class SequenceMessage(BaseModel):
@@ -123,6 +136,8 @@ class GenUIBlock(BaseModel):
     # sequence_diagram: lifelines + ordered messages between named actors.
     actors: list[str] | None = None
     messages: list[SequenceMessage] | None = None
+    # compare_paths: dual (or multi) process rows, e.g. Without vs With Outbox.
+    paths: list[ComparePath] | None = None
     # mcp_diagram: real draw.io MCP render, spliced in post-render by the
     # visual pipeline (never model-supplied) — see
     # app.agents.visual_summary.planning.section_diagrams.
@@ -546,6 +561,9 @@ def _normalize_block_dict(raw: Any) -> dict[str, Any] | None:
                 edge: dict[str, str] = {"source": src, "target": tgt}
                 if label:
                     edge["label"] = label
+                style = str(x.get("style") or "").strip().lower()
+                if style in ("fail", "ok", "dashed"):
+                    edge["style"] = style
                 edges_out.append(edge)
 
         if len(nodes_out) >= 2 and edges_out:
@@ -554,6 +572,59 @@ def _normalize_block_dict(raw: Any) -> dict[str, Any] | None:
         else:
             b["nodes"] = None
             b["edges"] = None
+
+    if b["type"] == "compare_paths":
+        paths_out: list[dict[str, Any]] = []
+        raw_paths = b.get("paths")
+        if isinstance(raw_paths, list):
+            for pi, raw_path in enumerate(raw_paths[:4]):
+                if not isinstance(raw_path, dict):
+                    continue
+                pid = str(raw_path.get("id") or f"path_{pi}").strip()
+                plabel = str(raw_path.get("label") or pid).strip()[:80]
+                nodes_out = []
+                node_ids: set[str] = set()
+                for i, x in enumerate(raw_path.get("nodes") or []):
+                    if not isinstance(x, dict):
+                        continue
+                    nid = str(x.get("id") or x.get("label") or f"n{i}").strip()
+                    nlab = str(x.get("label") or x.get("id") or "").strip()
+                    if not nid or not nlab or nid in node_ids:
+                        continue
+                    nodes_out.append({"id": nid, "label": nlab[:120]})
+                    node_ids.add(nid)
+                edges_out = []
+                for x in raw_path.get("edges") or []:
+                    if not isinstance(x, dict):
+                        continue
+                    src = str(x.get("source") or "").strip()
+                    tgt = str(x.get("target") or "").strip()
+                    if src not in node_ids or tgt not in node_ids:
+                        continue
+                    edge: dict[str, str] = {"source": src, "target": tgt}
+                    elab = str(x.get("label") or "").strip()[:120]
+                    if elab:
+                        edge["label"] = elab
+                    style = str(x.get("style") or "").strip().lower()
+                    if style in ("fail", "ok", "dashed"):
+                        edge["style"] = style
+                    edges_out.append(edge)
+                if len(nodes_out) < 2 or not edges_out:
+                    continue
+                path_obj: dict[str, Any] = {
+                    "id": pid,
+                    "label": plabel,
+                    "nodes": nodes_out,
+                    "edges": edges_out,
+                }
+                result = str(raw_path.get("result") or "").strip()
+                if result:
+                    path_obj["result"] = result[:240]
+                paths_out.append(path_obj)
+        if len(paths_out) >= 2:
+            b["paths"] = paths_out
+        else:
+            b["paths"] = None
 
     if b["type"] == "sequence_diagram":
         actors_out: list[str] = []
@@ -611,6 +682,7 @@ def _normalize_block_dict(raw: Any) -> dict[str, Any] | None:
         or b.get("faqs")
         or b.get("nodes")
         or b.get("actors")
+        or b.get("paths")
     )
     if b.get("items") and isinstance(b["items"], list):
         b["items"] = [

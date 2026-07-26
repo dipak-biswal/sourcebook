@@ -3,7 +3,9 @@ import {
   type AgentRun,
   type AgentStep,
   type AgentStreamHandlers,
+  type PresentationPanelReady,
   type PresentationSkeleton,
+  type SectionDraft,
 } from "@/api";
 import type { ExecutionTrace } from "@/api";
 import type {
@@ -32,6 +34,12 @@ type AgentLiveCallbacks = {
   }) => void;
   onLoopWarning?: (p: { message: string }) => void;
   onPresentationSkeleton?: (p: PresentationSkeleton) => void;
+  onPresentationPanelReady?: (p: PresentationPanelReady) => void;
+  onSectionDraft?: (p: SectionDraft) => void;
+  onSectionStreamComplete?: (p: {
+    section_count?: number;
+    sections?: SectionDraft[];
+  }) => void;
   onStatus?: (p: {
     status?: string;
     token_usage?: number | null;
@@ -155,6 +163,15 @@ export function makeAgentStreamHandlers(
     },
     onPresentationSkeleton: (p) => {
       cb.onPresentationSkeleton?.(p);
+    },
+    onPresentationPanelReady: (p) => {
+      cb.onPresentationPanelReady?.(p);
+    },
+    onSectionDraft: (p) => {
+      cb.onSectionDraft?.(p);
+    },
+    onSectionStreamComplete: (p) => {
+      cb.onSectionStreamComplete?.(p);
     },
     onDone: (final) => {
       onDoneExtra?.(final);

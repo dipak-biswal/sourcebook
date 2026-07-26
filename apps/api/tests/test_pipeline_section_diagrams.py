@@ -68,20 +68,33 @@ def test_apply_section_diagrams_replaces_only_matching_panels():
     new_spec, applied = _apply_section_diagrams_to_spec(spec, rendered)
     assert applied == 1
 
-    mcp_blocks = [b for b in new_spec["blocks"] if b.get("type") == "mcp_diagram"]
-    assert len(mcp_blocks) == 1
-    assert mcp_blocks[0]["diagram_kind"] == "tree"
-    assert mcp_blocks[0]["edit_url"] == "https://app.diagrams.net/?x=1"
+    # MCP augments the matching panel — does not replace with mcp_diagram type.
+    enriched = [
+        b
+        for b in new_spec["blocks"]
+        if isinstance(b.get("tags"), list)
+        and f"__section:{target_panel}" in b["tags"]
+    ]
+    assert len(enriched) == 1
+    assert enriched[0]["diagram_kind"] == "tree"
+    assert enriched[0]["edit_url"] == "https://app.diagrams.net/?x=1"
+    assert enriched[0]["type"] != "mcp_diagram" or enriched[0].get("mermaid")
 
-    # Every other block is untouched (same count, no other mcp_diagram).
+    # Same panel count; original teaching type preserved when it wasn't mcp.
     assert len(new_spec["blocks"]) == len(spec["blocks"])
-    other_original_types = {
-        b["type"] for b in spec["blocks"] if b.get("type") != "mcp_diagram"
-    }
-    other_new_types = {
-        b.get("type") for b in new_spec["blocks"] if b.get("type") != "mcp_diagram"
-    }
-    assert other_new_types <= other_original_types
+    original_target = next(
+        b
+        for b in spec["blocks"]
+        if isinstance(b.get("tags"), list)
+        and f"__section:{target_panel}" in b["tags"]
+    )
+    assert enriched[0]["type"] == original_target["type"]
+    # Non-target blocks keep their types.
+    for orig, new in zip(spec["blocks"], new_spec["blocks"], strict=False):
+        o_tags = orig.get("tags") or []
+        if f"__section:{target_panel}" in o_tags:
+            continue
+        assert orig.get("type") == new.get("type")
 
 
 def test_apply_section_diagrams_noop_when_nothing_rendered():

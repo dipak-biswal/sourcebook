@@ -6,6 +6,7 @@ import re
 from typing import Any
 
 from app.agents.visual_summary.blocks.gen_ui import (
+    ComparePath,
     DiagramEdge,
     DiagramNode,
     FaqItem,
@@ -68,6 +69,17 @@ def block_has_min_content(block: GenUIBlock) -> bool:
         return len((block.body or "").strip()) >= 8
     if t in ("callout", "quote"):
         return len((block.body or "").strip()) >= 12
+    if t == "flow_diagram":
+        return len(block.nodes or []) >= 2 and len(block.edges or []) >= 1
+    if t == "sequence_diagram":
+        return len(block.actors or []) >= 2 and len(block.messages or []) >= 1
+    if t == "compare_paths":
+        paths = block.paths or []
+        ok = 0
+        for p in paths:
+            if len(p.nodes or []) >= 2 and len(p.edges or []) >= 1:
+                ok += 1
+        return ok >= 2
     return True
 
 
@@ -383,8 +395,156 @@ def _diagram_edges(raw: Any, valid_ids: set[str]) -> list[DiagramEdge]:
         if key in seen:
             continue
         seen.add(key)
-        edges.append(DiagramEdge(source=src, target=tgt, label=label))
+        style = str(x.get("style") or "").strip().lower() or None
+        if style not in ("fail", "ok", "dashed", None):
+            style = None
+        edges.append(DiagramEdge(source=src, target=tgt, label=label, style=style))
     return edges[:20]
+
+
+def _chain_from_labels(labels: list[str], *, prefix: str) -> tuple[list[DiagramNode], list[DiagramEdge]]:
+    nodes: list[DiagramNode] = []
+    edges: list[DiagramEdge] = []
+    for i, lab in enumerate(labels[:6]):
+        nid = f"{prefix}{i}"
+        nodes.append(DiagramNode(id=nid, label=lab[:100]))
+        if i > 0:
+            edges.append(
+                DiagramEdge(source=f"{prefix}{i - 1}", target=nid, label=None)
+            )
+    return nodes, edges
+
+
+def _split_arrow_chain(text: str) -> list[str]:
+    if not re.search(r"→|->|⇒", text or ""):
+        return []
+    parts = re.split(r"\s*(?:→|->|⇒)\s*", text)
+    return [p.strip(" .;:") for p in parts if p.strip()]
+
+
+def _compare_paths_from_section(
+    sec: dict[str, Any],
+    local: dict[str, Any],
+) -> list[ComparePath] | None:
+    """Build dual paths (Without / With) from section prose, bullets, or tables."""
+    heading = str(sec.get("heading") or "")
+    body = str(sec.get("body") or "")
+    bullets = _str_list(sec.get("bullets"), limit=16)
+
+    without_labels: list[str] = []
+    with_labels: list[str] = []
+    without_result = ""
+    with_result = ""
+
+    # 1) Explicit arrow chains tagged Without / With
+    for text in [body, *bullets]:
+        low = text.lower()
+        chain = _split_arrow_chain(text)
+        if len(chain) < 2:
+            continue
+        if re.search(r"\bwithout\b", low):
+            without_labels = chain
+        elif re.search(r"\bwith\b", low) and "without" not in low:
+            with_labels = chain
+
+    # 2) Pipe rows: Without col | With col (after optional header)
+    pipe_rows = [b for b in bullets if b.count("|") >= 1]
+    for line in body.splitlines():
+        if line.count("|") >= 1 and not re.match(r"^[\s|:-]+$", line.strip()):
+            pipe_rows.append(line.strip())
+    data_rows: list[tuple[str, str]] = []
+    for row in pipe_rows:
+        cells = [c.strip() for c in row.split("|") if c.strip()]
+        if len(cells) < 2:
+            continue
+        left, right = cells[0], cells[1]
+        if re.search(r"\b(without|with|risk|result)\b", f"{left} {right}", re.I) and not re.search(
+            r"→|->|⇒|[a-z].*[a-z]", left, re.I
+        ):
+            # header-ish
+            continue
+        if re.fullmatch(r"[\s\-:]+", left) or re.fullmatch(r"[\s\-:]+", right):
+            continue
+        data_rows.append((left, right))
+
+    if data_rows and (not without_labels or not with_labels):
+        # First content row becomes chain steps if multi-clause; else single-step summary nodes
+        lefts = [r[0] for r in data_rows[:4]]
+        rights = [r[1] for r in data_rows[:4]]
+        if not without_labels:
+            without_labels = lefts if len(lefts) >= 2 else [
+                "Update DB",
+                "Publish message",
+                "Broker",
+            ]
+            if len(lefts) == 1:
+                without_result = lefts[0]
+                without_labels = ["Update DB", "Publish message", "Broker"]
+        if not with_labels:
+            with_labels = rights if len(rights) >= 2 else [
+                "Update DB + outbox",
+                "Outbox processor",
+                "Broker",
+            ]
+            if len(rights) == 1:
+                with_result = rights[0]
+                with_labels = ["Update DB + outbox", "Outbox processor", "Broker"]
+        if len(data_rows) >= 2:
+            without_result = without_result or data_rows[-1][0]
+            with_result = with_result or data_rows[-1][1]
+
+    # 3) Defaults when heading is Without vs With but no structure
+    if (not without_labels or not with_labels) and re.search(
+        r"\b(without|vs\.?|versus)\b", heading, re.I
+    ):
+        without_labels = without_labels or ["Update DB", "Publish message", "Broker"]
+        with_labels = with_labels or [
+            "Update DB + outbox",
+            "Outbox processor",
+            "Broker",
+        ]
+        if not without_result:
+            without_result = "DB updated, message may be lost"
+        if not with_result:
+            with_result = "Message delivered eventually"
+
+    if len(without_labels) < 2 or len(with_labels) < 2:
+        return None
+
+    w_nodes, w_edges = _chain_from_labels(without_labels, prefix="wo_")
+    # Fail the last edge on the without path when risk language is present.
+    blob = f"{heading}\n{body}\n" + "\n".join(bullets)
+    if w_edges and re.search(r"\b(lost|fail|risk|inconsist|drop|missing)\b", blob, re.I):
+        last = w_edges[-1]
+        w_edges[-1] = DiagramEdge(
+            source=last.source,
+            target=last.target,
+            label=last.label or "Failure!",
+            style="fail",
+        )
+        if not without_result:
+            without_result = "Message lost / inconsistent state"
+
+    y_nodes, y_edges = _chain_from_labels(with_labels, prefix="wi_")
+    if not with_result and re.search(r"\breliable|eventual|delivered|atomic\b", blob, re.I):
+        with_result = "Message delivered reliably"
+
+    return [
+        ComparePath(
+            id="without",
+            label="Without",
+            nodes=w_nodes,
+            edges=w_edges,
+            result=without_result[:240] or None,
+        ),
+        ComparePath(
+            id="with",
+            label="With",
+            nodes=y_nodes,
+            edges=y_edges,
+            result=with_result[:240] or None,
+        ),
+    ]
 
 
 def _sequence_actors_and_messages(
@@ -636,18 +796,88 @@ def assemble_block(
             if fb:
                 block = GenUIBlock(type="key_points", title=title or "Details", items=fb)
 
-    elif btype == "comparison" or hint == "comparisons":
-        items = _str_list(local.get("comparisons") or local.get("matrix_rows"))
-        if not items and sec is None:
-            items = _pipe_items_from_structured(structured, prefer_cols=3, include_levels=False)
-        if not items and sec is None:
-            items = _pipe_items_from_structured(structured, include_levels=False)
-        if items:
-            block = GenUIBlock(type="comparison", title=title or "Tradeoffs", items=items)
+    elif btype == "compare_paths" or hint == "compare_paths":
+        paths: list[ComparePath] | None = None
+        raw_paths = local.get("compare_paths") or structured.get("compare_paths")
+        if isinstance(raw_paths, dict) and isinstance(raw_paths.get("paths"), list):
+            raw_paths = raw_paths["paths"]
+        if isinstance(raw_paths, list):
+            paths = []
+            for i, p in enumerate(raw_paths[:4]):
+                if not isinstance(p, dict):
+                    continue
+                nodes = _diagram_nodes(p.get("nodes"))
+                valid = {n.id for n in nodes}
+                edges = _diagram_edges(p.get("edges"), valid)
+                if len(nodes) < 2 or not edges:
+                    continue
+                paths.append(
+                    ComparePath(
+                        id=str(p.get("id") or f"path_{i}"),
+                        label=str(p.get("label") or f"Path {i + 1}")[:80],
+                        nodes=nodes,
+                        edges=edges,
+                        result=(str(p.get("result") or "").strip()[:240] or None),
+                    )
+                )
+            if len(paths) < 2:
+                paths = None
+        if paths is None and sec is not None:
+            paths = _compare_paths_from_section(sec, local)
+        prose_items = _str_list(
+            local.get("key_points") or local.get("comparisons") or local.get("matrix_rows"),
+            limit=8,
+        )
+        if paths and len(paths) >= 2:
+            block = GenUIBlock(
+                type="compare_paths",
+                title=title or "Without vs With",
+                paths=paths,
+                items=prose_items or None,
+            )
         elif sec is not None:
-            fb = _str_list(local.get("key_points") or local.get("ordered_actions"))
-            if fb:
-                block = GenUIBlock(type="key_points", title=title or "Comparison", items=fb)
+            # Fall back to comparison table / key points
+            items = prose_items or _str_list(local.get("comparisons") or local.get("matrix_rows"))
+            if items:
+                block = GenUIBlock(
+                    type="comparison" if any("|" in i for i in items) else "key_points",
+                    title=title or "Comparison",
+                    items=items,
+                )
+
+    elif btype == "comparison" or hint == "comparisons":
+        # Prefer dual-path diagram for Without vs With study sections.
+        if sec is not None and re.search(
+            r"\b(without|vs\.?|versus|with\s+vs)\b",
+            str(sec.get("heading") or ""),
+            re.I,
+        ):
+            paths = _compare_paths_from_section(sec, local)
+            if paths and len(paths) >= 2:
+                prose_items = _str_list(
+                    local.get("key_points")
+                    or local.get("comparisons")
+                    or local.get("matrix_rows"),
+                    limit=8,
+                )
+                block = GenUIBlock(
+                    type="compare_paths",
+                    title=title or "Without vs With",
+                    paths=paths,
+                    items=prose_items or None,
+                )
+        if block is None:
+            items = _str_list(local.get("comparisons") or local.get("matrix_rows"))
+            if not items and sec is None:
+                items = _pipe_items_from_structured(structured, prefer_cols=3, include_levels=False)
+            if not items and sec is None:
+                items = _pipe_items_from_structured(structured, include_levels=False)
+            if items:
+                block = GenUIBlock(type="comparison", title=title or "Tradeoffs", items=items)
+            elif sec is not None:
+                fb = _str_list(local.get("key_points") or local.get("ordered_actions"))
+                if fb:
+                    block = GenUIBlock(type="key_points", title=title or "Comparison", items=fb)
 
     elif btype == "progress" or hint == "levels":
         items = _levels_items(local if sec is not None else structured)
@@ -701,12 +931,24 @@ def assemble_block(
         nodes = _diagram_nodes(pf.get("nodes"))
         valid_ids = {n.id for n in nodes}
         edges = _diagram_edges(pf.get("edges"), valid_ids)
+        # Prose companion so study panels keep bullets alongside the figure.
+        prose_items = _str_list(
+            local.get("key_points") or local.get("ordered_actions"), limit=8
+        )
+        prose_body = str(local.get("summary") or "").strip()[:600] or None
         if len(nodes) >= 2 and edges:
             block = GenUIBlock(
-                type="flow_diagram", title=title or "How it works", nodes=nodes, edges=edges
+                type="flow_diagram",
+                title=title or "How it works",
+                nodes=nodes,
+                edges=edges,
+                items=prose_items or None,
+                body=prose_body if not prose_items else None,
             )
         elif sec is not None:
-            fb = _str_list(local.get("ordered_actions") or local.get("key_points"))
+            fb = prose_items or _str_list(
+                local.get("ordered_actions") or local.get("key_points")
+            )
             if fb:
                 block = GenUIBlock(type="steps", title=title or "Flow", items=fb)
 
@@ -717,9 +959,18 @@ def assemble_block(
         actors, messages = _sequence_actors_and_messages(
             seq.get("actors"), seq.get("messages")
         )
+        prose_items = _str_list(
+            local.get("key_points") or local.get("ordered_actions"), limit=8
+        )
+        prose_body = str(local.get("summary") or "").strip()[:600] or None
         if len(actors) >= 2 and messages:
             block = GenUIBlock(
-                type="sequence_diagram", title=title or "Sequence", actors=actors, messages=messages
+                type="sequence_diagram",
+                title=title or "Sequence",
+                actors=actors,
+                messages=messages,
+                items=prose_items or None,
+                body=prose_body if not prose_items else None,
             )
         elif sec is not None:
             pf = local.get("process_flow") or {}
@@ -732,9 +983,13 @@ def assemble_block(
                     title=title or "End-to-end",
                     nodes=nodes,
                     edges=edges,
+                    items=prose_items or None,
+                    body=prose_body if not prose_items else None,
                 )
             else:
-                fb = _str_list(local.get("ordered_actions") or local.get("key_points"))
+                fb = prose_items or _str_list(
+                    local.get("ordered_actions") or local.get("key_points")
+                )
                 if fb:
                     block = GenUIBlock(type="steps", title=title or "End-to-end", items=fb)
 
@@ -834,7 +1089,8 @@ def assemble_blocks(
                 continue
         explicit = entry.get("width")
         width = explicit if explicit in ("full", "half") else block_width(assembled)
-        if entry.get("section_index") is not None:
+        # Study-sheet outline may set half for denser boards; honor it.
+        if entry.get("section_index") is not None and explicit not in ("full", "half"):
             width = "full"
         assembled = assembled.model_copy(update={"width": width})
         # Ensure panel chrome tag survives model_copy(width=…).

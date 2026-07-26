@@ -304,6 +304,13 @@ def resume_after_context_answers(
     if collected_block:
         system = f"{system.rstrip()}\n\n{collected_block}"
         run._collected_context = snapshot  # type: ignore[attr-defined]
+    cur_meta = (
+        (run.run_options or {}).get("curriculum")
+        if isinstance(run.run_options, dict)
+        else None
+    )
+    if isinstance(cur_meta, dict) and cur_meta.get("context_block"):
+        system = f"{system.rstrip()}\n\n{cur_meta['context_block']}"
 
     human = curated_goal
     if snapshot.urls and "http" not in human.lower():

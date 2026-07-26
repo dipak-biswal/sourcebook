@@ -21,6 +21,7 @@ import {
   toggleTagInInput,
   WORKSPACE_DESCRIPTION_TEMPLATE,
 } from "./workspace-tags";
+import { WorkspaceCurriculumPanel } from "./WorkspaceCurriculumPanel";
 
 export function SettingsWorkspaces() {
   const {
@@ -202,6 +203,10 @@ export function SettingsWorkspaces() {
                         {ws.tags.join(" · ")}
                       </p>
                     )}
+                    <WorkspaceCurriculumPanel
+                      workspaceId={ws.id}
+                      workspaceName={ws.name}
+                    />
                   </div>
                   {ws.role === "owner" && (
                     <div className="flex shrink-0 gap-0.5">

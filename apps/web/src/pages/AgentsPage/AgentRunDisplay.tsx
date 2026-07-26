@@ -4,6 +4,7 @@ import {
   AlertTriangle,
   Loader2,
   MessageCircle,
+  RefreshCw,
   Sparkles,
   XCircle,
 } from "lucide-react";
@@ -71,10 +72,14 @@ export function AgentRunDisplay() {
     activeToolCalls,
     loopWarning,
     liveSkeleton,
+    liveVisualProgress,
+    liveSections,
     approving,
     cancelling,
+    rebuildingVisual,
     onApprove,
     onCancelRun,
+    onRebuildVisual,
     onSaveLearningNote,
     savingNote,
     workspaceId,
@@ -106,13 +111,38 @@ export function AgentRunDisplay() {
     !!selected.pending_tool &&
     !presentationPending &&
     !questionsPending;
-  // Visual phase in flight: plan outline arrived, spec not yet rendered.
-  const buildingVisual = (running || approving) && !!liveSkeleton;
+  // Visual phase / early visual: skeleton until first panel, then progressive gen.
+  const buildingVisual =
+    (running || approving) && !!liveSkeleton && !gen;
+  const streamingVisual =
+    (running || approving) &&
+    !!gen &&
+    (liveVisualProgress
+      ? liveVisualProgress.ready < liveVisualProgress.expected
+      : running && liveSections.length > 0);
   const [activeTab, setActiveTab] = useState<TabKey>(running ? "trace" : "answer");
 
+  // Main agent: Trace → Answer (sections) → Visual (early panels) as they arrive.
+  // Visual phase (approve): Trace until first panel, then Visual.
   useEffect(() => {
-    if (running || approving) setActiveTab("trace");
-  }, [running, approving]);
+    if (running && !approving) {
+      if (gen) {
+        setActiveTab("visual");
+      } else if (liveSections.length > 0) {
+        setActiveTab("answer");
+      } else {
+        setActiveTab("trace");
+      }
+      return;
+    }
+    if (approving && gen) {
+      setActiveTab("visual");
+      return;
+    }
+    if (approving && !gen) {
+      setActiveTab("trace");
+    }
+  }, [running, approving, !!gen, liveSections.length]);
 
   // When the run pauses for HITL, keep the user on Trace (where they already
   // are) but the sticky approval banner is always visible above the tabs.
@@ -238,21 +268,29 @@ export function AgentRunDisplay() {
         <div className="flex items-center gap-1 border-t border-hairline bg-canvas-soft/50 px-4 py-2">
           <TabButton
             active={activeTab === "answer"}
-            disabled={running}
+            disabled={running && liveSections.length === 0}
             icon={MessageCircle}
             label={
               selected?.status === "waiting_approval" && !presentationPending
                 ? "Status"
-                : "Answer"
+                : liveSections.length > 0 && running
+                  ? `Answer (${liveSections.length})`
+                  : "Answer"
             }
             onClick={() => setActiveTab("answer")}
           />
-          {(gen || buildingVisual) && (
+          {(gen || buildingVisual || (running && liveSkeleton)) && (
             <TabButton
               active={activeTab === "visual"}
-              disabled={running && !buildingVisual && !gen}
+              disabled={running && !buildingVisual && !gen && !liveSkeleton}
               icon={Sparkles}
-              label={buildingVisual && !gen ? "Visual summary…" : "Visual summary"}
+              label={
+                buildingVisual && !gen
+                  ? "Visual summary…"
+                  : gen && running
+                    ? "Visual summary…"
+                    : "Visual summary"
+              }
               onClick={() => setActiveTab("visual")}
             />
           )}
@@ -263,6 +301,46 @@ export function AgentRunDisplay() {
             onClick={() => setActiveTab("trace")}
           />
         </div>
+
+        {activeTab === "answer" && running && liveSections.length > 0 && (
+          <div className="space-y-3 px-4 py-3">
+            <div className="flex items-center gap-2 text-[11px] text-mute">
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              Writing study sections… {liveSections.length} ready
+            </div>
+            {liveSections.map((sec) => (
+              <div
+                key={sec.index ?? sec.heading}
+                className="rounded-[10px] border border-hairline bg-canvas-soft px-3 py-2.5"
+              >
+                <div className="mb-1.5 flex items-center gap-2">
+                  <span className="inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-ink px-1 text-[10px] font-bold text-[var(--canvas)]">
+                    {sec.index ?? "·"}
+                  </span>
+                  <span className="text-xs font-semibold text-ink">
+                    {sec.title || sec.heading || "Section"}
+                  </span>
+                </div>
+                {sec.body ? (
+                  <p className="text-xs leading-relaxed text-body">{sec.body}</p>
+                ) : null}
+                {sec.bullets && sec.bullets.length > 0 && (
+                  <ul className="mt-1.5 space-y-1">
+                    {sec.bullets.map((b, j) => (
+                      <li
+                        key={j}
+                        className="flex gap-2 text-xs leading-relaxed text-body"
+                      >
+                        <span className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-ink" />
+                        {b}
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
 
         {activeTab === "answer" && !running && (
           <div className="px-4 py-3">
@@ -280,7 +358,34 @@ export function AgentRunDisplay() {
         )}
 
         {activeTab === "visual" && gen && (
-          <div className="p-4">
+          <div className="p-4 space-y-3">
+            {streamingVisual && liveVisualProgress && (
+              <div className="flex items-center gap-2 rounded-[8px] border border-hairline bg-canvas-soft px-3 py-2 text-[11px] text-mute">
+                <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin" />
+                <span>
+                  Building sections… {liveVisualProgress.ready} of{" "}
+                  {liveVisualProgress.expected} ready
+                </span>
+              </div>
+            )}
+            {!running &&
+              !approving &&
+              !rebuildingVisual &&
+              selected?.status === "completed" &&
+              (selected.final_answer || "").trim().length >= 40 && (
+                <div className="flex justify-end">
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="secondary"
+                    className="h-7 gap-1 text-[11px]"
+                    onClick={() => onRebuildVisual()}
+                  >
+                    <RefreshCw className="h-3 w-3" strokeWidth={1.5} />
+                    Rebuild visual
+                  </Button>
+                </div>
+              )}
             {/* Isolate render errors so a bad block cannot blank the whole Agents page. */}
             <ErrorBoundary>
               <GenerativeUIView
@@ -299,6 +404,33 @@ export function AgentRunDisplay() {
             <GenerativeUISkeleton skeleton={liveSkeleton} />
           </div>
         )}
+
+        {activeTab === "visual" &&
+          !gen &&
+          !buildingVisual &&
+          !running &&
+          !approving &&
+          selected?.status === "completed" &&
+          (selected.final_answer || "").trim().length >= 40 && (
+            <div className="flex flex-col items-center gap-3 px-4 py-10 text-center">
+              <p className="text-sm text-mute">
+                No visual board yet for this answer.
+              </p>
+              <Button
+                type="button"
+                size="sm"
+                disabled={rebuildingVisual}
+                onClick={() => onRebuildVisual()}
+              >
+                {rebuildingVisual ? (
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                ) : (
+                  <Sparkles className="h-3.5 w-3.5" strokeWidth={1.5} />
+                )}
+                Build visual summary
+              </Button>
+            </div>
+          )}
 
         {activeTab === "trace" && (
           <AgentTraceTree

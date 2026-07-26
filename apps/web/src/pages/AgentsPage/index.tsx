@@ -8,17 +8,21 @@ import { useAgentPage } from "./agent-page-context";
 import { AgentSidebar } from "./AgentSidebar";
 import { AgentRunForm } from "./AgentRunForm";
 import { AgentRunDisplay } from "./AgentRunDisplay";
+import { TopicCatalog } from "./TopicCatalog";
 
 function AgentsPageInner() {
   const {
     runs,
     error,
     sidebarOpen,
+    running,
+    workspaceId,
     onToggleSidebar,
     onSidebarClose,
     onDismissError,
     onRetryError,
     onLogout,
+    onRunTopic,
   } = useAgentPage();
 
   return (
@@ -63,6 +67,13 @@ function AgentsPageInner() {
               />
             )}
 
+            {workspaceId ? (
+              <TopicCatalog
+                workspaceId={workspaceId}
+                disabled={running}
+                onStartTopic={onRunTopic}
+              />
+            ) : null}
             <AgentRunForm />
           </div>
 

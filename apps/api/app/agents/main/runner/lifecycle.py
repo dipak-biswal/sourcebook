@@ -79,6 +79,7 @@ def run_agent(
     max_steps: int = 5,
     agent_type: str = "general",
     enabled_mcp_ids: list[str] | None = None,
+    curriculum_meta: dict | None = None,
     on_event: EventCallback = None,
 ) -> AgentRun:
     """
@@ -100,7 +101,9 @@ def run_agent(
         for x in (enabled_mcp_ids or [])
         if str(x).strip()
     ]
-    run_options = {"enabled_mcp_ids": mcp_ids} if mcp_ids else {"enabled_mcp_ids": []}
+    run_options: dict = {"enabled_mcp_ids": mcp_ids}
+    if isinstance(curriculum_meta, dict) and curriculum_meta:
+        run_options["curriculum"] = curriculum_meta
 
     run = AgentRun(
         workspace_id=workspace_id,
@@ -179,6 +182,14 @@ def run_agent(
         f"{system.rstrip()}\n\n"
         f"{format_run_tool_policy_block(allow_web=allow_web, require_date=require_date, ready_doc_count=len(packet.evidence.documents_ready or []), allow_fetch_url=allow_fetch)}"
     )
+    # Curriculum topic selection (Agents page topic cards).
+    cur_meta = (
+        (run.run_options or {}).get("curriculum")
+        if isinstance(run.run_options, dict)
+        else None
+    )
+    if isinstance(cur_meta, dict) and cur_meta.get("context_block"):
+        system = f"{system.rstrip()}\n\n{cur_meta['context_block']}"
     # Persist for resume / process restart consistency.
     opts = dict(run.run_options or {}) if isinstance(run.run_options, dict) else {}
     opts["tool_policy"] = {
@@ -353,6 +364,91 @@ def _run_visual_summary_agent(
         initial_token_usage=int(run.token_usage or 0),
     )
     return completed
+
+
+def rebuild_visual_summary(
+    db: Session,
+    run: AgentRun,
+    *,
+    enabled_mcp_ids: list[str] | None = None,
+    on_event: EventCallback = None,
+) -> AgentRun:
+    """
+    Rebuild Visual Summary for a completed run that already has a final answer.
+
+    Clears any early/partial presentation_spec and re-runs the full visual
+    pipeline (plan → progressive render → optional MCP). Used from the UI
+    "Rebuild visual" control — no presentation HITL gate.
+    """
+    answer = (run.final_answer or "").strip()
+    if run.status not in ("completed", "failed"):
+        raise ValueError(
+            f"Can only rebuild visual for completed runs (status={run.status})"
+        )
+    if not answer or len(answer) < 40 or answer in ("(no final answer)",):
+        raise ValueError("This run has no substantive answer to visualize")
+    if run.pending_tool:
+        raise ValueError("Run is waiting for approval — resolve that first")
+
+    if enabled_mcp_ids is not None:
+        mcp_ids = [str(x).strip() for x in enabled_mcp_ids if str(x).strip()]
+        opts = dict(run.run_options or {}) if isinstance(run.run_options, dict) else {}
+        opts["enabled_mcp_ids"] = mcp_ids
+        run.run_options = opts
+
+    # Full rebuild — drop early visual / prior board.
+    run.presentation_spec = None
+    run.error = None
+    run.status = "running"
+    run.pending_tool = None
+    db.commit()
+    db.refresh(run)
+
+    step_index = _next_step_index(db, run.id)
+    trace_live = LiveTraceContext()
+    run._trace_live = trace_live  # type: ignore[attr-defined]
+    trace_live.visual_agent_active = True
+    _emit(
+        on_event,
+        "status",
+        run_id=str(run.id),
+        status="running",
+        final_answer=run.final_answer,
+        message="Rebuilding visual summary",
+    )
+    _append_step(
+        db,
+        run,
+        step_index=step_index,
+        type="tool_call",
+        tool_name="rebuild_visual",
+        input={"goal": (run.goal or "")[:200], "reason": "user_rebuild"},
+        on_event=on_event,
+    )
+    step_index += 1
+    result = _run_visual_summary_agent(
+        db,
+        run,
+        step_index=step_index,
+        on_event=on_event,
+        trace_live=trace_live,
+    )
+    # Ensure terminal status if pipeline left it running with a spec.
+    if result.status == "running" and result.presentation_spec:
+        result.status = "completed"
+        result.pending_tool = None
+        db.commit()
+        db.refresh(result)
+    _emit(
+        on_event,
+        "status",
+        run_id=str(result.id),
+        status=result.status,
+        presentation_spec=result.presentation_spec,
+        final_answer=result.final_answer,
+        error=result.error,
+    )
+    return result
 
 
 def approve_agent_run(

@@ -18,6 +18,14 @@ export function parseApiErrorBody(text: string, status: number): string {
   try {
     const parsed = JSON.parse(trimmed) as { detail?: unknown };
     if (typeof parsed.detail === "string") return parsed.detail;
+    if (
+      parsed.detail &&
+      typeof parsed.detail === "object" &&
+      !Array.isArray(parsed.detail) &&
+      "message" in parsed.detail
+    ) {
+      return String((parsed.detail as { message: string }).message);
+    }
     if (Array.isArray(parsed.detail)) {
       return parsed.detail
         .map((item) => {

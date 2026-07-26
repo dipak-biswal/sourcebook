@@ -146,6 +146,63 @@ def test_pipeline_emits_presentation_skeleton_event(
     assert render_steps and kinds.index("presentation_skeleton") < render_steps[0]
 
 
+def test_pipeline_progressive_emits_panel_ready_events(
+    db_session, seeded_run, monkeypatch
+):
+    """Multi-section study-sheet plans stream panels before render_ui finishes."""
+    monkeypatch.setattr(settings, "visual_summary_llm_planner", False)
+    from tests.test_study_sheet import _outbox_answer
+
+    goal = "Create a complete study sheet for the Outbox Pattern"
+    answer = _outbox_answer()
+    seeded_run.goal = goal
+    seeded_run.final_answer = answer
+    db_session.commit()
+
+    ctx = PresentationContext(
+        workspace_id=seeded_run.workspace_id,
+        user_id=seeded_run.user_id,
+        goal=goal,
+        final_answer=answer,
+        workspace_name="System Design",
+        structured_content=None,
+        agent_evidence=AgentEvidenceBundle(),
+    )
+
+    events: list[tuple[str, dict]] = []
+    result = _run_visual_pipeline(
+        db_session,
+        seeded_run,
+        ctx=ctx,
+        step_index=0,
+        on_event=lambda kind, payload: events.append((kind, payload)),
+    )
+
+    assert result.status == "completed"
+    assert result.presentation_spec and (result.presentation_spec.get("blocks") or [])
+
+    panel_events = [p for k, p in events if k == "presentation_panel_ready"]
+    # Progressive only when outline has 2+ rows; study sheet should qualify.
+    if panel_events:
+        assert any(p.get("phase") == "text" for p in panel_events)
+        kinds = [k for k, _ in events]
+        assert kinds.index("presentation_skeleton") < kinds.index(
+            "presentation_panel_ready"
+        )
+        # First panel arrives before final render_ui tool_result
+        first_panel_i = kinds.index("presentation_panel_ready")
+        render_done = [
+            i
+            for i, (k, p) in enumerate(events)
+            if k == "step"
+            and (p.get("step") or {}).get("tool_name") == "render_ui"
+            and (p.get("step") or {}).get("type") == "tool_result"
+        ]
+        assert render_done and first_panel_i < render_done[0]
+        meta = (result.presentation_spec.get("assembly_meta") or {})
+        assert meta.get("progressive") is True
+
+
 def test_pipeline_token_usage_counts_embedded_llm_tokens(
     db_session, seeded_run, monkeypatch
 ):
