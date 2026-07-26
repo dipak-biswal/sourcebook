@@ -92,6 +92,10 @@ export type DrawioMeta = {
   reason?: string;
   detail?: string;
   png_error?: string;
+  /** mcp_stdio when real @drawio/mcp succeeded; local_fallback otherwise. */
+  source?: string;
+  mcp_tool?: string;
+  mcp_error?: string;
 };
 
 export type GenerativeUIPayload = {

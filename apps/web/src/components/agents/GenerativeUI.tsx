@@ -1128,8 +1128,15 @@ export function GenerativeUIView({
             <div className="min-w-0 flex-1">
               <p className="text-sm font-semibold text-ink">Diagram</p>
               <p className="text-[11px] text-mute">
-                PNG rendered from Mermaid
+                {drawio?.source === "mcp_stdio"
+                  ? "draw.io MCP (open_drawio_mermaid)"
+                  : drawio?.source === "local_fallback"
+                    ? "Mermaid export (MCP fallback)"
+                    : "Mermaid → PNG"}
                 {drawio?.diagram_kind ? ` · ${drawio.diagram_kind}` : ""}
+                {drawio?.mcp_error
+                  ? ` · MCP: ${String(drawio.mcp_error).slice(0, 80)}`
+                  : ""}
               </p>
             </div>
             {typeof drawio?.edit_url === "string" && drawio.edit_url && (

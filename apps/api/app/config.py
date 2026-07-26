@@ -130,14 +130,21 @@ class Settings(BaseSettings):
     # Throttle last_seen_at writes on authenticated requests (seconds).
     monitoring_seen_throttle_seconds: int = 300
 
-    # MCP (Model Context Protocol) connectors — catalog + future runtime.
+    # MCP (Model Context Protocol) connectors.
     # Master switch; individual servers also need their own enable flag.
+    # When true + mcp_drawio_enabled, Agents MCP menu defaults draw.io ON.
     mcp_enabled: bool = False
     # draw.io MCP (`npx -y @drawio/mcp`) — free local diagram tooling.
     mcp_drawio_enabled: bool = False
+    # Spawn real stdio MCP process (set false in CI / sandboxes without Node).
+    mcp_drawio_spawn: bool = True
+    # How long to wait for initialize + tools/call (npx may download on first run).
+    mcp_drawio_timeout_seconds: float = 60.0
     # Optional override for how the draw.io MCP process is started.
     mcp_drawio_command: str = "npx"
     mcp_drawio_args: str = "-y,@drawio/mcp"  # comma-separated args
+    # Self-hosted draw.io base URL (must end with / preferred).
+    drawio_base_url: str = "https://app.diagrams.net/"
 
     # Redis / RQ background ingest
     # Local Redis: redis://127.0.0.1:6379/0

@@ -64,29 +64,40 @@ def _pipeline(
 
 
 def _mcp_drawio() -> dict[str, Any]:
-    """draw.io MCP — free local server via `npx @drawio/mcp`.
+    """draw.io MCP — real stdio server via `npx @drawio/mcp`.
 
     Always listed as *available* (no paid plan). Server flags only set whether
     it is on by default for this deploy (`enabled_by_default`).
+
+    When the user enables this connector on a run, Visual Summary spawns the
+    official MCP process and calls ``open_drawio_mermaid`` (falls back to a
+    local diagrams.net URL if Node/npx is unavailable).
     """
     server_on = bool(settings.mcp_enabled and settings.mcp_drawio_enabled)
+    spawn_on = bool(getattr(settings, "mcp_drawio_spawn", True))
     return {
         "id": "mcp_drawio",
         "name": "draw.io",
         "description": (
-            "When on, Visual Summary adds a Mermaid export and Open in draw.io "
-            "link after layout/render (free; npx @drawio/mcp when available)."
+            "When on, Visual Summary runs the official draw.io MCP server "
+            "(`npx -y @drawio/mcp`) and calls open_drawio_mermaid after layout/"
+            "render. Falls back to a local edit URL if the process is unavailable."
         ),
         "kind": "mcp",
         "status": "available",
         "enabled_by_default": server_on,
         "phase": "visual",
-        "tool_names": ["mcp_drawio"],
+        "tool_names": ["mcp_drawio", "open_drawio_mermaid"],
         "requires_approval": False,
         "icon": "diagram",
         "provider": "draw.io",
-        "install_hint": "npx -y @drawio/mcp",
+        "install_hint": "npx -y @drawio/mcp  (requires Node.js 18+)",
         "docs_url": "https://www.drawio.com/docs/manual/generate/drawio-mcp-server/",
+        "runtime": {
+            "spawn": spawn_on,
+            "command": getattr(settings, "mcp_drawio_command", "npx"),
+            "args": getattr(settings, "mcp_drawio_args", "-y,@drawio/mcp"),
+        },
     }
 
 

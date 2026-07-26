@@ -1,25 +1,36 @@
-"""draw.io export connector for the Visual Summary phase.
+"""draw.io connector for the Visual Summary phase.
 
 When the user enables ``mcp_drawio`` on the Agents page, the visual pipeline
 calls this module after ``render_ui`` to:
 
-1. Build Mermaid from structured process_flow / interaction_sequence
-2. Produce a diagrams.net edit URL
+1. Build Mermaid from structured process_flow / interaction_sequence / steps
+2. Prefer a **real MCP stdio session** to ``npx -y @drawio/mcp`` and call
+   ``open_drawio_mermaid`` (official draw.io MCP tool)
+3. Fall back to a local diagrams.net create-URL + mermaid.ink PNG if the MCP
+   process is unavailable (no Node, npx timeout, cloud sandbox, etc.)
 
-Despite the connector id, this does not speak the Model Context Protocol —
-it is plain code that builds a Mermaid diagram and links out to
-diagrams.net/mermaid.ink. The agent still uses Sourcebook's generative UI
-blocks; draw.io is an extra export/edit path when the toggle is on.
+The main research agent does not call draw.io mid-run — this is a visual-phase
+export path, matching the connector catalog phase=visual.
 """
 
 from __future__ import annotations
 
 import base64
+import logging
 import re
 import urllib.parse
 from typing import Any
 
 import httpx
+
+from app.mcp.stdio_client import (
+    McpStdioClient,
+    McpStdioError,
+    extract_urls,
+    parse_tool_text_content,
+)
+
+logger = logging.getLogger(__name__)
 
 # Cap embedded PNG size so presentation_spec stays free-tier friendly.
 _MAX_PNG_BYTES = 1_500_000
@@ -210,15 +221,147 @@ def mermaid_from_presentation_spec(
 
 
 def drawio_edit_url(mermaid: str, *, title: str = "Sourcebook diagram") -> str:
-    """Build a diagrams.net URL that opens with Mermaid create payload."""
-    # data URL + create= is what many draw.io MCP open_* tools effectively use.
+    """Build a diagrams.net URL that opens with Mermaid create payload (fallback)."""
+    # Lightweight fallback when the MCP process is not available. The official
+    # MCP server uses pako deflateRaw + #create= JSON; this simpler path still
+    # opens Mermaid in draw.io for most diagrams.
     encoded = urllib.parse.quote(mermaid, safe="")
     title_q = urllib.parse.quote(title[:80] or "Sourcebook diagram")
+    base = _drawio_base_url()
     return (
-        "https://app.diagrams.net/"
+        f"{base}"
         f"?splash=0&libs=general&title={title_q}"
         f"#create=data:text/plain,{encoded}"
     )
+
+
+def _drawio_base_url() -> str:
+    try:
+        from app.config import settings
+
+        base = (getattr(settings, "drawio_base_url", None) or "").strip()
+        if base:
+            return base if base.endswith("/") else f"{base}/"
+    except Exception:
+        pass
+    return "https://app.diagrams.net/"
+
+
+def _mcp_command() -> list[str]:
+    """Resolve argv for the draw.io MCP stdio server from settings."""
+    try:
+        from app.config import settings
+
+        cmd = (settings.mcp_drawio_command or "npx").strip() or "npx"
+        raw_args = (settings.mcp_drawio_args or "-y,@drawio/mcp").strip()
+        args = [a.strip() for a in raw_args.split(",") if a.strip()]
+        if not args:
+            args = ["-y", "@drawio/mcp"]
+        return [cmd, *args]
+    except Exception:
+        return ["npx", "-y", "@drawio/mcp"]
+
+
+def _mcp_timeout() -> float:
+    try:
+        from app.config import settings
+
+        return float(getattr(settings, "mcp_drawio_timeout_seconds", 45) or 45)
+    except Exception:
+        return 45.0
+
+
+def _mcp_process_enabled() -> bool:
+    """Whether to spawn the real @drawio/mcp process (can be disabled in CI)."""
+    try:
+        from app.config import settings
+
+        return bool(getattr(settings, "mcp_drawio_spawn", True))
+    except Exception:
+        return True
+
+
+def call_drawio_mcp_open_mermaid(mermaid: str) -> dict[str, Any]:
+    """
+    Spawn ``@drawio/mcp`` over stdio and call ``open_drawio_mermaid``.
+
+    Returns a dict with status, edit_url (if any), tool_text, tools, error.
+    Does not raise — callers fall back to local URL generation.
+    """
+    if not mermaid.strip():
+        return {"status": "error", "error": "empty_mermaid"}
+    if not _mcp_process_enabled():
+        return {"status": "skipped", "error": "mcp_spawn_disabled"}
+
+    command = _mcp_command()
+    timeout = _mcp_timeout()
+    env = {
+        "DRAWIO_BASE_URL": _drawio_base_url(),
+        # On headless servers browser open is pointless; MCP still returns URL.
+        "BROWSER": "echo",
+        "DISPLAY": "",
+    }
+    try:
+        with McpStdioClient(command, timeout=timeout, env=env) as client:
+            init = client.initialize(client_name="sourcebook", client_version="0.1.0")
+            tools = client.list_tools()
+            tool_names = [str(t.get("name") or "") for t in tools]
+            preferred = "open_drawio_mermaid"
+            if preferred not in tool_names:
+                # Some forks may rename tools — try a fuzzy match.
+                for n in tool_names:
+                    if "mermaid" in n.lower() and "open" in n.lower():
+                        preferred = n
+                        break
+                else:
+                    return {
+                        "status": "error",
+                        "error": "open_drawio_mermaid_not_found",
+                        "tools": tool_names,
+                        "server": (init or {}).get("serverInfo"),
+                    }
+            result = client.call_tool(
+                preferred,
+                {"content": mermaid, "lightbox": False, "dark": "auto"},
+                timeout=timeout,
+            )
+            text = parse_tool_text_content(result)
+            urls = extract_urls(text)
+            is_error = bool(result.get("isError"))
+            if is_error:
+                return {
+                    "status": "error",
+                    "error": text[:400] or "tool_isError",
+                    "tools": tool_names,
+                    "tool_text": text[:800],
+                }
+            edit_url = urls[0] if urls else None
+            if not edit_url:
+                return {
+                    "status": "error",
+                    "error": "no_url_in_mcp_response",
+                    "tool_text": text[:800],
+                    "tools": tool_names,
+                }
+            return {
+                "status": "ok",
+                "edit_url": edit_url,
+                "tool_text": text[:800],
+                "tools": tool_names,
+                "tool_name": preferred,
+                "server": (init or {}).get("serverInfo"),
+                "source": "mcp_stdio",
+            }
+    except McpStdioError as e:
+        logger.warning("draw.io MCP stdio failed: %s", e)
+        return {"status": "error", "error": str(e)[:500], "source": "mcp_stdio"}
+    except Exception as e:
+        logger.exception("draw.io MCP unexpected failure")
+        return {
+            "status": "error",
+            "error": f"{type(e).__name__}: {e}"[:500],
+            "source": "mcp_stdio",
+        }
 
 
 def mermaid_encode(mermaid: str) -> str:
@@ -295,8 +438,10 @@ def run_drawio_mcp_for_visual(
     """
     Produce draw.io connector output for the visual summary.
 
-    Prefer structured handoff → rendered UI blocks → goal fallback.
-    Always returns a tool-result shaped dict (success or soft skip).
+    1. Build Mermaid from structured handoff / rendered UI / goal fallback
+    2. Call real ``@drawio/mcp`` via stdio when spawn is enabled
+    3. Always render a PNG preview (mermaid.ink) for the Visual tab
+    4. Soft-fail with skipped/error details — never raise into the visual pipeline
     """
     mermaid, kind = mermaid_from_structured(structured)
     if not mermaid:
@@ -325,12 +470,23 @@ def run_drawio_mcp_for_visual(
         }
 
     title = (goal or "Sourcebook diagram").strip()[:80] or "Sourcebook diagram"
-    edit_url = drawio_edit_url(mermaid, title=title)
+    mcp_meta = call_drawio_mcp_open_mermaid(mermaid)
+    if mcp_meta.get("status") == "ok" and mcp_meta.get("edit_url"):
+        edit_url = str(mcp_meta["edit_url"])
+        source = "mcp_stdio"
+        mcp_tool = mcp_meta.get("tool_name") or "open_drawio_mermaid"
+        mcp_error = None
+    else:
+        edit_url = drawio_edit_url(mermaid, title=title)
+        source = "local_fallback"
+        mcp_tool = None
+        mcp_error = mcp_meta.get("error")
+
     png = render_mermaid_png(mermaid)
     # Prefer embedded data URI for reliable display in the Visual Summary tab.
     preview_url = png.get("png_data_url") or png.get("png_url")
 
-    result: dict[str, Any] = {
+    return {
         "status": "ok",
         "provider": "draw.io",
         "connector_id": "mcp_drawio",
@@ -342,9 +498,12 @@ def run_drawio_mcp_for_visual(
         "png_data_url": png.get("png_data_url"),
         "png_bytes": png.get("png_bytes"),
         "png_error": png.get("error"),
-        "source": "sourcebook_drawio_mcp",
+        "source": source,
+        "mcp_tool": mcp_tool,
+        "mcp_error": mcp_error,
+        "mcp_tools": mcp_meta.get("tools"),
+        "mcp_server": mcp_meta.get("server"),
     }
-    return result
 
 
 def attach_drawio_to_spec(spec: dict[str, Any], drawio_result: dict[str, Any]) -> dict[str, Any]:
@@ -366,6 +525,9 @@ def attach_drawio_to_spec(spec: dict[str, Any], drawio_result: dict[str, Any]) -
             "diagram_kind": drawio_result.get("diagram_kind"),
             "connector_id": "mcp_drawio",
             "png_error": drawio_result.get("png_error"),
+            "source": drawio_result.get("source"),
+            "mcp_tool": drawio_result.get("mcp_tool"),
+            "mcp_error": drawio_result.get("mcp_error"),
         }
         # Also inject a full-width image-like callout via summary body is not ideal;
         # the Visual Summary UI reads meta.drawio for the diagram panel.
