@@ -264,21 +264,8 @@ def build_topic_study_sheet_plan(
         title = _display_title(
             str(sec.get("heading") or f"Section {panel_n}"), panel_n
         )
-        # Dense board: prose/checklist panels half-width; diagrams/tables full.
-        width = (
-            "full"
-            if btype
-            in (
-                "table",
-                "comparison",
-                "compare_paths",
-                "flow_diagram",
-                "sequence_diagram",
-                "steps",
-                "timeline",
-            )
-            else "half"
-        )
+        # Teaching boards read better full-width (Outbox-style cards, scannable).
+        width = "full"
         entry = {
             "type": btype,
             "title": title[:120],

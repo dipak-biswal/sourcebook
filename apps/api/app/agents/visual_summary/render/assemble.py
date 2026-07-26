@@ -755,8 +755,27 @@ def assemble_block(
                     if not _is_level_row(b) and "|" not in b:
                         items.append(b)
             items = _str_list(items)
+        # Study panels: surface section intro as body above bullets.
+        intro = ""
+        if sec is not None:
+            intro = str(local.get("summary") or "").strip()
+            if intro and items:
+                # Avoid duplicating the same text as first bullet.
+                if items and intro.rstrip(".") == items[0].rstrip("."):
+                    intro = ""
         if items:
-            block = GenUIBlock(type="key_points", title=title or "Key points", items=items)
+            block = GenUIBlock(
+                type="key_points",
+                title=title or "Key points",
+                items=items,
+                body=intro[:800] or None,
+            )
+        elif intro:
+            block = GenUIBlock(
+                type="summary",
+                title=title or "Overview",
+                body=intro[:2000],
+            )
 
     elif btype == "key_terms" or hint in ("concepts", "terms"):
         terms = _terms_from_structured(local if sec is not None else structured)

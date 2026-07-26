@@ -111,49 +111,75 @@ def _offer_presentation_if_needed(
     on_event: EventCallback = None,
 ) -> int:
     """Pause for human-in-the-loop before building generative UI."""
-    # Early visual already built a study board — skip HITL; board is ready.
+    # Early visual is a live preview only. For teaching answers, immediately
+    # run the full visual pipeline (higher quality) without an extra HITL click.
     if isinstance(run.presentation_spec, dict):
         blocks = run.presentation_spec.get("blocks") or []
         early = bool(
             run.presentation_spec.get("early_visual")
             or (run.presentation_spec.get("assembly_meta") or {}).get("early_visual")
         )
-        if early and isinstance(blocks, list) and len(blocks) >= 2:
-            run.presentation_spec = {
-                **run.presentation_spec,
-                "status": "complete",
-            }
-            # Optional draw.io enrich (no HITL) when user enabled MCP on the run.
+        if early and isinstance(blocks, list) and len(blocks) >= 1:
             try:
                 from app.agents.main.runner.early_visual import (
-                    enrich_early_visual_with_mcp,
+                    upgrade_early_visual_to_full,
                 )
 
-                enrich_early_visual_with_mcp(
+                _emit(
+                    on_event,
+                    "status",
+                    run_id=str(run.id),
+                    status="running",
+                    message="Upgrading preview board to full visual summary",
+                    presentation_spec=run.presentation_spec,
+                    final_answer=run.final_answer,
+                )
+                upgraded = upgrade_early_visual_to_full(
                     db,
                     run,
+                    step_index=step_index,
                     on_event=on_event,
-                    user_id=run.user_id,
+                )
+                return max(
+                    step_index,
+                    max(
+                        (s.step_index for s in (upgraded.steps or [])),
+                        default=step_index,
+                    ),
                 )
             except Exception:
-                pass
-            _emit(
-                on_event,
-                "status",
-                run_id=str(run.id),
-                status=run.status,
-                presentation_spec=run.presentation_spec,
-                final_answer=run.final_answer,
-                pending_tool=None,
-            )
-            _emit(
-                on_event,
-                "presentation",
-                run_id=str(run.id),
-                presentation_spec=run.presentation_spec,
-                early_visual=True,
-            )
-            return step_index
+                # Fall back to early board + MCP enrich if full upgrade fails.
+                try:
+                    from app.agents.main.runner.early_visual import (
+                        enrich_early_visual_with_mcp,
+                    )
+
+                    run.presentation_spec = {
+                        **(run.presentation_spec or {}),
+                        "status": "complete",
+                    }
+                    enrich_early_visual_with_mcp(
+                        db,
+                        run,
+                        on_event=on_event,
+                        user_id=run.user_id,
+                    )
+                except Exception:
+                    pass
+                if run.status == "running":
+                    run.status = "completed"
+                    run.pending_tool = None
+                    db.commit()
+                _emit(
+                    on_event,
+                    "status",
+                    run_id=str(run.id),
+                    status=run.status,
+                    presentation_spec=run.presentation_spec,
+                    final_answer=run.final_answer,
+                    pending_tool=None,
+                )
+                return step_index
         # Non-early full spec already present
         if blocks and not early:
             return step_index

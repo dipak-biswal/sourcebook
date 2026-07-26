@@ -289,6 +289,79 @@ def early_visual_is_ready(spec: dict[str, Any] | None, *, min_blocks: int = 2) -
     return isinstance(blocks, list) and len(blocks) >= min_blocks
 
 
+def upgrade_early_visual_to_full(
+    db: Session,
+    run: AgentRun,
+    *,
+    step_index: int,
+    on_event: EventCallback = None,
+) -> AgentRun:
+    """
+    Replace the live early board with a full Visual Summary pipeline pass.
+
+    Keeps streamed sections on run_options for handoff. Does not import
+    lifecycle (avoids circular imports with finalize).
+    """
+    from app.agents.main.runner.events import _append_step, _next_step_index
+    from app.agents.visual_summary.pipeline import (
+        _presentation_context_for_run,
+        _run_visual_pipeline,
+    )
+
+    # Drop preview board so the full pipeline rebuilds from final answer.
+    run.presentation_spec = None
+    run.error = None
+    run.status = "running"
+    run.pending_tool = None
+    db.commit()
+
+    start = max(step_index, _next_step_index(db, run.id))
+    _append_step(
+        db,
+        run,
+        step_index=start,
+        type="tool_call",
+        tool_name="upgrade_visual",
+        input={"reason": "early_visual_to_full"},
+        on_event=on_event,
+    )
+    start += 1
+
+    ctx = _presentation_context_for_run(db, run)
+    result = _run_visual_pipeline(
+        db,
+        run,
+        ctx=ctx,
+        step_index=start,
+        on_event=on_event,
+    )
+    if result.status == "running" and result.presentation_spec:
+        result.status = "completed"
+        result.pending_tool = None
+        # Mark as full board, not early preview.
+        if isinstance(result.presentation_spec, dict):
+            spec = dict(result.presentation_spec)
+            spec["early_visual"] = False
+            spec["status"] = "complete"
+            meta = dict(spec.get("assembly_meta") or {})
+            meta["upgraded_from_early"] = True
+            meta["early_visual"] = False
+            spec["assembly_meta"] = meta
+            result.presentation_spec = spec
+        db.commit()
+        db.refresh(result)
+    _emit(
+        on_event,
+        "status",
+        run_id=str(result.id),
+        status=result.status,
+        presentation_spec=result.presentation_spec,
+        final_answer=result.final_answer,
+        error=result.error,
+    )
+    return result
+
+
 def enrich_early_visual_with_mcp(
     db: Session,
     run: AgentRun,

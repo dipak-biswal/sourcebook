@@ -327,13 +327,26 @@ def extract_structured_content(answer: str, *, goal: str = "") -> dict[str, Any]
             continue
         bullets = _extract_bullets(body, limit=8)
         entry: dict[str, Any] = {"heading": title[:120]}
+        # Keep prose body even when bullets exist — study panels need intro + list.
+        prose_lines: list[str] = []
+        for raw in body.splitlines():
+            line = raw.strip()
+            if not line:
+                continue
+            if re.match(r"^(?:[-•*]|\d+[.)])\s+", line):
+                continue
+            # Keep pipe-table lines in body too (tables assembled from body/bullets).
+            prose_lines.append(line)
+        prose = "\n".join(prose_lines).strip()
+        if prose:
+            entry["body"] = prose[:_MAX_SECTION_BODY]
         if bullets:
             entry["bullets"] = bullets
             if not _is_structural_heading(title) and title.lower() not in {
                 t.lower() for t in themes
             }:
                 themes.append(title[:60])
-        else:
+        elif not prose:
             entry["body"] = body[:_MAX_SECTION_BODY]
         sections.append(entry)
 

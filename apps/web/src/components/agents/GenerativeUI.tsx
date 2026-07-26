@@ -555,13 +555,15 @@ function KeyPointsBlock({
 }) {
   const items = block.items ?? [];
   if (!items.length && !block.body) return null;
+  // Prefer a readable list for teaching boards; carousel hides context.
+  const useCarousel = items.length >= 5 && !block.body;
   return (
     <div>
       <BlockLabel type="key_points" title={block.title} />
       {block.body && (
-        <p className="mb-2 text-xs leading-relaxed text-body">{block.body}</p>
+        <p className="mb-2.5 text-sm leading-relaxed text-body">{block.body}</p>
       )}
-      {items.length >= 3 ? (
+      {useCarousel ? (
         <TopicCardCarousel
           ariaLabel={block.title || "Key points"}
           cards={items.map((item) => ({ title: item }))}
@@ -569,16 +571,16 @@ function KeyPointsBlock({
           affordance="key_points_carousel"
           onCardExpand={onCardExpand}
         />
-      ) : (
-        <ul className="space-y-1.5">
+      ) : items.length > 0 ? (
+        <ul className="space-y-2">
           {items.map((item, j) => (
-            <li key={j} className="flex gap-2 text-xs leading-relaxed text-body">
-              <span className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-ink" />
+            <li key={j} className="flex gap-2.5 text-sm leading-relaxed text-body">
+              <span className="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-ink" />
               {item}
             </li>
           ))}
         </ul>
-      )}
+      ) : null}
     </div>
   );
 }
