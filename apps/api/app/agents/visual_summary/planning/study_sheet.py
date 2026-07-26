@@ -151,7 +151,12 @@ def infer_section_block_type(sec: dict[str, Any]) -> str:
         r"\b(flow|pipeline|lifecycle|high[\s-]?level|processor|how\s+it\s+works)\b",
         blob,
     ):
-        if _section_has_arrow_flow(sec) or _section_has_numbered_steps(sec):
+        # Numbered bullets count as a process even when body was split into items.
+        if (
+            _section_has_arrow_flow(sec)
+            or _section_has_numbered_steps(sec)
+            or n_bullets >= 3
+        ):
             return "flow_diagram"
     if re.search(
         r"\b(transaction|steps?|checklist|how\s+to|procedure|boundaries)\b", blob

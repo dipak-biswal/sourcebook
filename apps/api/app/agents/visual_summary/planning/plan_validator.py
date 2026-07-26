@@ -132,6 +132,10 @@ def validate_layout_plan(
                 f"(allowed: {', '.join(KNOWN_SOURCE_HINTS)})"
             )
             continue
+        # Study-sheet panels assemble from section-local data (process_flow /
+        # steps derived per section), so global present_hints may be empty.
+        if block.get("section_index") is not None or profile == "topic_study_sheet":
+            continue
         if hint not in present_hints:
             errors.append(
                 f"source_hint {hint!r} has no data in structured_content "

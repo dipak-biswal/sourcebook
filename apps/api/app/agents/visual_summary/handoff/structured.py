@@ -387,7 +387,8 @@ def extract_structured_content(answer: str, *, goal: str = "") -> dict[str, Any]
         "key_points": key_points,
         "faq": faq[:_MAX_FAQ],
         "ordered_actions": ordered_actions,
-        "sections": sections[:8],
+        # Study sheets need up to 12 panels; keep a modest cap for memory.
+        "sections": sections[:12],
         "themes": themes[:6],
     }
 
