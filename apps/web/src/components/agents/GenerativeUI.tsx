@@ -1128,7 +1128,7 @@ export function GenerativeUIView({
             <div className="min-w-0 flex-1">
               <p className="text-sm font-semibold text-ink">Diagram</p>
               <p className="text-[11px] text-mute">
-                PNG from draw.io connector
+                PNG rendered from Mermaid
                 {drawio?.diagram_kind ? ` · ${drawio.diagram_kind}` : ""}
               </p>
             </div>
