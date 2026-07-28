@@ -5,6 +5,7 @@ import {
   BookOpen,
   GitCompareArrows,
   HelpCircle,
+  LayoutGrid,
   Lightbulb,
   ListOrdered,
   MessageSquareQuote,
@@ -34,6 +35,7 @@ export const BLOCK_TYPE_ICONS: Record<string, LucideIcon> = {
   flow_diagram: Workflow,
   sequence_diagram: ArrowRightLeft,
   compare_paths: GitCompareArrows,
+  option_cards: LayoutGrid,
   mcp_diagram: Workflow,
 };
 
@@ -927,7 +929,11 @@ export function generativeUIToNoteBody(payload: GenerativeUIPayload): string {
         lines.push(`- **${m.order + 1}. ${m.source} → ${m.target}**: ${m.label}`);
         if (m.note) lines.push(`  - ${m.note}`);
       }
-    } else if (b.type === "table" || b.type === "comparison") {
+    } else if (
+      b.type === "table" ||
+      b.type === "comparison" ||
+      b.type === "option_cards"
+    ) {
       const rows = (b.items ?? []).filter(Boolean);
       if (rows.length) {
         lines.push("", ...markdownTable(rows));

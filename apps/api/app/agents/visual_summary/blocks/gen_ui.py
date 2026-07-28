@@ -28,6 +28,7 @@ BlockType = Literal[
     "flow_diagram",
     "sequence_diagram",
     "compare_paths",
+    "option_cards",
     "mcp_diagram",
 ]
 
@@ -370,6 +371,11 @@ def _normalize_block_dict(raw: Any) -> dict[str, Any] | None:
         "sequence": "sequence_diagram",
         "uml_sequence": "sequence_diagram",
         "interaction_diagram": "sequence_diagram",
+        "options": "option_cards",
+        "option_card": "option_cards",
+        "option_picker": "option_cards",
+        "flight_cards": "option_cards",
+        "choices": "option_cards",
     }
     b["type"] = type_map.get(t, t if t in BLOCK_TYPE_SET else "summary")
 

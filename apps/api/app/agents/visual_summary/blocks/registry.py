@@ -76,6 +76,14 @@ BLOCK_SPECS: tuple[BlockSpec, ...] = (
         "path_comparison",
         width="full",
     ),
+    # Demo-style selectable option cards (flights/options comparison).
+    BlockSpec(
+        "option_cards",
+        "Options",
+        "option_cards",
+        "option_picker",
+        width="full",
+    ),
     # Rendered by the real draw.io MCP server (open_drawio_mermaid), one per
     # study-sheet section — not planner/render-assembled like the specs
     # above. See app.agents.visual_summary.planning.section_diagrams.

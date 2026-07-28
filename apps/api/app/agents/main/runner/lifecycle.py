@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 import uuid
 
 from langchain_core.messages import (
@@ -190,6 +191,30 @@ def run_agent(
     )
     if isinstance(cur_meta, dict) and cur_meta.get("context_block"):
         system = f"{system.rstrip()}\n\n{cur_meta['context_block']}"
+    else:
+        # Freeform teaching goals: inject intent recipe so answers stay concrete
+        # enough for purpose-built GenUI (not vague key_points dumps).
+        try:
+            from app.agents.visual_summary.planning.intent_recipes import (
+                content_contract_for_prompt,
+                resolve_recipe,
+            )
+            from app.agents.visual_summary.planning.study_sheet import (
+                is_topic_study_sheet_goal,
+            )
+
+            if is_topic_study_sheet_goal(goal) or re.search(
+                r"\b(explain|teach|learn|study sheet|complete guide|"
+                r"how does|compare|trade[- ]?off)\b",
+                goal or "",
+                re.I,
+            ):
+                recipe = resolve_recipe(goal=goal or "")
+                contract = content_contract_for_prompt(recipe)
+                if contract:
+                    system = f"{system.rstrip()}\n\n{contract}"
+        except Exception:
+            pass
     # Persist for resume / process restart consistency.
     opts = dict(run.run_options or {}) if isinstance(run.run_options, dict) else {}
     opts["tool_policy"] = {

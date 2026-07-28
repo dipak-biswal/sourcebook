@@ -9,6 +9,11 @@ from __future__ import annotations
 import re
 from typing import Any
 
+from app.agents.visual_summary.planning.intent_recipes import (
+    apply_recipe_to_study_outline,
+    resolve_recipe,
+)
+
 STUDY_SHEET_PROFILE = "topic_study_sheet"
 STUDY_SHEET_MAX_SECTIONS = 12
 STUDY_SHEET_MIN_SECTIONS = 4
@@ -129,9 +134,11 @@ def infer_section_block_type(sec: dict[str, Any]) -> str:
     """Pick the best GenUI block type for one study-sheet section."""
     heading = str(sec.get("heading") or "")
     body = str(sec.get("body") or "")
-    blob = f"{heading}\n{body}".lower()
     bullets = sec.get("bullets") or []
     n_bullets = len(bullets) if isinstance(bullets, list) else 0
+    bullet_text = "\n".join(str(b) for b in bullets) if isinstance(bullets, list) else ""
+    # Include bullets so option/flow heuristics see the real content.
+    blob = f"{heading}\n{body}\n{bullet_text}".lower()
 
     if re.search(r"\b(without|vs\.?|versus|with\s+vs)\b", blob):
         # Dual-path figure when content suggests process risk, else table.
@@ -141,7 +148,19 @@ def infer_section_block_type(sec: dict[str, Any]) -> str:
             return "compare_paths"
         if _section_has_pipe_table(sec) or n_bullets >= 2:
             return "comparison"
+    if re.search(
+        r"\b(option cards?|pick (one|an option)|cheapest|fastest|"
+        r"alternatives?|options?|variants?|approaches?)\b",
+        blob,
+    ):
+        # Prefer option_cards when there are 2+ options (pipe rows or bullets).
+        if _section_has_pipe_table(sec) or n_bullets >= 2:
+            return "option_cards"
     if re.search(r"\b(compar|trade[- ]?off)\b", blob):
+        if _section_has_pipe_table(sec) and re.search(
+            r"\b(price|latency|cost|tag|metric|score|cheapest|fastest)\b", blob
+        ):
+            return "option_cards"
         if _section_has_pipe_table(sec) or n_bullets >= 2:
             return "comparison"
     if re.search(r"\b(schema|table|matrix|failure\s+scenar|columns?)\b", blob):
@@ -209,6 +228,7 @@ def _source_hint_for_type(btype: str) -> str:
         "flow_diagram": "process_flow",
         "sequence_diagram": "interaction_sequence",
         "compare_paths": "compare_paths",
+        "option_cards": "option_cards",
         "callout": "priority_message",
         "key_terms": "concepts",
         "faq": "faq",
@@ -282,18 +302,23 @@ def build_topic_study_sheet_plan(
         if btype not in components:
             components.append(btype)
 
+    recipe = resolve_recipe(goal=goal)
+    outline = apply_recipe_to_study_outline(outline, recipe)
+
     return {
         "presentation_profile": STUDY_SHEET_PROFILE,
         "components": components,
         "block_outline": outline,
         "rationale": (
-            f"Topic study sheet: {len(outline)} full-width sections in answer order "
-            f"(cap {STUDY_SHEET_MAX_SECTIONS})."
+            f"Topic study sheet: {len(outline)} full-width sections "
+            f"(recipe={recipe.get('id')}, cap {STUDY_SHEET_MAX_SECTIONS})."
         ),
         "ui_intent": {
             "mode": STUDY_SHEET_PROFILE,
             "section_count": len(outline),
             "eligible_affordances": ["study_sheet_section"],
             "block_order": [e["type"] for e in outline],
+            "recipe": recipe.get("id"),
         },
+        "recipe": recipe,
     }

@@ -21,6 +21,7 @@ import { TopicCardCarousel } from "@/components/agents/CardCarousel";
 import {
   ComparePathsBlock,
   FlowDiagramBlock,
+  OptionCardsBlock,
   SequenceDiagramBlock,
 } from "@/components/agents/DiagramBlocks";
 import { citationViewerPath } from "@/lib/document-links";
@@ -118,6 +119,7 @@ const FULL_WIDTH_TYPES = new Set([
   "flow_diagram",
   "sequence_diagram",
   "compare_paths",
+  "option_cards",
 ]);
 
 function isFullWidth(block: GenUIBlock): boolean {
@@ -1017,6 +1019,8 @@ function GenerativeUIBlock({
       return <SequenceDiagramBlock block={block} onCardExpand={onCardExpand} />;
     case "compare_paths":
       return <ComparePathsBlock block={block} />;
+    case "option_cards":
+      return <OptionCardsBlock block={block} />;
     case "mcp_diagram":
       return <McpDiagramBlock block={block} />;
     default:

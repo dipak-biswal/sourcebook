@@ -23,6 +23,7 @@ STRUCTURED_CONTENT_KEYS = frozenset(
 _OPTIONAL_LIST_FIELDS = (
     "matrix_rows",
     "comparisons",
+    "option_cards",
     "levels",
     "concepts",
     "terms",

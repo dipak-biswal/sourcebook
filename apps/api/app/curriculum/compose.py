@@ -4,6 +4,11 @@ from __future__ import annotations
 
 from typing import Any
 
+from app.agents.visual_summary.planning.intent_recipes import (
+    content_contract_for_prompt,
+    resolve_recipe,
+)
+
 _LEVEL_LABELS = {
     "beginner": "Beginner",
     "intermediate": "Intermediate",
@@ -64,14 +69,20 @@ def compose_goal(
         parts.append(f"Format: {', '.join(fmt)}.")
     if scope:
         parts.append(f"Scope: {', '.join(scope)}.")
+    recipe = resolve_recipe(
+        goal=f"study sheet {title}",
+        topic_title=title,
+        preferences=prefs,
+    )
     parts.append(
         "Structure the answer as numbered markdown sections "
-        "(## 1. …, ## 2. …) covering motivation, high-level flow, "
-        "comparisons, data shape or options, failure modes, best practices, "
-        "and an end-to-end example when relevant. "
-        "Use pipe tables for matrices and A → B → C chains for processes."
+        "(## 1. Title, ## 2. Title, …). "
+        "Be concrete: real component names, real metrics, no filler."
     )
-    return " ".join(parts)
+    contract = content_contract_for_prompt(recipe)
+    if contract:
+        parts.append("\n\n" + contract)
+    return " ".join(parts).replace("\n\n ", "\n\n")
 
 
 def compose_context_block(
@@ -98,4 +109,13 @@ def compose_context_block(
         "Honor these preferences when teaching. Prefer study-sheet structure "
         "and diagram-friendly descriptions."
     )
+    recipe = resolve_recipe(
+        goal=str(topic.get("title") or ""),
+        topic_title=str(topic.get("title") or ""),
+        preferences=prefs,
+    )
+    contract = content_contract_for_prompt(recipe)
+    if contract:
+        lines.append("")
+        lines.append(contract)
     return "\n".join(lines)

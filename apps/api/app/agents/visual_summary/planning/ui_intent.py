@@ -209,6 +209,17 @@ def affordance_has_data(affordance: str, structured: dict[str, Any]) -> bool:
             structured_field_present(structured, "matrix_rows", "comparisons")
             or _pipe_rows_present(structured)
         )
+    if affordance == "option_picker":
+        return (
+            structured_field_present(structured, "option_cards", "comparisons", "matrix_rows")
+            or _pipe_rows_present(structured)
+        )
+    if affordance == "path_comparison":
+        # Dual-path figures can be assembled from compare_paths or pipe without|with rows.
+        if structured_field_present(structured, "compare_paths"):
+            return True
+        blob = json_dumps_safe(structured).lower()
+        return bool(re.search(r"\bwithout\b.*\bwith\b|\bvs\.?\b", blob))
     if affordance == "qualitative_levels":
         if structured_field_present(structured, "levels"):
             return True
@@ -321,6 +332,16 @@ def available_source_hints(structured: dict[str, Any]) -> set[str]:
             if structured_field_present(structured, "comparisons") or _pipe_rows_present(
                 structured
             ):
+                present.add(hint)
+            continue
+        if hint == "option_cards":
+            if structured_field_present(
+                structured, "option_cards", "comparisons", "matrix_rows"
+            ) or _pipe_rows_present(structured):
+                present.add(hint)
+            continue
+        if hint == "compare_paths":
+            if affordance_has_data("path_comparison", structured):
                 present.add(hint)
             continue
         if hint == "matrix_rows":

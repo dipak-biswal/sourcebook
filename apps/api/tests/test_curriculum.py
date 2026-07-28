@@ -71,6 +71,9 @@ def test_compose_goal_includes_topic_and_study_sheet():
     assert "Intermediate" in goal
     assert "study sheet" in goal.lower() or "numbered" in goal.lower()
     assert "## 1" in goal or "numbered markdown" in goal
+    # Intent recipe content contract (anti-vague GenUI)
+    assert "VISUAL / CONTENT CONTRACT" in goal
+    assert "Recipe:" in goal
 
 
 def test_heuristic_off_topic():

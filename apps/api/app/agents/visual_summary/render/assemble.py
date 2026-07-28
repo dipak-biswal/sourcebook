@@ -50,7 +50,7 @@ def block_has_min_content(block: GenUIBlock) -> bool:
     items = block.items or []
     if t in ("key_points", "steps", "chips"):
         return len(items) >= 2
-    if t in ("table", "comparison"):
+    if t in ("table", "comparison", "option_cards"):
         if len(items) < 2:
             return False
         data_rows = [r for r in items if not _is_matrix_header(r)]
@@ -814,6 +814,59 @@ def assemble_block(
             fb = _str_list(local.get("key_points") or local.get("ordered_actions"))
             if fb:
                 block = GenUIBlock(type="key_points", title=title or "Details", items=fb)
+
+    elif btype == "option_cards" or hint == "option_cards":
+        # Rows: Name | Tag | Metric | Detail  (demo-style flight/option cards)
+        items = _str_list(
+            local.get("option_cards")
+            or local.get("matrix_rows")
+            or local.get("comparisons")
+        )
+        if not items:
+            items = _pipe_items_from_structured(
+                local if sec is not None else structured,
+                prefer_cols=None,
+                include_levels=False,
+            )
+        # Prefer 3+ column rows; also accept Name | Detail (2-col).
+        data = [
+            i
+            for i in items
+            if i.count("|") >= 1 and not _is_matrix_header(i)
+        ]
+        # Synthesize cards from plain bullets: "Name: detail" → Name | Option | detail
+        if len(data) < 2 and sec is not None:
+            bullets = _str_list(local.get("key_points") or local.get("bullets"))
+            synth: list[str] = []
+            for b in bullets:
+                if "|" in b and b.count("|") >= 1:
+                    synth.append(b)
+                    continue
+                if ":" in b:
+                    name, _, detail = b.partition(":")
+                    name = name.strip()
+                    detail = detail.strip()
+                    if name and detail:
+                        synth.append(f"{name} | Option | {detail}")
+                elif " — " in b or " - " in b:
+                    parts = re.split(r"\s+[—\-]\s+", b, maxsplit=1)
+                    if len(parts) == 2 and parts[0].strip() and parts[1].strip():
+                        synth.append(
+                            f"{parts[0].strip()} | Option | {parts[1].strip()}"
+                        )
+            if len(synth) >= 2:
+                data = synth
+        if len(data) >= 2:
+            block = GenUIBlock(
+                type="option_cards",
+                title=title or "Options",
+                items=data[:6],
+                body=str(local.get("summary") or "").strip()[:400] or None,
+            )
+        elif sec is not None:
+            fb = _str_list(local.get("key_points") or local.get("comparisons"))
+            if fb:
+                block = GenUIBlock(type="comparison", title=title or "Options", items=fb)
 
     elif btype == "compare_paths" or hint == "compare_paths":
         paths: list[ComparePath] | None = None

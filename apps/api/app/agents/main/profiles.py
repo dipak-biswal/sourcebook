@@ -73,6 +73,11 @@ GENERAL_SYSTEM_PROMPT = (
     "transactions → failures → best practices → end-to-end example → when to use → summary.\n"
     "- Put schemas and scenario matrices as pipe tables (Header | Col | Col).\n"
     "- Describe processes as ordered steps or A → B → C chains so diagrams can be built.\n"
+    "- CONCRETE content only: name real services/components (OrderService, Kafka, "
+    "OutboxProcessor), real statuses (PENDING/SENT), real metrics — never "
+    "'Service A', 'various factors', or one-sentence sections that only restate the title.\n"
+    "- For options/comparisons use rows: Name | Tag | Metric | Detail "
+    "(e.g. Polling | Simple | 5s lag | Easy to operate).\n"
     "- Still no UI widget names — only structured content.\n"
     "When finished, answer clearly without more tool calls."
 )

@@ -1050,3 +1050,102 @@ export function ComparePathsBlock({ block }: { block: GenUIBlock }) {
     </div>
   );
 }
+
+/** Parse "Name | Tag | Metric | Detail" (or shorter) into card fields. */
+function parseOptionCardRow(row: string): {
+  name: string;
+  tag?: string;
+  metric?: string;
+  detail?: string;
+} {
+  const parts = row
+    .split("|")
+    .map((p) => p.trim())
+    .filter(Boolean);
+  if (parts.length === 0) return { name: row };
+  if (parts.length === 1) return { name: parts[0] };
+  if (parts.length === 2) return { name: parts[0], detail: parts[1] };
+  if (parts.length === 3)
+    return { name: parts[0], tag: parts[1], detail: parts[2] };
+  return {
+    name: parts[0],
+    tag: parts[1],
+    metric: parts[2],
+    detail: parts.slice(3).join(" · "),
+  };
+}
+
+/**
+ * Demo-style selectable option cards (flight comparison UI).
+ * Rows are pipe cells: Name | Tag | Metric | Detail
+ */
+export function OptionCardsBlock({ block }: { block: GenUIBlock }) {
+  const [selected, setSelected] = useState<number | null>(null);
+  const items = (block.items ?? []).filter((i) => i.trim());
+  if (items.length < 2) return null;
+
+  const cards = items.map(parseOptionCardRow).slice(0, 6);
+
+  return (
+    <div>
+      <DiagramLabel type="option_cards" title={block.title} />
+      {block.body?.trim() ? (
+        <p className="mb-2 text-[11px] text-mute">{block.body.trim()}</p>
+      ) : (
+        <p className="mb-2 text-[11px] text-mute">
+          Compare options — tap the one that fits.
+        </p>
+      )}
+      <div
+        className={cn(
+          "grid gap-2",
+          cards.length >= 3
+            ? "sm:grid-cols-2 lg:grid-cols-3"
+            : "sm:grid-cols-2",
+        )}
+      >
+        {cards.map((card, i) => {
+          const active = selected === i;
+          return (
+            <button
+              key={i}
+              type="button"
+              aria-pressed={active}
+              onClick={() => setSelected(active ? null : i)}
+              className={cn(
+                "rounded-[12px] border bg-canvas px-3.5 py-3 text-left shadow-sm transition-colors",
+                active
+                  ? "border-emerald-600/70 ring-2 ring-emerald-500/20"
+                  : "border-hairline hover:border-emerald-600/40",
+              )}
+            >
+              {card.tag ? (
+                <span className="inline-block rounded-[5px] bg-amber-500/15 px-1.5 py-0.5 font-mono text-[10px] font-semibold uppercase tracking-wide text-amber-800 dark:text-amber-300">
+                  {card.tag}
+                </span>
+              ) : null}
+              <div
+                className={cn(
+                  "text-base font-semibold tabular-nums text-ink",
+                  card.tag ? "mt-2" : "",
+                )}
+              >
+                {card.metric || card.name}
+              </div>
+              {card.metric ? (
+                <div className="mt-0.5 text-xs font-medium text-body">
+                  {card.name}
+                </div>
+              ) : null}
+              {card.detail ? (
+                <p className="mt-1.5 font-mono text-[11px] leading-relaxed text-mute">
+                  {card.detail}
+                </p>
+              ) : null}
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}

@@ -20,6 +20,7 @@ export const BLOCK_CONTRACT = {
     "flow_diagram",
     "sequence_diagram",
     "compare_paths",
+    "option_cards",
     "mcp_diagram"
   ],
   "source_hints": [
@@ -37,7 +38,8 @@ export const BLOCK_CONTRACT = {
     "metrics",
     "process_flow",
     "interaction_sequence",
-    "compare_paths"
+    "compare_paths",
+    "option_cards"
   ],
   "widths": {
     "summary": "full",
@@ -57,6 +59,7 @@ export const BLOCK_CONTRACT = {
     "flow_diagram": "full",
     "sequence_diagram": "full",
     "compare_paths": "full",
+    "option_cards": "full",
     "mcp_diagram": "full"
   }
 } as const;

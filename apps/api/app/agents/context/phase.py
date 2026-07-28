@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 import uuid
 from typing import Any, Callable
 
@@ -311,6 +312,30 @@ def resume_after_context_answers(
     )
     if isinstance(cur_meta, dict) and cur_meta.get("context_block"):
         system = f"{system.rstrip()}\n\n{cur_meta['context_block']}"
+    else:
+        # Freeform teaching goals (no curriculum topic): same content contract.
+        try:
+            from app.agents.visual_summary.planning.intent_recipes import (
+                content_contract_for_prompt,
+                resolve_recipe,
+            )
+            from app.agents.visual_summary.planning.study_sheet import (
+                is_topic_study_sheet_goal,
+            )
+
+            g = curated_goal or ""
+            if is_topic_study_sheet_goal(g) or re.search(
+                r"\b(explain|teach|learn|study sheet|complete guide|"
+                r"how does|compare|trade[- ]?off)\b",
+                g,
+                re.I,
+            ):
+                recipe = resolve_recipe(goal=g)
+                contract = content_contract_for_prompt(recipe)
+                if contract:
+                    system = f"{system.rstrip()}\n\n{contract}"
+        except Exception:
+            pass
 
     human = curated_goal
     if snapshot.urls and "http" not in human.lower():
