@@ -651,11 +651,11 @@ export const api = {
       handlers,
     ),
 
+  /** Settings: still use curriculum routes for archived topic admin. */
   getCurriculum: (
     workspaceId: string,
     options: { refresh?: boolean; includeArchived?: boolean } | boolean = false,
   ) => {
-    // Back-compat: second arg used to be a boolean refresh flag.
     const opts =
       typeof options === "boolean"
         ? { refresh: options, includeArchived: false }
@@ -680,24 +680,6 @@ export const api = {
       body: JSON.stringify({ title }),
     }),
 
-  getTopicIntake: (workspaceId: string, topicId: string) =>
-    request<CurriculumIntakeForm>(
-      `/workspaces/${workspaceId}/curriculum/topics/${encodeURIComponent(topicId)}/intake`,
-    ),
-
-  submitTopicIntake: (
-    workspaceId: string,
-    topicId: string,
-    answers: Record<string, string | string[]>,
-  ) =>
-    request<CurriculumIntakeResult>(
-      `/workspaces/${workspaceId}/curriculum/topics/${encodeURIComponent(topicId)}/intake`,
-      {
-        method: "POST",
-        body: JSON.stringify({ answers }),
-      },
-    ),
-
   patchCurriculumTopic: (
     workspaceId: string,
     topicId: string,
@@ -711,6 +693,73 @@ export const api = {
       },
     ),
 
+  // ── Agents page topics (dedicated /agents APIs — do not use /curriculum) ─
+
+  agentTopics: (workspaceId: string, refresh = false) => {
+    const params = new URLSearchParams();
+    if (refresh) params.set("refresh", "true");
+    const q = params.toString();
+    return request<CurriculumResponse>(
+      `/agents/workspaces/${workspaceId}/topics${q ? `?${q}` : ""}`,
+    );
+  },
+
+  agentRefreshTopics: (workspaceId: string) =>
+    request<CurriculumResponse>(
+      `/agents/workspaces/${workspaceId}/topics/refresh`,
+      { method: "POST" },
+    ),
+
+  agentAddTopic: (workspaceId: string, title: string) =>
+    request<CurriculumTopic>(`/agents/workspaces/${workspaceId}/topics`, {
+      method: "POST",
+      body: JSON.stringify({ title }),
+    }),
+
+  agentGetTopicIntake: (workspaceId: string, topicId: string) =>
+    request<CurriculumIntakeForm>(
+      `/agents/workspaces/${workspaceId}/topics/${encodeURIComponent(topicId)}/intake`,
+    ),
+
+  agentSubmitTopicIntake: (
+    workspaceId: string,
+    topicId: string,
+    answers: Record<string, string | string[]>,
+  ) =>
+    request<CurriculumIntakeResult>(
+      `/agents/workspaces/${workspaceId}/topics/${encodeURIComponent(topicId)}/intake`,
+      {
+        method: "POST",
+        body: JSON.stringify({ answers }),
+      },
+    ),
+
+  // ── Workspace setup (Settings modal — not Agents / not Learn routes) ────
+
+  workspaceSuggestDescription: (name: string) =>
+    request<LearnSuggestDescription>(`/workspaces/suggest-description`, {
+      method: "POST",
+      body: JSON.stringify({ name }),
+    }),
+
+  workspaceSetupCurriculum: (
+    workspaceId: string,
+    body: {
+      name?: string;
+      description?: string | null;
+      tags?: string[];
+      docs_url?: string | null;
+      docs_only?: boolean;
+    },
+  ) =>
+    request<LearnCatalogResponse>(
+      `/workspaces/${workspaceId}/setup-curriculum`,
+      {
+        method: "POST",
+        body: JSON.stringify(body),
+      },
+    ),
+
   /** Learn page: domain topics + textbook lessons. */
   learnTopics: (workspaceId: string, refresh = false) => {
     const params = new URLSearchParams();
@@ -721,14 +770,14 @@ export const api = {
     );
   },
 
-  /** Suggest description + docs URL from workspace name (web search). */
+  /** @deprecated Use workspaceSuggestDescription for Settings create modal. */
   learnSuggestDescription: (name: string) =>
-    request<LearnSuggestDescription>(`/learn/suggest-description`, {
+    request<LearnSuggestDescription>(`/workspaces/suggest-description`, {
       method: "POST",
       body: JSON.stringify({ name }),
     }),
 
-  /** Save learn setup (docs URL etc.) and force-refresh topic catalog. */
+  /** @deprecated Use workspaceSetupCurriculum for Settings create modal. */
   learnSetup: (
     workspaceId: string,
     body: {
@@ -736,12 +785,16 @@ export const api = {
       description?: string | null;
       tags?: string[];
       docs_url?: string | null;
+      docs_only?: boolean;
     },
   ) =>
-    request<LearnCatalogResponse>(`/workspaces/${workspaceId}/learn/setup`, {
-      method: "POST",
-      body: JSON.stringify(body),
-    }),
+    request<LearnCatalogResponse>(
+      `/workspaces/${workspaceId}/setup-curriculum`,
+      {
+        method: "POST",
+        body: JSON.stringify(body),
+      },
+    ),
 
   learnLesson: (workspaceId: string, topicId: string, refresh = false) => {
     const params = new URLSearchParams();

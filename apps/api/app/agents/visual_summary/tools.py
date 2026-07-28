@@ -44,6 +44,10 @@ from app.agents.visual_summary.planning.ui_intent import (
     build_skeleton_layout_plan,
     resolve_ui_intent,
 )
+from app.prompts.visual import (
+    VISUAL_COMBINED_EXTRACT_PLAN_SYSTEM,
+    VISUAL_PLAN_SYSTEM,
+)
 from app.usage import estimate_tokens, log_usage
 
 VISUAL_SUMMARY_AGENT_LABEL = "Visual Summary Agent"
@@ -242,17 +246,7 @@ def _plan_layout_llm(
         resp = chat_json(
             _client(),
             model=settings.visual_summary_model,
-            system=(
-                "You are the Visual Summary layout planner. Output valid JSON only. "
-                "Decide which blocks to show, their order, titles, source_hint, and width. "
-                "Use only available source_hint fields from the prompt. Do not invent facts. "
-                "presentation_profile must be a real short snake_case id for this layout "
-                "(e.g. mechanism_explainer, gap_analysis, topic_study_sheet) — never the "
-                "placeholder short_snake_case. "
-                "If the reference skeleton has presentation_profile topic_study_sheet, "
-                "KEEP that profile, KEEP section order, KEEP width=full for every block, "
-                "and do not collapse into a short overview-only layout."
-            ),
+            system=VISUAL_PLAN_SYSTEM,
             prompt=prompt,
             schema_name="layout_plan",
             schema=PLAN_SCHEMA,
@@ -425,17 +419,7 @@ def _extract_and_plan_llm(
         resp = chat_json(
             _client(),
             model=settings.visual_summary_model,
-            system=(
-                "You extract structured facts from an agent answer and plan a "
-                "visual layout from them, in one JSON response. Never invent facts. "
-                "presentation_profile must be a real short snake_case id "
-                "(e.g. mechanism_explainer) — never the placeholder short_snake_case. "
-                "For explain/learn/how-it-works goals in ANY domain: process_flow uses "
-                "the real parts from the answer as a clear handoff chain (not a star "
-                "hub); interaction_sequence is one concrete walkthrough. layout_plan "
-                "is teaching-only: summary + flow_diagram + sequence_diagram "
-                "(optional key_terms) — never key_points, faq, steps, or chips."
-            ),
+            system=VISUAL_COMBINED_EXTRACT_PLAN_SYSTEM,
             prompt=prompt,
             schema_name="extract_and_plan",
             schema=COMBINED_EXTRACT_PLAN_SCHEMA,

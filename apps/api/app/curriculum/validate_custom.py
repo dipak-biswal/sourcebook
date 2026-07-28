@@ -12,6 +12,7 @@ from sqlalchemy.orm import Session
 from app.config import settings
 from app.curriculum.domain import domain_label
 from app.curriculum.schema import normalize_topic, slugify
+from app.prompts.learn import CURRICULUM_VALIDATE_TOPIC_SYSTEM
 from app.usage import estimate_tokens, log_usage
 
 _SCHEMA: dict[str, Any] = {
@@ -126,10 +127,7 @@ def validate_custom_topic(
         resp = chat_json(
             _client(),
             model=model,
-            system=(
-                "You gate custom learning topics. Set related=true only when the "
-                "topic fits the workspace domain. Write a short polite reason when false."
-            ),
+            system=CURRICULUM_VALIDATE_TOPIC_SYSTEM,
             prompt=prompt,
             schema_name="curriculum_validate_topic",
             schema=_SCHEMA,

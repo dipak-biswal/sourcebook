@@ -8,6 +8,7 @@ import {
   Trash2,
   X,
 } from "lucide-react";
+import { useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { FieldError } from "@/components/ui/field-error";
 import { Input } from "@/components/ui/input";
@@ -22,32 +23,20 @@ import {
   WORKSPACE_DESCRIPTION_TEMPLATE,
 } from "./workspace-tags";
 import { WorkspaceActivityPanel } from "./WorkspaceActivityPanel";
+import { CreateWorkspaceModal } from "./CreateWorkspaceModal";
 
 export function SettingsWorkspaces() {
+  const queryClient = useQueryClient();
   const {
-    workspaces, newWsName, creatingWs,
+    workspaces,
     editingId, editName, editDescription, editTags, savingEdit,
-    onNewWsNameChange, onCreateWorkspace,
     onStartEdit, onEditNameChange, onEditDescriptionChange, onEditTagsChange,
     onCancelEdit, onSaveEdit,
     onDeleteWorkspace,
   } = useSettingsPage();
-  const [wsError, setWsError] = useState<string | null>(null);
   const [editErrors, setEditErrors] = useState<{ name?: string }>({});
   const [selectedId, setSelectedId] = useState<string | null>(null);
-
-  function handleCreateWs() {
-    const err = validateWorkspaceName(newWsName);
-    setWsError(err);
-    if (!err) void onCreateWorkspace();
-  }
-
-  function handleNewWsKeyDown(e: React.KeyboardEvent) {
-    if (e.key === "Enter") {
-      e.preventDefault();
-      handleCreateWs();
-    }
-  }
+  const [createOpen, setCreateOpen] = useState(false);
 
   function handleEditSubmit(id: string) {
     const err = validateWorkspaceName(editName);
@@ -65,41 +54,35 @@ export function SettingsWorkspaces() {
   return (
     <div className="space-y-4">
       <div className="rounded-vercel-md border border-hairline bg-canvas p-4">
-        <h2 className="text-sm font-semibold text-ink">Workspaces</h2>
-        <p className="mt-1 text-xs text-mute">
-          Select a workspace to inspect topics and every LLM, tool, and web
-          search call (with prompts and outputs).
-        </p>
-
-        <div className="mt-3">
-          <div className="flex gap-1">
-            <Input
-              value={newWsName}
-              onChange={(e) => { onNewWsNameChange(e.target.value); setWsError(null); }}
-              placeholder="New workspace name…"
-              className="h-8 text-xs"
-              aria-invalid={!!wsError || undefined}
-              onKeyDown={handleNewWsKeyDown}
-            />
-            <Button
-              type="button"
-              variant="secondary"
-              size="sm"
-              className="h-8 shrink-0"
-              disabled={!newWsName.trim() || creatingWs}
-              onClick={handleCreateWs}
-            >
-              {creatingWs ? (
-                <Loader2 className="h-3.5 w-3.5 animate-spin" />
-              ) : (
-                <Plus className="h-3.5 w-3.5" strokeWidth={1.5} />
-              )}
-              Create
-            </Button>
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div className="min-w-0">
+            <h2 className="text-sm font-semibold text-ink">Workspaces</h2>
+            <p className="mt-1 text-xs text-mute">
+              Select a workspace to inspect topics and every LLM, tool, and web
+              search call (with prompts and outputs).
+            </p>
           </div>
-          <FieldError error={wsError} />
+          <Button
+            type="button"
+            size="sm"
+            className="h-8 shrink-0"
+            onClick={() => setCreateOpen(true)}
+          >
+            <Plus className="mr-1 h-3.5 w-3.5" strokeWidth={1.5} />
+            Add workspace
+          </Button>
         </div>
       </div>
+
+      <CreateWorkspaceModal
+        open={createOpen}
+        onClose={() => setCreateOpen(false)}
+        onCreated={(id) => {
+          setSelectedId(id);
+          void queryClient.invalidateQueries({ queryKey: ["workspaces"] });
+          void queryClient.invalidateQueries({ queryKey: ["learnTopics"] });
+        }}
+      />
 
       <div className="grid gap-4 lg:grid-cols-[minmax(0,14rem)_minmax(0,1fr)]">
         {/* Workspace list */}

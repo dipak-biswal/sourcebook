@@ -94,6 +94,8 @@ class LearnSetupRequest(BaseModel):
     description: str | None = Field(default=None, max_length=4000)
     tags: list[str] | None = None
     docs_url: str | None = Field(default=None, max_length=2000)
+    # When true and docs_url is set, extract curriculum from documentation only.
+    docs_only: bool = False
 
 
 class LearnKeyTerm(BaseModel):
@@ -217,6 +219,7 @@ def learn_setup(
         user_id=current_user.id,
         force=True,
         docs_url=docs_url,
+        docs_only=bool(body.docs_only and docs_url),
     )
     return _catalog_out(ws, cur)
 

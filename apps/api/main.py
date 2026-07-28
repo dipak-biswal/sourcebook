@@ -7,6 +7,7 @@ from app.db import engine
 from app.logging_config import get_logger, setup_logging
 from app.middleware.request_logging import RequestLoggingMiddleware
 from app.routers import (
+    agent_topics,
     agents,
     auth,
     chat,
@@ -73,6 +74,7 @@ app.include_router(ingest.router)
 app.include_router(chat.router)
 app.include_router(usage.router)
 app.include_router(agents.router)
+app.include_router(agent_topics.router)
 app.include_router(notes.router)
 app.include_router(monitoring.router)
 if settings.dev_mode:

@@ -13,6 +13,7 @@ from sqlalchemy.orm import Session
 from app.config import settings
 from app.agents.visual_summary.llm_json import STRUCTURED_CONTENT_SCHEMA, chat_json
 from app.agents.visual_summary.handoff.structured import extract_structured_content
+from app.prompts.visual import VISUAL_EXTRACT_SYSTEM
 from app.usage import estimate_tokens, log_usage
 
 STRUCTURED_CONTENT_KEYS = frozenset(
@@ -448,7 +449,7 @@ def extract_structured_content_llm(
         resp = chat_json(
             _client(),
             model=settings.visual_summary_model,
-            system="You extract structured facts for visual layout planning. JSON only.",
+            system=VISUAL_EXTRACT_SYSTEM,
             prompt=prompt,
             schema_name="structured_content",
             schema=STRUCTURED_CONTENT_SCHEMA,

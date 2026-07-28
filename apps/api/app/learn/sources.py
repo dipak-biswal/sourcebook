@@ -15,6 +15,7 @@ from openai import OpenAI
 from sqlalchemy.orm import Session
 
 from app.config import settings
+from app.prompts.learn import LEARN_SUGGEST_SETUP_SYSTEM
 from app.usage import estimate_tokens, log_usage
 
 _YEAR = datetime.now(timezone.utc).year
@@ -179,12 +180,7 @@ def suggest_from_name(
         resp = chat_json(
             _client(),
             model=model,
-            system=(
-                "You help set up a learning workspace. Use ONLY the web snippets. "
-                "Write a short 2–4 sentence description of what the learner will study. "
-                "Pick the best official docs URL if present. tags: 2–5 short labels. "
-                "Output JSON only."
-            ),
+            system=LEARN_SUGGEST_SETUP_SYSTEM,
             prompt=(
                 f"Workspace name: {n}\n"
                 f"Year: {_YEAR}\n"
@@ -274,40 +270,45 @@ def gather_source_context(
     domain: str,
     name: str = "",
     docs_url: str | None = None,
+    docs_only: bool = False,
 ) -> dict[str, Any]:
     """
-    Collect latest web + optional docs page text for topic extraction.
-    Always runs web search; fetches docs_url when provided.
+    Collect source text for topic extraction.
+
+    When docs_only=True and docs_url is set, only fetch that documentation
+    page (plus optional same-host TOC search). Otherwise also run broad web search.
     """
     label = (domain or name or "learning").strip()
     year = _YEAR
-    search_queries = [
-        f"{label} official documentation topics table of contents {year}",
-        f"{label} documentation index tutorial chapters {year}",
-        f"{label} language OR framework core topics API reference {year}",
-    ]
     snippets: list[dict[str, str]] = []
-    for q in search_queries:
-        snippets.extend(web_search_snippets(q, max_results=6))
-        if len(snippets) >= 12:
-            break
 
     docs: dict[str, Any] = {"url": "", "text": "", "title": "", "error": None}
     url = (docs_url or "").strip()
     if url:
         docs = fetch_docs_text(url, max_chars=14000)
-        # Also search site-specific if we have a host
         try:
             host = urlparse(url).hostname or ""
         except Exception:
             host = ""
         if host:
+            # Stay on the docs site only when building a docs-driven catalog.
             snippets.extend(
                 web_search_snippets(
-                    f"site:{host} {label} tutorial topics index {year}",
-                    max_results=5,
+                    f"site:{host} table of contents index tutorial {label} {year}",
+                    max_results=6 if docs_only else 5,
                 )
             )
+
+    if not docs_only:
+        search_queries = [
+            f"{label} official documentation topics table of contents {year}",
+            f"{label} documentation index tutorial chapters {year}",
+            f"{label} language OR framework core topics API reference {year}",
+        ]
+        for q in search_queries:
+            snippets.extend(web_search_snippets(q, max_results=6))
+            if len(snippets) >= 12:
+                break
 
     # Deduplicate snippets by url
     seen: set[str] = set()
@@ -324,6 +325,7 @@ def gather_source_context(
         "year": year,
         "docs": docs,
         "snippets": uniq[:14],
+        "docs_only": docs_only,
     }
 
 

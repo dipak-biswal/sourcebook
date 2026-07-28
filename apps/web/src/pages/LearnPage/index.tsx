@@ -88,7 +88,7 @@ function WorkspaceSetupPanel({
       void (async () => {
         setSuggesting(true);
         try {
-          const s = await api.learnSuggestDescription(n);
+          const s = await api.workspaceSuggestDescription(n);
           lastSuggestedName.current = n;
           // Fill description if empty or still the old template / previous auto text.
           setDescription((prev) => {
@@ -139,11 +139,12 @@ function WorkspaceSetupPanel({
         onRefreshWorkspaces();
         onWorkspaceChange(ws.id);
       }
-      const catalog = await api.learnSetup(id, {
+      const catalog = await api.workspaceSetupCurriculum(id, {
         name: name.trim(),
         description: description.trim() || null,
         tags,
         docs_url: docsUrl.trim() || null,
+        docs_only: !!docsUrl.trim(),
       });
       onRefreshWorkspaces();
       success(

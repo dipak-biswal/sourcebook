@@ -11,6 +11,7 @@ from app.db import get_db
 from app.deps import get_current_user
 from app.logging_config import get_logger
 from app.models import AgentRun, AgentStep, Document, UsageEvent, User, Workspace, WorkspaceMember
+from app.rate_limit import rate_limit
 from app.workspaces.delete import purge_workspace
 
 logger = get_logger("sourcebook.workspaces")
@@ -70,6 +71,196 @@ def change_password(
     current_user.hashed_password = hash_password(body.new_password)
     db.commit()
     return None
+
+
+class WorkspaceSuggestRequest(BaseModel):
+    name: str = Field(min_length=1, max_length=120)
+
+
+class WorkspaceSuggestResponse(BaseModel):
+    description: str = ""
+    suggested_docs_url: str = ""
+    tags: list[str] = Field(default_factory=list)
+
+
+class WorkspaceSetupCurriculumRequest(BaseModel):
+    name: str | None = Field(default=None, max_length=120)
+    description: str | None = Field(default=None, max_length=4000)
+    tags: list[str] | None = None
+    docs_url: str | None = Field(default=None, max_length=2000)
+    docs_only: bool = True
+
+
+class WorkspaceCurriculumTopicOut(BaseModel):
+    id: str
+    title: str
+    summary: str = ""
+    tags: list[str] = Field(default_factory=list)
+    parent_id: str | None = None
+    kind: str = "lesson"
+    has_lesson: bool = False
+
+
+class WorkspaceCurriculumChapterOut(BaseModel):
+    id: str
+    title: str
+    summary: str = ""
+    tags: list[str] = Field(default_factory=list)
+    has_lesson: bool = False
+    intro_id: str
+    children: list[WorkspaceCurriculumTopicOut] = Field(default_factory=list)
+
+
+class WorkspaceSetupCurriculumResponse(BaseModel):
+    workspace_id: str
+    domain: str = ""
+    source: str = ""
+    docs_url: str = ""
+    topics: list[WorkspaceCurriculumTopicOut] = Field(default_factory=list)
+    chapters: list[WorkspaceCurriculumChapterOut] = Field(default_factory=list)
+
+
+@router.post(
+    "/workspaces/suggest-description",
+    response_model=WorkspaceSuggestResponse,
+)
+def workspace_suggest_description(
+    body: WorkspaceSuggestRequest,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+    _: None = Depends(rate_limit("agent")),
+):
+    """
+    Settings create-workspace modal: curate description + docs URL from name.
+    Dedicated workspace API — not /learn/* or /agents/*.
+    """
+    from app.learn.sources import suggest_from_name
+
+    result = suggest_from_name(
+        body.name.strip(),
+        db=db,
+        user_id=current_user.id,
+        workspace_id=None,
+    )
+    return WorkspaceSuggestResponse(
+        description=str(result.get("description") or ""),
+        suggested_docs_url=str(result.get("suggested_docs_url") or ""),
+        tags=list(result.get("tags") or ["learning"]),
+    )
+
+
+@router.post(
+    "/workspaces/{workspace_id}/setup-curriculum",
+    response_model=WorkspaceSetupCurriculumResponse,
+)
+def workspace_setup_curriculum(
+    workspace_id: uuid.UUID,
+    body: WorkspaceSetupCurriculumRequest,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+    _: None = Depends(rate_limit("agent")),
+):
+    """
+    Settings create-workspace modal: save docs source and fetch curriculum
+    from documentation (docs_only by default). Not an Agents or Learn route.
+    """
+    from app.agents.main.tools.fetch_url import validate_fetch_url
+    from app.curriculum.discover import discover_topics
+    from app.curriculum.schema import active_topics
+    from app.curriculum.service import get_curriculum, save_curriculum
+
+    membership = (
+        db.query(WorkspaceMember)
+        .filter(
+            WorkspaceMember.user_id == current_user.id,
+            WorkspaceMember.workspace_id == workspace_id,
+        )
+        .first()
+    )
+    if not membership:
+        raise HTTPException(status_code=404, detail="Workspace not found")
+    ws = db.get(Workspace, workspace_id)
+    if not ws:
+        raise HTTPException(status_code=404, detail="Workspace not found")
+
+    if body.name is not None and body.name.strip():
+        ws.name = body.name.strip()[:120]
+    if body.description is not None:
+        ws.description = (body.description or "").strip()[:4000] or None
+    if body.tags is not None:
+        tags = [str(t).strip() for t in body.tags if str(t).strip()][:12]
+        if "learning" not in {t.lower() for t in tags}:
+            tags = ["learning", *tags][:12]
+        ws.tags = tags
+
+    docs_url = (body.docs_url or "").strip()
+    if docs_url:
+        err = validate_fetch_url(docs_url)
+        if err:
+            raise HTTPException(status_code=400, detail=f"Invalid docs URL: {err}")
+
+    db.add(ws)
+    db.commit()
+    db.refresh(ws)
+
+    cur = get_curriculum(ws)
+    cur = dict(cur)
+    cur["docs_url"] = docs_url
+    save_curriculum(db, ws, cur)
+
+    cur = discover_topics(
+        ws,
+        db=db,
+        user_id=current_user.id,
+        force=True,
+        docs_url=docs_url,
+        docs_only=bool(body.docs_only and docs_url),
+    )
+    lessons = cur.get("lessons") if isinstance(cur.get("lessons"), dict) else {}
+    topics_out: list[WorkspaceCurriculumTopicOut] = []
+    by_id: dict[str, WorkspaceCurriculumTopicOut] = {}
+    for t in active_topics(cur):
+        tid = str(t.get("id") or "")
+        parent_id = str(t.get("parent_id") or "").strip() or None
+        row = WorkspaceCurriculumTopicOut(
+            id=tid,
+            title=str(t.get("title") or ""),
+            summary=str(t.get("summary") or ""),
+            tags=list(t.get("tags") or []),
+            parent_id=parent_id,
+            kind=str(t.get("kind") or ("lesson" if parent_id else "chapter")),
+            has_lesson=isinstance(lessons.get(tid), dict),
+        )
+        topics_out.append(row)
+        by_id[tid] = row
+
+    children_of: dict[str, list[WorkspaceCurriculumTopicOut]] = {}
+    for row in topics_out:
+        if row.parent_id and row.parent_id in by_id:
+            children_of.setdefault(row.parent_id, []).append(row)
+
+    chapters: list[WorkspaceCurriculumChapterOut] = []
+    for root in [r for r in topics_out if not r.parent_id]:
+        chapters.append(
+            WorkspaceCurriculumChapterOut(
+                id=root.id,
+                title=root.title,
+                summary=root.summary,
+                tags=root.tags,
+                has_lesson=root.has_lesson,
+                intro_id=root.id,
+                children=children_of.get(root.id, []),
+            )
+        )
+
+    return WorkspaceSetupCurriculumResponse(
+        workspace_id=str(ws.id),
+        domain=str(cur.get("domain") or ""),
+        source=str(cur.get("source") or ""),
+        docs_url=str(cur.get("docs_url") or ""),
+        topics=topics_out,
+        chapters=chapters,
+    )
 
 
 @router.get("/workspaces", response_model=list[WorkspaceResponse])

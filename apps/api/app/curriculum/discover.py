@@ -15,6 +15,7 @@ from app.curriculum.domain import domain_label
 from app.curriculum.schema import normalize_topic, slugify
 from app.curriculum.service import fingerprint_for, get_curriculum, save_curriculum
 from app.models import Workspace
+from app.prompts.learn import CURRICULUM_CHAPTERS_SYSTEM
 from app.usage import estimate_tokens, log_usage
 
 # Hierarchical fallbacks: chapters with nested child lessons.
@@ -307,11 +308,7 @@ def _llm_topics_from_sources(
         resp = chat_json(
             _client(),
             model=model,
-            system=(
-                "You extract a hierarchical learning catalog from documentation "
-                "and web search evidence. Do not invent topics unsupported by "
-                "the sources. Output only the JSON schema."
-            ),
+            system=CURRICULUM_CHAPTERS_SYSTEM,
             prompt=prompt,
             schema_name="curriculum_chapters",
             schema=_TOPIC_SCHEMA,
@@ -374,17 +371,20 @@ def discover_topics(
     user_id: Any = None,
     force: bool = False,
     docs_url: str | None = None,
+    docs_only: bool = False,
 ) -> dict[str, Any]:
     """
     Return curriculum with topics, refreshing when fingerprint changes or force=True.
 
-    Always gathers latest web search results; when docs_url (or stored
-    curriculum.docs_url) is set, also fetches that documentation page and
-    structures chapters/subtopics from the evidence.
+    When docs_url is set and docs_only=True, curriculum is extracted from that
+    documentation source only (plus same-host TOC search). Otherwise also uses
+    broad web search.
     """
     existing = get_curriculum(workspace)
     stored_docs = str(existing.get("docs_url") or "").strip()
     effective_docs = (docs_url if docs_url is not None else stored_docs).strip()
+    # Docs-only mode requires a URL; otherwise fall back to full discovery.
+    use_docs_only = bool(docs_only and effective_docs)
 
     domain = domain_label(
         name=workspace.name or "",
@@ -397,6 +397,14 @@ def discover_topics(
         tags=workspace.tags if isinstance(workspace.tags, list) else None,
         docs_url=effective_docs or None,
     )
+    # Include docs_only in cache key so mode switches refresh.
+    if use_docs_only:
+        fp = fingerprint_for(
+            name=workspace.name or "",
+            description=(workspace.description or "") + "\ndocs_only",
+            tags=workspace.tags if isinstance(workspace.tags, list) else None,
+            docs_url=effective_docs or None,
+        )
     if (
         not force
         and existing.get("topics")
@@ -419,6 +427,7 @@ def discover_topics(
         domain=domain or (workspace.name or "learning"),
         name=workspace.name or "",
         docs_url=effective_docs or None,
+        docs_only=use_docs_only,
     )
     # Audit trail: web search + docs fetch for this workspace.
     try:
@@ -469,7 +478,9 @@ def discover_topics(
     )
     has_docs = bool(effective_docs) and not (ctx.get("docs") or {}).get("error")
     has_web = bool(ctx.get("snippets"))
-    if topics and has_docs and has_web:
+    if use_docs_only and topics and has_docs:
+        source = "docs"
+    elif topics and has_docs and has_web:
         source = "docs+web"
     elif topics and has_docs:
         source = "docs"
@@ -478,8 +489,13 @@ def discover_topics(
     elif topics:
         source = "web+llm"
     else:
-        source = "fallback"
-        topics = _fallback_topics(domain)
+        # Do not invent a generic fallback when the user asked for docs-only.
+        if use_docs_only:
+            source = "docs_empty"
+            topics = topics or []
+        else:
+            source = "fallback"
+            topics = _fallback_topics(domain)
 
     # Merge: suggested list + any previous custom topics not in list
     merged: list[dict[str, Any]] = []

@@ -19,6 +19,7 @@ from app.curriculum.domain import domain_label
 from app.curriculum.schema import find_topic
 from app.curriculum.service import get_curriculum, save_curriculum
 from app.models import Workspace
+from app.prompts.learn import LEARN_LESSON_SYSTEM
 from app.usage import estimate_tokens, log_usage
 
 _LESSON_SCHEMA: dict[str, Any] = {
@@ -367,10 +368,7 @@ def _generate_lesson_llm(
         resp = chat_json(
             _client(),
             model=model,
-            system=(
-                "You are an expert technical teacher. Output only JSON matching the "
-                "schema. Be dense, concrete, and scannable — like a polished chapter."
-            ),
+            system=LEARN_LESSON_SYSTEM,
             prompt=prompt,
             schema_name="learn_lesson",
             schema=_LESSON_SCHEMA,

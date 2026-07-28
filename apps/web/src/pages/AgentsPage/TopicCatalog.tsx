@@ -54,8 +54,8 @@ export function TopicCatalog({ workspaceId, disabled, onStartTopic }: Props) {
       else setLoading(true);
       try {
         const data = refresh
-          ? await api.refreshCurriculum(workspaceId)
-          : await api.getCurriculum(workspaceId);
+          ? await api.agentRefreshTopics(workspaceId)
+          : await api.agentTopics(workspaceId);
         setEnabled(data.enabled);
         setDomain(data.domain || "");
         setTopics(data.topics || []);
@@ -89,7 +89,7 @@ export function TopicCatalog({ workspaceId, disabled, onStartTopic }: Props) {
     setError(null);
     setIntake(null);
     try {
-      const form = await api.getTopicIntake(workspaceId, topic.id);
+      const form = await api.agentGetTopicIntake(workspaceId, topic.id);
       setIntake(form);
       const saved = form.saved_answers || topic.preferences || {};
       setAnswers(
@@ -163,7 +163,7 @@ export function TopicCatalog({ workspaceId, disabled, onStartTopic }: Props) {
       for (const [k, v] of Object.entries(answers)) {
         payload[k] = v;
       }
-      const result = await api.submitTopicIntake(
+      const result = await api.agentSubmitTopicIntake(
         workspaceId,
         selected.id,
         payload,
@@ -189,7 +189,7 @@ export function TopicCatalog({ workspaceId, disabled, onStartTopic }: Props) {
     setAdding(true);
     setCustomError(null);
     try {
-      const topic = await api.addCurriculumTopic(workspaceId, title);
+      const topic = await api.agentAddTopic(workspaceId, title);
       setCustomTitle("");
       setTopics((prev) => {
         if (prev.some((t) => t.id === topic.id)) {
