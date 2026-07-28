@@ -155,6 +155,8 @@ def _log_agent_usage(
     prompt_tokens: int,
     completion_tokens: int,
     total_tokens: int,
+    prompt: str | None = None,
+    completion: str | None = None,
 ) -> None:
     if total_tokens <= 0 and prompt_tokens <= 0 and completion_tokens <= 0:
         return
@@ -167,5 +169,12 @@ def _log_agent_usage(
         prompt_tokens=prompt_tokens or None,
         completion_tokens=completion_tokens or None,
         total_tokens=total_tokens or None,
-        meta={"run_id": str(run.id), "status": run.status},
+        prompt=prompt,
+        completion=completion,
+        meta={
+            "run_id": str(run.id),
+            "status": run.status,
+            "goal": (run.goal or "")[:300],
+            "call_type": "llm",
+        },
     )

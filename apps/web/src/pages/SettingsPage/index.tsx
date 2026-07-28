@@ -27,7 +27,7 @@ const TABS: {
   {
     id: "workspace",
     label: "Workspace",
-    description: "Create and manage workspaces",
+    description: "Topics and call audit per workspace",
     icon: LayoutGrid,
   },
   {
@@ -101,7 +101,12 @@ function SettingsPageInner() {
         tabIndex={-1}
         className="document-scroll min-h-0 flex-1 overflow-y-auto px-4 py-6 outline-none sm:px-6 sm:py-8"
       >
-        <div className="mx-auto w-full max-w-3xl">
+        <div
+          className={cn(
+            "mx-auto w-full",
+            tab === "workspace" ? "max-w-5xl" : "max-w-3xl",
+          )}
+        >
           <div className="mb-6 flex items-center gap-2">
             <Settings className="h-5 w-5 text-ink" strokeWidth={1.5} />
             <h1 className="text-display-sm font-semibold tracking-tight text-ink">
@@ -140,7 +145,7 @@ function SettingsPageInner() {
                   <div className="mb-1 sm:hidden">
                     <h2 className="text-sm font-semibold text-ink">Workspace</h2>
                     <p className="mt-0.5 text-xs text-mute">
-                      Create and manage workspaces
+                      Topics and call audit per workspace
                     </p>
                   </div>
                   <SettingsWorkspaces />

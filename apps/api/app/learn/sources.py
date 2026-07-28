@@ -226,12 +226,40 @@ def suggest_from_name(
                     prompt_tokens=pt,
                     completion_tokens=ct,
                     total_tokens=pt + ct,
-                    meta={"name": n[:80]},
+                    prompt=(
+                        f"Workspace name: {n}\nWeb search results:\n{context or '(none)'}"
+                    ),
+                    completion=raw,
+                    meta={
+                        "name": n[:80],
+                        "call_type": "llm",
+                        "web_hits": len(snippets),
+                    },
                 )
             except Exception:
                 pass
     except Exception:
         pass
+
+    # Record web search activity for workspace audit (even without LLM).
+    if db is not None and user_id is not None and snippets:
+        try:
+            log_usage(
+                db,
+                user_id=user_id,
+                workspace_id=workspace_id,
+                kind="web_search",
+                model=None,
+                prompt_tokens=0,
+                completion_tokens=0,
+                total_tokens=0,
+                tool_name="web_search",
+                tool_input={"queries": [f"{n} official documentation", f"what is {n}"]},
+                tool_output={"results": snippets[:6]},
+                meta={"name": n[:80], "call_type": "web_search", "result_count": len(snippets)},
+            )
+        except Exception:
+            pass
 
     return {
         "description": description,

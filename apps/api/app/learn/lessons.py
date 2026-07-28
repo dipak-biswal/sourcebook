@@ -409,7 +409,13 @@ def _generate_lesson_llm(
                 prompt_tokens=pt,
                 completion_tokens=ct,
                 total_tokens=pt + ct,
-                meta={"topic_id": topic.get("id"), "title": title[:80]},
+                prompt=prompt,
+                completion=raw,
+                meta={
+                    "topic_id": topic.get("id"),
+                    "title": title[:80],
+                    "call_type": "llm",
+                },
             )
         except Exception:
             pass

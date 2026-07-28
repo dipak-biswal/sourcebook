@@ -197,6 +197,62 @@ export type Workspace = {
   role: string;
 };
 
+/** Settings → Workspace activity audit. */
+export type WorkspaceActivityTopic = {
+  id: string;
+  title: string;
+  summary: string;
+  tags: string[];
+  parent_id?: string | null;
+  kind: string;
+  status: string;
+  has_lesson: boolean;
+};
+
+export type WorkspaceActivityCall = {
+  id: string;
+  source: string;
+  call_type: string;
+  kind: string;
+  model?: string | null;
+  tool_name?: string | null;
+  prompt?: string | null;
+  completion?: string | null;
+  tool_input?: unknown;
+  tool_output?: unknown;
+  prompt_tokens?: number | null;
+  completion_tokens?: number | null;
+  total_tokens?: number | null;
+  meta?: Record<string, unknown> | null;
+  run_id?: string | null;
+  created_at?: string | null;
+};
+
+export type WorkspaceActivityAgentRun = {
+  id: string;
+  goal: string;
+  agent_type: string;
+  status: string;
+  token_usage?: number | null;
+  final_answer?: string | null;
+  created_at?: string | null;
+  step_count: number;
+};
+
+export type WorkspaceActivity = {
+  workspace_id: string;
+  name: string;
+  description?: string | null;
+  tags: string[];
+  domain: string;
+  docs_url: string;
+  curriculum_source: string;
+  topics: WorkspaceActivityTopic[];
+  calls: WorkspaceActivityCall[];
+  agent_runs: WorkspaceActivityAgentRun[];
+  summary: Record<string, number>;
+};
+
 export type WorkspaceContextPreview = {
   confidence: string;
   derivation_version: number;
@@ -803,6 +859,14 @@ export const api = {
 
   deleteWorkspace: (id: string) =>
     request<void>(`/workspaces/${id}`, { method: "DELETE" }),
+
+  /** Per-workspace topics + LLM/tool/web-search audit trail. */
+  workspaceActivity: (workspaceId: string, limit = 80) => {
+    const params = new URLSearchParams({ limit: String(limit) });
+    return request<WorkspaceActivity>(
+      `/workspaces/${workspaceId}/activity?${params.toString()}`,
+    );
+  },
 
   previewWorkspaceContext: (
     workspaceId: string,

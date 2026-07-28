@@ -352,11 +352,14 @@ def _llm_topics_from_sources(
                 prompt_tokens=pt,
                 completion_tokens=ct,
                 total_tokens=pt + ct,
+                prompt=prompt,
+                completion=raw,
                 meta={
                     "domain": domain[:120],
                     "topic_count": len(topics),
                     "chapter_count": len(parents),
                     "docs_url": (docs_url or "")[:200],
+                    "call_type": "llm",
                 },
             )
         except Exception:
@@ -410,12 +413,51 @@ def discover_topics(
     }
 
     from app.learn.sources import format_source_context_for_prompt, gather_source_context
+    from app.usage import log_usage as _log_usage_activity
 
     ctx = gather_source_context(
         domain=domain or (workspace.name or "learning"),
         name=workspace.name or "",
         docs_url=effective_docs or None,
     )
+    # Audit trail: web search + docs fetch for this workspace.
+    try:
+        if ctx.get("snippets") and user_id is not None:
+            _log_usage_activity(
+                db,
+                user_id=user_id,
+                workspace_id=workspace.id,
+                kind="web_search",
+                tool_name="web_search",
+                tool_input={
+                    "domain": domain,
+                    "docs_url": effective_docs or None,
+                },
+                tool_output={"results": (ctx.get("snippets") or [])[:8]},
+                meta={
+                    "call_type": "web_search",
+                    "result_count": len(ctx.get("snippets") or []),
+                },
+            )
+        docs = ctx.get("docs") if isinstance(ctx.get("docs"), dict) else {}
+        if effective_docs and user_id is not None:
+            _log_usage_activity(
+                db,
+                user_id=user_id,
+                workspace_id=workspace.id,
+                kind="fetch_url",
+                tool_name="fetch_url",
+                tool_input={"url": effective_docs},
+                tool_output={
+                    "title": docs.get("title"),
+                    "error": docs.get("error"),
+                    "text_preview": str(docs.get("text") or "")[:2000],
+                },
+                meta={"call_type": "tool", "url": effective_docs[:200]},
+            )
+    except Exception:
+        pass
+
     source_prompt = format_source_context_for_prompt(ctx)
     topics = _llm_topics_from_sources(
         domain,
