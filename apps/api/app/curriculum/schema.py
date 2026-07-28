@@ -31,6 +31,8 @@ def empty_curriculum(*, domain: str = "") -> dict[str, Any]:
         "last_selected_topic_id": None,
         "lessons": {},
         "docs_url": "",
+        "source_urls": [],
+        "sources": [],
     }
 
 
@@ -71,6 +73,16 @@ def normalize_topic(raw: dict[str, Any] | None) -> dict[str, Any] | None:
         kind = ""
     if not kind:
         kind = "lesson" if parent_id else "chapter"
+    # Citation URLs for Learn page (user-supplied docs this topic was grounded in).
+    source_urls_raw = raw.get("source_urls") or []
+    source_urls: list[str] = []
+    if isinstance(source_urls_raw, list):
+        for u in source_urls_raw:
+            s = str(u).strip()
+            if s.startswith("http") and s not in source_urls:
+                source_urls.append(s[:2000])
+            if len(source_urls) >= 8:
+                break
     return {
         "id": tid[:80],
         "title": title[:120],
@@ -81,6 +93,7 @@ def normalize_topic(raw: dict[str, Any] | None) -> dict[str, Any] | None:
         "preferences": clean_prefs,
         "parent_id": parent_id,
         "kind": kind,
+        "source_urls": source_urls,
         "updated_at": str(raw.get("updated_at") or _now_iso()),
     }
 
@@ -109,6 +122,41 @@ def normalize_curriculum(raw: Any) -> dict[str, Any]:
             lessons[kid] = v
 
     docs_url = str(raw.get("docs_url") or "").strip()[:2000]
+    source_urls_in = raw.get("source_urls") if isinstance(raw.get("source_urls"), list) else []
+    source_urls: list[str] = []
+    for u in source_urls_in:
+        s = str(u).strip()
+        if s.startswith("http") and s not in source_urls:
+            source_urls.append(s[:2000])
+        if len(source_urls) >= 20:
+            break
+    # Prefer multi-URL list; keep docs_url as first for back-compat.
+    if docs_url and docs_url not in source_urls:
+        source_urls = [docs_url, *source_urls][:20]
+    elif not docs_url and source_urls:
+        docs_url = source_urls[0]
+
+    sources_raw = raw.get("sources") if isinstance(raw.get("sources"), list) else []
+    sources: list[dict[str, Any]] = []
+    for item in sources_raw[:20]:
+        if not isinstance(item, dict):
+            continue
+        url = str(item.get("url") or "").strip()
+        if not url:
+            continue
+        sources.append(
+            {
+                "url": url[:2000],
+                "final_url": str(item.get("final_url") or url)[:2000],
+                "title": str(item.get("title") or "")[:300],
+                "error": item.get("error"),
+                "status_code": item.get("status_code"),
+                "fetched_at": item.get("fetched_at"),
+                "ok": bool(item.get("ok")),
+                "chars": int(item.get("chars") or 0),
+            }
+        )
+
     return {
         "version": CURRICULUM_VERSION,
         "domain": str(raw.get("domain") or "").strip()[:120],
@@ -123,6 +171,8 @@ def normalize_curriculum(raw: Any) -> dict[str, Any]:
         ),
         "lessons": lessons,
         "docs_url": docs_url,
+        "source_urls": source_urls,
+        "sources": sources,
     }
 
 

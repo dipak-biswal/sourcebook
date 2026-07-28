@@ -4,7 +4,9 @@ import {
   ChevronDown,
   ChevronRight,
   Loader2,
+  Plus,
   Sparkles,
+  Trash2,
   X,
 } from "lucide-react";
 import {
@@ -12,6 +14,8 @@ import {
   type LearnCatalogResponse,
   type LearnChapter,
   type LearnTopic,
+  type WorkspaceCurateResult,
+  type WorkspaceCurateSource,
 } from "@/api";
 import { Button } from "@/components/ui/button";
 import { FieldError } from "@/components/ui/field-error";
@@ -43,8 +47,8 @@ function CurriculumPreview({ catalog }: { catalog: LearnCatalogResponse }) {
   if (!chapters.length) {
     return (
       <p className="rounded-[8px] border border-dashed border-hairline px-3 py-6 text-center text-xs text-mute">
-        No curriculum topics were extracted from the documentation. Check the
-        docs URL or try another page (e.g. a table of contents / index).
+        No curriculum topics were extracted from your URLs. Prefer public docs
+        or TOC/index pages.
       </p>
     );
   }
@@ -109,6 +113,31 @@ function CurriculumPreview({ catalog }: { catalog: LearnCatalogResponse }) {
   );
 }
 
+function SourceStatusList({ sources }: { sources: WorkspaceCurateSource[] }) {
+  if (!sources.length) return null;
+  return (
+    <ul className="space-y-1 rounded-[8px] border border-hairline bg-canvas-soft/50 p-2">
+      {sources.map((s) => (
+        <li key={s.url} className="text-[11px] leading-snug">
+          <span className={s.ok ? "text-emerald-700" : "text-red-600"}>
+            {s.ok ? "✓" : "×"}
+          </span>{" "}
+          <span className="font-medium text-ink">
+            {s.title || s.url}
+          </span>
+          {s.error ? (
+            <span className="block text-mute">
+              {typeof s.error === "string" ? s.error : "Fetch failed"}
+            </span>
+          ) : (
+            <span className="block truncate text-mute">{s.url}</span>
+          )}
+        </li>
+      ))}
+    </ul>
+  );
+}
+
 export function CreateWorkspaceModal({
   open,
   onClose,
@@ -124,12 +153,16 @@ export function CreateWorkspaceModal({
   const [step, setStep] = useState<Step>("form");
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
-  const [docsUrl, setDocsUrl] = useState("");
+  const [urlDraft, setUrlDraft] = useState("");
+  const [sourceUrls, setSourceUrls] = useState<string[]>([]);
   const [tags, setTags] = useState<string[]>(["learning"]);
   const [nameError, setNameError] = useState<string | null>(null);
   const [formError, setFormError] = useState<string | null>(null);
   const [curating, setCurating] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  const [curatePreview, setCuratePreview] = useState<WorkspaceCurateResult | null>(
+    null,
+  );
   const [catalog, setCatalog] = useState<LearnCatalogResponse | null>(null);
   const [createdId, setCreatedId] = useState<string | null>(null);
 
@@ -138,10 +171,12 @@ export function CreateWorkspaceModal({
     setStep("form");
     setName("");
     setDescription("");
-    setDocsUrl("");
+    setUrlDraft("");
+    setSourceUrls([]);
     setTags(["learning"]);
     setNameError(null);
     setFormError(null);
+    setCuratePreview(null);
     setCatalog(null);
     setCreatedId(null);
     setCurating(false);
@@ -160,24 +195,61 @@ export function CreateWorkspaceModal({
 
   if (!open) return null;
 
+  function addUrl() {
+    let u = urlDraft.trim();
+    if (!u) return;
+    if (!/^https?:\/\//i.test(u)) u = `https://${u}`;
+    if (sourceUrls.includes(u)) {
+      setUrlDraft("");
+      return;
+    }
+    if (sourceUrls.length >= 12) {
+      setFormError("Maximum 12 source URLs.");
+      return;
+    }
+    setSourceUrls((prev) => [...prev, u]);
+    setUrlDraft("");
+    setFormError(null);
+  }
+
+  function removeUrl(u: string) {
+    setSourceUrls((prev) => prev.filter((x) => x !== u));
+    setCuratePreview(null);
+  }
+
   async function handleCurate() {
     const err = validateWorkspaceName(name);
     setNameError(err);
     if (err) return;
+    if (!sourceUrls.length) {
+      setFormError(
+        "Add at least one documentation or article URL. Curate only uses those URLs — no random web search.",
+      );
+      return;
+    }
     setCurating(true);
     setFormError(null);
     try {
-      const s = await api.workspaceSuggestDescription(name.trim());
-      if (s.description) setDescription(s.description);
-      if (s.suggested_docs_url && !docsUrl.trim()) {
-        setDocsUrl(s.suggested_docs_url);
-      }
-      if (s.tags?.length) {
+      const result = await api.workspaceCurateFromUrls(name.trim(), sourceUrls);
+      setCuratePreview(result);
+      if (result.description) setDescription(result.description);
+      if (result.tags?.length) {
         setTags(
-          s.tags.includes("learning") ? s.tags : ["learning", ...s.tags],
+          result.tags.includes("learning")
+            ? result.tags
+            : ["learning", ...result.tags],
         );
       }
-      success("Description curated from web search");
+      if (result.ok_source_count === 0) {
+        setFormError(
+          "None of the URLs could be fetched. Use public http(s) pages (docs, TOCs, articles).",
+        );
+        toastError("Curate failed", "No readable sources");
+      } else {
+        success(
+          `Fetched ${result.ok_source_count} source(s) · outline ready (${result.topic_count} topics)`,
+        );
+      }
     } catch (e) {
       const msg = formatError(e);
       setFormError(msg);
@@ -191,8 +263,13 @@ export function CreateWorkspaceModal({
     const err = validateWorkspaceName(name);
     setNameError(err);
     if (err) return;
+    if (!sourceUrls.length) {
+      setFormError(
+        "Add source URLs so the curriculum can be grounded and cited later in Learn.",
+      );
+      return;
+    }
 
-    const url = docsUrl.trim();
     setSubmitting(true);
     setFormError(null);
     try {
@@ -202,37 +279,22 @@ export function CreateWorkspaceModal({
         tags: tags.length ? tags : ["learning"],
       });
 
-      let cat: LearnCatalogResponse | null = null;
-      if (url) {
-        cat = await api.workspaceSetupCurriculum(ws.id, {
-          name: name.trim(),
-          description: description.trim() || null,
-          tags: tags.length ? tags : ["learning"],
-          docs_url: url,
-          docs_only: true,
-        });
-      } else {
-        // No docs URL: create workspace only (no invented curriculum).
-        cat = {
-          workspace_id: ws.id,
-          domain: name.trim(),
-          needs_setup: false,
-          setup_hint: "",
-          source: "",
-          docs_url: "",
-          topics: [],
-          chapters: [],
-        };
-      }
+      const cat = await api.workspaceSetupCurriculum(ws.id, {
+        name: name.trim(),
+        description: description.trim() || null,
+        tags: tags.length ? tags : ["learning"],
+        source_urls: sourceUrls,
+        docs_only: true,
+      });
 
       setCreatedId(ws.id);
-      setCatalog(cat);
+      setCatalog({
+        ...cat,
+        needs_setup: false,
+        setup_hint: "",
+      });
       setStep("curriculum");
-      success(
-        url
-          ? `Workspace created · curriculum from documentation`
-          : `Workspace "${name.trim()}" created`,
-      );
+      success("Workspace created · curriculum from your sources");
       onCreated(ws.id);
     } catch (e) {
       const msg = formatError(e);
@@ -249,7 +311,7 @@ export function CreateWorkspaceModal({
         role="dialog"
         aria-modal="true"
         aria-labelledby="create-ws-title"
-        className="flex max-h-[min(90vh,720px)] w-full max-w-lg flex-col overflow-hidden rounded-[12px] border border-hairline bg-canvas shadow-[var(--elevation-card)]"
+        className="flex max-h-[min(90vh,760px)] w-full max-w-lg flex-col overflow-hidden rounded-[12px] border border-hairline bg-canvas shadow-[var(--elevation-card)]"
       >
         <div className="flex shrink-0 items-start justify-between gap-3 border-b border-hairline px-4 py-3">
           <div className="min-w-0">
@@ -257,14 +319,12 @@ export function CreateWorkspaceModal({
               id="create-ws-title"
               className="text-sm font-semibold text-ink"
             >
-              {step === "form" ? "Add workspace" : "Curriculum"}
+              {step === "form" ? "Add workspace" : "Curriculum from sources"}
             </h2>
             <p className="mt-0.5 text-[11px] text-mute">
               {step === "form"
-                ? "Name the workspace, curate a description, and optionally point at official docs to build the topic tree."
-                : catalog?.docs_url
-                  ? `Extracted from documentation (${catalog.source || "docs"}).`
-                  : "Workspace ready. Add a docs URL later to fetch curriculum."}
+                ? "Name the subject, add the open-site URLs you trust, then curate — we only fetch those URLs and structure topics for Learn citations."
+                : "Topics are grounded in your sources (not invented from open web search)."}
             </p>
           </div>
           <button
@@ -292,12 +352,71 @@ export function CreateWorkspaceModal({
                     setName(e.target.value);
                     setNameError(null);
                   }}
-                  placeholder="e.g. Python"
+                  placeholder="e.g. System Design"
                   className="h-9 text-sm"
                   aria-invalid={!!nameError || undefined}
                   disabled={submitting || curating}
                 />
                 <FieldError error={nameError} />
+              </div>
+
+              <div>
+                <label className="mb-1 block text-[11px] font-medium uppercase tracking-wide text-mute">
+                  Source URLs
+                </label>
+                <div className="flex gap-1">
+                  <Input
+                    value={urlDraft}
+                    onChange={(e) => setUrlDraft(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") {
+                        e.preventDefault();
+                        addUrl();
+                      }
+                    }}
+                    placeholder="https://… (docs, TOC, guide)"
+                    className="h-9 font-mono text-sm"
+                    disabled={submitting || curating}
+                  />
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    size="sm"
+                    className="h-9 shrink-0"
+                    disabled={submitting || curating || !urlDraft.trim()}
+                    onClick={addUrl}
+                  >
+                    <Plus className="h-3.5 w-3.5" strokeWidth={1.5} />
+                    Add
+                  </Button>
+                </div>
+                <p className="mt-1 text-[11px] text-mute">
+                  Paste multiple public pages (e.g. system design primers). Curate
+                  fetches <strong>only these URLs</strong> — no random discovery.
+                </p>
+                {sourceUrls.length > 0 ? (
+                  <ul className="mt-2 space-y-1">
+                    {sourceUrls.map((u) => (
+                      <li
+                        key={u}
+                        className="flex items-center gap-2 rounded-[6px] border border-hairline bg-canvas-soft/40 px-2 py-1.5"
+                      >
+                        <span className="min-w-0 flex-1 truncate font-mono text-[11px] text-body">
+                          {u}
+                        </span>
+                        <button
+                          type="button"
+                          className="rounded p-0.5 text-mute hover:text-red-600"
+                          aria-label="Remove URL"
+                          disabled={submitting || curating}
+                          onClick={() => removeUrl(u)}
+                        >
+                          <Trash2 className="h-3 w-3" strokeWidth={1.5} />
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                ) : null}
               </div>
 
               <div>
@@ -310,18 +429,23 @@ export function CreateWorkspaceModal({
                     variant="secondary"
                     size="sm"
                     className="h-7 text-[11px]"
-                    disabled={curating || submitting || name.trim().length < 2}
+                    disabled={
+                      curating ||
+                      submitting ||
+                      name.trim().length < 2 ||
+                      sourceUrls.length === 0
+                    }
                     onClick={() => void handleCurate()}
                   >
                     {curating ? (
                       <>
                         <Loader2 className="mr-1 h-3 w-3 animate-spin" />
-                        Curating…
+                        Fetching URLs…
                       </>
                     ) : (
                       <>
                         <Sparkles className="mr-1 h-3 w-3" strokeWidth={1.5} />
-                        Curate description
+                        Curate from URLs
                       </>
                     )}
                   </Button>
@@ -332,28 +456,18 @@ export function CreateWorkspaceModal({
                   rows={4}
                   disabled={submitting || curating}
                   className="w-full resize-y rounded-[8px] border border-hairline bg-canvas px-3 py-2 text-sm text-ink outline-none focus:border-ink/30 disabled:opacity-60"
-                  placeholder="Click “Curate description” to fill from web search, or write your own…"
+                  placeholder="Run “Curate from URLs” to fill this from your sources, or write your own…"
                 />
-              </div>
-
-              <div>
-                <label className="mb-1 block text-[11px] font-medium uppercase tracking-wide text-mute">
-                  Documentation URL{" "}
-                  <span className="font-normal normal-case text-mute">
-                    (optional)
-                  </span>
-                </label>
-                <Input
-                  value={docsUrl}
-                  onChange={(e) => setDocsUrl(e.target.value)}
-                  placeholder="https://docs.python.org/3/"
-                  className="h-9 font-mono text-sm"
-                  disabled={submitting || curating}
-                />
-                <p className="mt-1 text-[11px] text-mute">
-                  When set, curriculum topics are fetched from this documentation
-                  only (page + same-site TOC), not generic web inventing.
-                </p>
+                {curatePreview ? (
+                  <div className="mt-2 space-y-1.5">
+                    <p className="text-[10px] font-bold uppercase tracking-wide text-mute">
+                      Fetch status · {curatePreview.ok_source_count}/
+                      {curatePreview.sources.length} ok ·{" "}
+                      {curatePreview.topic_count} topics outlined
+                    </p>
+                    <SourceStatusList sources={curatePreview.sources} />
+                  </div>
+                ) : null}
               </div>
 
               {formError ? (
@@ -375,13 +489,10 @@ export function CreateWorkspaceModal({
                   </span>
                 ) : null}
               </div>
-              {catalog ? <CurriculumPreview catalog={catalog} /> : null}
-              {!docsUrl.trim() ? (
-                <p className="text-[11px] text-mute">
-                  No docs URL was provided, so no curriculum was fetched. You can
-                  open Learn later and add a documentation source.
-                </p>
+              {catalog?.sources?.length ? (
+                <SourceStatusList sources={catalog.sources} />
               ) : null}
+              {catalog ? <CurriculumPreview catalog={catalog} /> : null}
             </div>
           )}
         </div>
@@ -401,20 +512,21 @@ export function CreateWorkspaceModal({
               <Button
                 type="button"
                 size="sm"
-                disabled={submitting || curating || !name.trim()}
+                disabled={
+                  submitting ||
+                  curating ||
+                  !name.trim() ||
+                  sourceUrls.length === 0
+                }
                 onClick={() => void handleCreate()}
               >
                 {submitting ? (
                   <>
                     <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
-                    {docsUrl.trim()
-                      ? "Creating & fetching curriculum…"
-                      : "Creating…"}
+                    Creating & structuring…
                   </>
-                ) : docsUrl.trim() ? (
-                  "Create & fetch curriculum"
                 ) : (
-                  "Create workspace"
+                  "Create & structure curriculum"
                 )}
               </Button>
             </>

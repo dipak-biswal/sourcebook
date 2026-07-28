@@ -88,32 +88,17 @@ function WorkspaceSetupPanel({
       void (async () => {
         setSuggesting(true);
         try {
-          const s = await api.workspaceSuggestDescription(n);
+          // Learn setup no longer invents URLs via open web search.
+          // Description is free-form here; use Settings → Add workspace for
+          // multi-URL Workspace Curator agent.
           lastSuggestedName.current = n;
-          // Fill description if empty or still the old template / previous auto text.
           setDescription((prev) => {
             const p = prev.trim();
-            if (
-              !p ||
-              p === WORKSPACE_DESCRIPTION_TEMPLATE ||
-              p.startsWith("Learning workspace for") ||
-              p.length < 40
-            ) {
-              return s.description || prev;
+            if (!p || p === WORKSPACE_DESCRIPTION_TEMPLATE) {
+              return `Learning workspace for ${n}. Add documentation URLs in Settings → Add workspace for a grounded curriculum.`;
             }
-            // Keep a longer user-edited description.
             return prev;
           });
-          if (s.suggested_docs_url) {
-            setDocsUrl((prev) => prev.trim() || s.suggested_docs_url);
-          }
-          if (s.tags?.length) {
-            setTagsInput((prev) => {
-              const cur = parseTagInput(prev);
-              if (cur.length <= 1) return s.tags.join(", ");
-              return prev;
-            });
-          }
         } catch {
           /* suggestion is optional */
         } finally {
@@ -139,12 +124,23 @@ function WorkspaceSetupPanel({
         onRefreshWorkspaces();
         onWorkspaceChange(ws.id);
       }
+      const urls = docsUrl.trim()
+        ? docsUrl
+            .split(/[\n,]+/)
+            .map((u) => u.trim())
+            .filter(Boolean)
+        : [];
+      if (!urls.length) {
+        throw new Error(
+          "Add at least one documentation URL (or use Settings → Add workspace).",
+        );
+      }
       const catalog = await api.workspaceSetupCurriculum(id, {
         name: name.trim(),
         description: description.trim() || null,
         tags,
-        docs_url: docsUrl.trim() || null,
-        docs_only: !!docsUrl.trim(),
+        source_urls: urls,
+        docs_only: true,
       });
       onRefreshWorkspaces();
       success(

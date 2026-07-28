@@ -73,20 +73,41 @@ def change_password(
     return None
 
 
-class WorkspaceSuggestRequest(BaseModel):
+class WorkspaceCurateRequest(BaseModel):
+    """Workspace Curator agent: name + user-supplied source URLs only."""
+
     name: str = Field(min_length=1, max_length=120)
+    source_urls: list[str] = Field(default_factory=list, max_length=12)
 
 
-class WorkspaceSuggestResponse(BaseModel):
+class WorkspaceSourceOut(BaseModel):
+    url: str
+    final_url: str | None = None
+    title: str = ""
+    error: Any = None
+    status_code: int | None = None
+    fetched_at: str | None = None
+    ok: bool = False
+    chars: int = 0
+
+
+class WorkspaceCurateResponse(BaseModel):
     description: str = ""
-    suggested_docs_url: str = ""
     tags: list[str] = Field(default_factory=list)
+    sources: list[WorkspaceSourceOut] = Field(default_factory=list)
+    source_urls: list[str] = Field(default_factory=list)
+    ok_source_count: int = 0
+    topic_count: int = 0
+    agent: str = "workspace_curator"
 
 
 class WorkspaceSetupCurriculumRequest(BaseModel):
     name: str | None = Field(default=None, max_length=120)
     description: str | None = Field(default=None, max_length=4000)
     tags: list[str] | None = None
+    # Preferred: multiple user-supplied source URLs (Workspace Curator agent).
+    source_urls: list[str] | None = None
+    # Back-compat single URL.
     docs_url: str | None = Field(default=None, max_length=2000)
     docs_only: bool = True
 
@@ -99,6 +120,7 @@ class WorkspaceCurriculumTopicOut(BaseModel):
     parent_id: str | None = None
     kind: str = "lesson"
     has_lesson: bool = False
+    source_urls: list[str] = Field(default_factory=list)
 
 
 class WorkspaceCurriculumChapterOut(BaseModel):
@@ -108,6 +130,7 @@ class WorkspaceCurriculumChapterOut(BaseModel):
     tags: list[str] = Field(default_factory=list)
     has_lesson: bool = False
     intro_id: str
+    source_urls: list[str] = Field(default_factory=list)
     children: list[WorkspaceCurriculumTopicOut] = Field(default_factory=list)
 
 
@@ -116,36 +139,104 @@ class WorkspaceSetupCurriculumResponse(BaseModel):
     domain: str = ""
     source: str = ""
     docs_url: str = ""
+    source_urls: list[str] = Field(default_factory=list)
+    sources: list[WorkspaceSourceOut] = Field(default_factory=list)
     topics: list[WorkspaceCurriculumTopicOut] = Field(default_factory=list)
     chapters: list[WorkspaceCurriculumChapterOut] = Field(default_factory=list)
 
 
+def _chapters_from_topics(
+    topics: list[dict],
+    *,
+    lessons: dict | None = None,
+) -> tuple[list[WorkspaceCurriculumTopicOut], list[WorkspaceCurriculumChapterOut]]:
+    lessons = lessons or {}
+    topics_out: list[WorkspaceCurriculumTopicOut] = []
+    by_id: dict[str, WorkspaceCurriculumTopicOut] = {}
+    for t in topics:
+        if not isinstance(t, dict):
+            continue
+        tid = str(t.get("id") or "")
+        if not tid:
+            continue
+        parent_id = str(t.get("parent_id") or "").strip() or None
+        row = WorkspaceCurriculumTopicOut(
+            id=tid,
+            title=str(t.get("title") or ""),
+            summary=str(t.get("summary") or ""),
+            tags=list(t.get("tags") or []),
+            parent_id=parent_id,
+            kind=str(t.get("kind") or ("lesson" if parent_id else "chapter")),
+            has_lesson=isinstance(lessons.get(tid), dict),
+            source_urls=list(t.get("source_urls") or []),
+        )
+        topics_out.append(row)
+        by_id[tid] = row
+
+    children_of: dict[str, list[WorkspaceCurriculumTopicOut]] = {}
+    for row in topics_out:
+        if row.parent_id and row.parent_id in by_id:
+            children_of.setdefault(row.parent_id, []).append(row)
+
+    chapters: list[WorkspaceCurriculumChapterOut] = []
+    for root in [r for r in topics_out if not r.parent_id]:
+        chapters.append(
+            WorkspaceCurriculumChapterOut(
+                id=root.id,
+                title=root.title,
+                summary=root.summary,
+                tags=root.tags,
+                has_lesson=root.has_lesson,
+                intro_id=root.id,
+                source_urls=root.source_urls,
+                children=children_of.get(root.id, []),
+            )
+        )
+    return topics_out, chapters
+
+
 @router.post(
-    "/workspaces/suggest-description",
-    response_model=WorkspaceSuggestResponse,
+    "/workspaces/curate-from-urls",
+    response_model=WorkspaceCurateResponse,
 )
-def workspace_suggest_description(
-    body: WorkspaceSuggestRequest,
+def workspace_curate_from_urls(
+    body: WorkspaceCurateRequest,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
     _: None = Depends(rate_limit("agent")),
 ):
     """
-    Settings create-workspace modal: curate description + docs URL from name.
-    Dedicated workspace API — not /learn/* or /agents/*.
+    Workspace Curator agent (pre-create preview):
+    fetch ONLY the user-supplied URLs, then structure description + topic outline.
+    No open-web search inventing random sources.
     """
-    from app.learn.sources import suggest_from_name
+    from app.agents.workspace_curator import curate_from_urls
 
-    result = suggest_from_name(
-        body.name.strip(),
+    if not body.source_urls:
+        raise HTTPException(
+            status_code=400,
+            detail="Add at least one documentation / article URL to curate from.",
+        )
+    result = curate_from_urls(
+        name=body.name.strip(),
+        urls=list(body.source_urls),
         db=db,
         user_id=current_user.id,
         workspace_id=None,
     )
-    return WorkspaceSuggestResponse(
+    db.commit()
+    return WorkspaceCurateResponse(
         description=str(result.get("description") or ""),
-        suggested_docs_url=str(result.get("suggested_docs_url") or ""),
         tags=list(result.get("tags") or ["learning"]),
+        sources=[
+            WorkspaceSourceOut(**s)
+            for s in (result.get("sources") or [])
+            if isinstance(s, dict) and s.get("url")
+        ],
+        source_urls=list(result.get("source_urls") or []),
+        ok_source_count=int(result.get("ok_source_count") or 0),
+        topic_count=len(result.get("topics") or []),
+        agent="workspace_curator",
     )
 
 
@@ -161,13 +252,12 @@ def workspace_setup_curriculum(
     _: None = Depends(rate_limit("agent")),
 ):
     """
-    Settings create-workspace modal: save docs source and fetch curriculum
-    from documentation (docs_only by default). Not an Agents or Learn route.
+    Persist workspace fields + run Workspace Curator on user URLs to save
+    a citable hierarchical curriculum (no random open-web inventing).
     """
-    from app.agents.main.tools.fetch_url import validate_fetch_url
-    from app.curriculum.discover import discover_topics
-    from app.curriculum.schema import active_topics
+    from app.agents.workspace_curator import curate_from_urls
     from app.curriculum.service import get_curriculum, save_curriculum
+    from app.curriculum.domain import domain_label
 
     membership = (
         db.query(WorkspaceMember)
@@ -193,71 +283,86 @@ def workspace_setup_curriculum(
             tags = ["learning", *tags][:12]
         ws.tags = tags
 
-    docs_url = (body.docs_url or "").strip()
-    if docs_url:
-        err = validate_fetch_url(docs_url)
-        if err:
-            raise HTTPException(status_code=400, detail=f"Invalid docs URL: {err}")
+    urls: list[str] = []
+    if body.source_urls:
+        urls.extend(str(u).strip() for u in body.source_urls if str(u).strip())
+    if body.docs_url and body.docs_url.strip():
+        u = body.docs_url.strip()
+        if u not in urls:
+            urls.append(u)
+    if not urls:
+        raise HTTPException(
+            status_code=400,
+            detail="Provide at least one source URL to build the curriculum.",
+        )
 
     db.add(ws)
     db.commit()
     db.refresh(ws)
 
-    cur = get_curriculum(ws)
-    cur = dict(cur)
-    cur["docs_url"] = docs_url
-    save_curriculum(db, ws, cur)
-
-    cur = discover_topics(
-        ws,
+    result = curate_from_urls(
+        name=ws.name or body.name or "Learning",
+        urls=urls,
         db=db,
         user_id=current_user.id,
-        force=True,
-        docs_url=docs_url,
-        docs_only=bool(body.docs_only and docs_url),
+        workspace_id=ws.id,
     )
-    lessons = cur.get("lessons") if isinstance(cur.get("lessons"), dict) else {}
-    topics_out: list[WorkspaceCurriculumTopicOut] = []
-    by_id: dict[str, WorkspaceCurriculumTopicOut] = {}
-    for t in active_topics(cur):
-        tid = str(t.get("id") or "")
-        parent_id = str(t.get("parent_id") or "").strip() or None
-        row = WorkspaceCurriculumTopicOut(
-            id=tid,
-            title=str(t.get("title") or ""),
-            summary=str(t.get("summary") or ""),
-            tags=list(t.get("tags") or []),
-            parent_id=parent_id,
-            kind=str(t.get("kind") or ("lesson" if parent_id else "chapter")),
-            has_lesson=isinstance(lessons.get(tid), dict),
-        )
-        topics_out.append(row)
-        by_id[tid] = row
-
-    children_of: dict[str, list[WorkspaceCurriculumTopicOut]] = {}
-    for row in topics_out:
-        if row.parent_id and row.parent_id in by_id:
-            children_of.setdefault(row.parent_id, []).append(row)
-
-    chapters: list[WorkspaceCurriculumChapterOut] = []
-    for root in [r for r in topics_out if not r.parent_id]:
-        chapters.append(
-            WorkspaceCurriculumChapterOut(
-                id=root.id,
-                title=root.title,
-                summary=root.summary,
-                tags=root.tags,
-                has_lesson=root.has_lesson,
-                intro_id=root.id,
-                children=children_of.get(root.id, []),
-            )
+    topics = list(result.get("topics") or [])
+    if not topics:
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                "Could not extract a curriculum from the provided URLs. "
+                "Check that pages are publicly readable and look like docs/TOCs."
+            ),
         )
 
+    # Prefer curator description if user left description empty.
+    if not (ws.description or "").strip() and result.get("description"):
+        ws.description = str(result["description"])[:4000]
+        db.add(ws)
+
+    domain = domain_label(
+        name=ws.name or "",
+        description=ws.description,
+        tags=ws.tags if isinstance(ws.tags, list) else None,
+    )
+    existing = get_curriculum(ws)
+    lessons = existing.get("lessons") if isinstance(existing.get("lessons"), dict) else {}
+    source_urls = list(result.get("source_urls") or urls)
+    sources = list(result.get("sources") or [])
+
+    cur = {
+        "version": 1,
+        "domain": domain,
+        "source": "workspace_curator",
+        "fetched_at": result.get("fetched_at"),
+        "fingerprint": f"curator:{len(source_urls)}:{ws.name}",
+        "topics": topics,
+        "last_selected_topic_id": existing.get("last_selected_topic_id"),
+        "lessons": lessons,
+        "docs_url": source_urls[0] if source_urls else "",
+        "source_urls": source_urls,
+        "sources": sources,
+    }
+    cur = save_curriculum(db, ws, cur)
+    db.commit()
+
+    topics_out, chapters = _chapters_from_topics(
+        list(cur.get("topics") or topics),
+        lessons=lessons if isinstance(lessons, dict) else {},
+    )
     return WorkspaceSetupCurriculumResponse(
         workspace_id=str(ws.id),
-        domain=str(cur.get("domain") or ""),
-        source=str(cur.get("source") or ""),
+        domain=str(cur.get("domain") or domain),
+        source=str(cur.get("source") or "workspace_curator"),
         docs_url=str(cur.get("docs_url") or ""),
+        source_urls=list(cur.get("source_urls") or source_urls),
+        sources=[
+            WorkspaceSourceOut(**s)
+            for s in (cur.get("sources") or sources)
+            if isinstance(s, dict) and s.get("url")
+        ],
         topics=topics_out,
         chapters=chapters,
     )

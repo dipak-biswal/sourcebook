@@ -734,20 +734,23 @@ export const api = {
       },
     ),
 
-  // ── Workspace setup (Settings modal — not Agents / not Learn routes) ────
+  // ── Workspace Curator (Settings modal — user URLs only, no open-web invent) ─
 
-  workspaceSuggestDescription: (name: string) =>
-    request<LearnSuggestDescription>(`/workspaces/suggest-description`, {
+  /** Fetch user-supplied URLs + structure description/topics (preview). */
+  workspaceCurateFromUrls: (name: string, sourceUrls: string[]) =>
+    request<WorkspaceCurateResult>(`/workspaces/curate-from-urls`, {
       method: "POST",
-      body: JSON.stringify({ name }),
+      body: JSON.stringify({ name, source_urls: sourceUrls }),
     }),
 
+  /** Persist workspace + save curriculum grounded in source_urls. */
   workspaceSetupCurriculum: (
     workspaceId: string,
     body: {
       name?: string;
       description?: string | null;
       tags?: string[];
+      source_urls?: string[];
       docs_url?: string | null;
       docs_only?: boolean;
     },
@@ -759,6 +762,13 @@ export const api = {
         body: JSON.stringify(body),
       },
     ),
+
+  /** @deprecated Prefer workspaceCurateFromUrls with explicit source URLs. */
+  workspaceSuggestDescription: (name: string, sourceUrls: string[] = []) =>
+    request<WorkspaceCurateResult>(`/workspaces/curate-from-urls`, {
+      method: "POST",
+      body: JSON.stringify({ name, source_urls: sourceUrls }),
+    }),
 
   /** Learn page: domain topics + textbook lessons. */
   learnTopics: (workspaceId: string, refresh = false) => {
@@ -1066,6 +1076,8 @@ export type LearnTopic = {
   has_lesson: boolean;
   parent_id?: string | null;
   kind?: string;
+  /** User-supplied source URLs this topic was grounded in (for Learn citations). */
+  source_urls?: string[];
 };
 
 /** Main chapter with nested children (sidebar tree). */
@@ -1082,10 +1094,12 @@ export type LearnChapter = {
 export type LearnCatalogResponse = {
   workspace_id: string;
   domain: string;
-  needs_setup: boolean;
-  setup_hint: string;
+  needs_setup?: boolean;
+  setup_hint?: string;
   source: string;
   docs_url?: string;
+  source_urls?: string[];
+  sources?: WorkspaceCurateSource[];
   topics: LearnTopic[];
   chapters?: LearnChapter[];
   last_selected_topic_id?: string | null;
@@ -1093,8 +1107,29 @@ export type LearnCatalogResponse = {
 
 export type LearnSuggestDescription = {
   description: string;
-  suggested_docs_url: string;
+  suggested_docs_url?: string;
   tags: string[];
+};
+
+export type WorkspaceCurateSource = {
+  url: string;
+  final_url?: string | null;
+  title: string;
+  error?: unknown;
+  status_code?: number | null;
+  fetched_at?: string | null;
+  ok: boolean;
+  chars: number;
+};
+
+export type WorkspaceCurateResult = {
+  description: string;
+  tags: string[];
+  sources: WorkspaceCurateSource[];
+  source_urls: string[];
+  ok_source_count: number;
+  topic_count: number;
+  agent: string;
 };
 
 export type LearnLesson = {
