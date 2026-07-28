@@ -4,6 +4,7 @@ import {
   Activity,
   Bot,
   Files,
+  GraduationCap,
   LayoutDashboard,
   LogOut,
   Menu,
@@ -28,6 +29,7 @@ type AppHeaderProps = {
 const APP_NAV = [
   { to: "/", label: "Dashboard", icon: LayoutDashboard, match: "/" },
   { to: "/chat", label: "Chat", icon: MessageCircle, match: "/chat" },
+  { to: "/learn", label: "Learn", icon: GraduationCap, match: "/learn" },
   { to: "/agents", label: "Agents", icon: Bot, match: "/agents" },
   { to: "/documents", label: "Documents", icon: Files, match: "/documents" },
   { to: "/notes", label: "Notes", icon: StickyNote, match: "/notes" },

@@ -58,6 +58,9 @@ const SettingsPage = lazyWithRetry(() =>
 const NotesPage = lazyWithRetry(() =>
   import("@/pages/NotesPage").then((m) => ({ default: m.NotesPage })),
 );
+const LearnPage = lazyWithRetry(() =>
+  import("@/pages/LearnPage").then((m) => ({ default: m.LearnPage })),
+);
 
 function hasValidSession(): boolean {
   const token = getToken();
@@ -94,6 +97,7 @@ function AppRoutes() {
       <Route path="/settings" element={<RequireAuth page={SettingsPage} />} />
       <Route path="/notes" element={<RequireAuth page={NotesPage} />} />
       <Route path="/notes/:noteId" element={<RequireAuth page={NotesPage} />} />
+      <Route path="/learn" element={<RequireAuth page={LearnPage} />} />
       <Route path="*" element={<HomeRedirect />} />
     </Routes>
   );

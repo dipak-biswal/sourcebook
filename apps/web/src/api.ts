@@ -655,6 +655,25 @@ export const api = {
       },
     ),
 
+  /** Learn page: domain topics + textbook lessons. */
+  learnTopics: (workspaceId: string, refresh = false) => {
+    const params = new URLSearchParams();
+    if (refresh) params.set("refresh", "true");
+    const q = params.toString();
+    return request<LearnCatalogResponse>(
+      `/workspaces/${workspaceId}/learn/topics${q ? `?${q}` : ""}`,
+    );
+  },
+
+  learnLesson: (workspaceId: string, topicId: string, refresh = false) => {
+    const params = new URLSearchParams();
+    if (refresh) params.set("refresh", "true");
+    const q = params.toString();
+    return request<LearnLesson>(
+      `/workspaces/${workspaceId}/learn/topics/${encodeURIComponent(topicId)}/lesson${q ? `?${q}` : ""}`,
+    );
+  },
+
   /** Built-in tools + MCP connectors catalog for the Agents page. */
   agentConnectors: () => request<AgentConnectorsOverview>("/agents/connectors"),
 
@@ -897,6 +916,51 @@ export type DailyTotal = {
   prompt_tokens: number;
   completion_tokens: number;
   event_count: number;
+};
+
+/** Learn page catalog from GET /workspaces/{id}/learn/topics. */
+export type LearnTopic = {
+  id: string;
+  title: string;
+  summary: string;
+  tags: string[];
+  has_lesson: boolean;
+};
+
+export type LearnCatalogResponse = {
+  workspace_id: string;
+  domain: string;
+  needs_setup: boolean;
+  setup_hint: string;
+  source: string;
+  topics: LearnTopic[];
+  last_selected_topic_id?: string | null;
+};
+
+export type LearnLesson = {
+  topic_id: string;
+  title: string;
+  summary: string;
+  prerequisites: string[];
+  key_terms: { term: string; definition: string }[];
+  outline: { id: string; heading: string }[];
+  sections: {
+    id: string;
+    heading: string;
+    body_md: string;
+    visual_id?: string | null;
+  }[];
+  visuals: {
+    id: string;
+    type: string;
+    title: string;
+    body?: string | null;
+    items?: string[] | null;
+    width?: string;
+  }[];
+  generated_at?: string | null;
+  cached: boolean;
+  fallback: boolean;
 };
 
 /** Learning topic catalog from GET /workspaces/{id}/curriculum. */

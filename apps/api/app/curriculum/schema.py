@@ -29,6 +29,7 @@ def empty_curriculum(*, domain: str = "") -> dict[str, Any]:
         "fingerprint": "",
         "topics": [],
         "last_selected_topic_id": None,
+        "lessons": {},
     }
 
 
@@ -89,6 +90,14 @@ def normalize_curriculum(raw: Any) -> dict[str, Any]:
                 continue
             seen.add(t["id"])
             topics.append(t)
+    # Cached Learn lessons keyed by topic_id (opaque dicts; validated on read).
+    lessons_raw = raw.get("lessons") if isinstance(raw.get("lessons"), dict) else {}
+    lessons: dict[str, Any] = {}
+    for k, v in lessons_raw.items():
+        kid = str(k).strip()[:80]
+        if kid and isinstance(v, dict):
+            lessons[kid] = v
+
     return {
         "version": CURRICULUM_VERSION,
         "domain": str(raw.get("domain") or "").strip()[:120],
@@ -101,6 +110,7 @@ def normalize_curriculum(raw: Any) -> dict[str, Any]:
             if raw.get("last_selected_topic_id")
             else None
         ),
+        "lessons": lessons,
     }
 
 

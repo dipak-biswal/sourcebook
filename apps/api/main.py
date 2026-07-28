@@ -15,6 +15,7 @@ from app.routers import (
     dev,
     health,
     ingest,
+    learn,
     monitoring,
     notes,
     usage,
@@ -65,6 +66,7 @@ app.include_router(health.router)
 app.include_router(auth.router)
 app.include_router(workspaces.router)
 app.include_router(curriculum.router)
+app.include_router(learn.router)
 app.include_router(documents.router)
 app.include_router(ingest.router)
 app.include_router(chat.router)
