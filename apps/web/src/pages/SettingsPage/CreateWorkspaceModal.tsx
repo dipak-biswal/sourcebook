@@ -18,7 +18,7 @@ import { FieldError } from "@/components/ui/field-error";
 import { Input } from "@/components/ui/input";
 import { useToast } from "@/components/ui/toast";
 import { validateWorkspaceName } from "@/lib/validation";
-import { cn, formatError } from "@/lib/utils";
+import { formatError } from "@/lib/utils";
 
 type Step = "form" | "curriculum";
 
