@@ -318,11 +318,20 @@ def _generate_lesson_llm(
     title = str(topic.get("title") or "Topic")
     summary = str(topic.get("summary") or "")
     tags = ", ".join(str(t) for t in (topic.get("tags") or [])[:6])
+    kind = str(topic.get("kind") or "").strip().lower()
+    is_chapter = kind == "chapter" or not topic.get("parent_id")
+    role = (
+        "CHAPTER INTRODUCTION — overview of this area, why it matters, "
+        "mental model, and a map of subtopics the learner will study next"
+        if is_chapter
+        else "FOCUSED LESSON — deep dive on this specific technique/concept"
+    )
     prompt = (
         f"Domain: {domain}\n"
         f"Topic: {title}\n"
         f"Topic summary: {summary}\n"
-        f"Tags: {tags or '(none)'}\n\n"
+        f"Tags: {tags or '(none)'}\n"
+        f"Role: {role}\n\n"
         "Write a textbook-quality learning lesson (ml-visualized style):\n"
         "- 6–10 numbered teaching sections with markdown body_md\n"
         "- Concrete names, formulas or code when relevant, pipe tables in prose\n"

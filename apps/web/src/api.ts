@@ -925,6 +925,19 @@ export type LearnTopic = {
   summary: string;
   tags: string[];
   has_lesson: boolean;
+  parent_id?: string | null;
+  kind?: string;
+};
+
+/** Main chapter with nested children (sidebar tree). */
+export type LearnChapter = {
+  id: string;
+  title: string;
+  summary: string;
+  tags: string[];
+  has_lesson: boolean;
+  intro_id: string;
+  children: LearnTopic[];
 };
 
 export type LearnCatalogResponse = {
@@ -934,6 +947,7 @@ export type LearnCatalogResponse = {
   setup_hint: string;
   source: string;
   topics: LearnTopic[];
+  chapters?: LearnChapter[];
   last_selected_topic_id?: string | null;
 };
 

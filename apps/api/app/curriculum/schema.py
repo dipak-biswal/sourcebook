@@ -63,6 +63,13 @@ def normalize_topic(raw: dict[str, Any] | None) -> dict[str, Any] | None:
         if isinstance(tags_raw, list)
         else []
     )
+    parent_raw = str(raw.get("parent_id") or "").strip()
+    parent_id = parent_raw[:80] if parent_raw and parent_raw != tid else None
+    kind = str(raw.get("kind") or "").strip().lower()
+    if kind not in ("chapter", "lesson", ""):
+        kind = ""
+    if not kind:
+        kind = "lesson" if parent_id else "chapter"
     return {
         "id": tid[:80],
         "title": title[:120],
@@ -71,6 +78,8 @@ def normalize_topic(raw: dict[str, Any] | None) -> dict[str, Any] | None:
         "source": source,
         "status": status,
         "preferences": clean_prefs,
+        "parent_id": parent_id,
+        "kind": kind,
         "updated_at": str(raw.get("updated_at") or _now_iso()),
     }
 

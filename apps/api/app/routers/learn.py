@@ -44,6 +44,21 @@ class LearnTopicOut(BaseModel):
     summary: str = ""
     tags: list[str] = []
     has_lesson: bool = False
+    parent_id: str | None = None
+    kind: str = "lesson"  # chapter | lesson
+
+
+class LearnChapterOut(BaseModel):
+    """Main topic (chapter) with nested child lessons for the Learn sidebar."""
+
+    id: str
+    title: str
+    summary: str = ""
+    tags: list[str] = []
+    has_lesson: bool = False
+    # Synthetic "Introduction" points at the chapter's own lesson id.
+    intro_id: str
+    children: list[LearnTopicOut] = Field(default_factory=list)
 
 
 class LearnCatalogOut(BaseModel):
@@ -53,6 +68,7 @@ class LearnCatalogOut(BaseModel):
     setup_hint: str = ""
     source: str = ""
     topics: list[LearnTopicOut] = []
+    chapters: list[LearnChapterOut] = []
     last_selected_topic_id: str | None = None
 
 
@@ -150,15 +166,43 @@ def get_learn_topics(
     )
     lessons = cur.get("lessons") if isinstance(cur.get("lessons"), dict) else {}
     topics_out: list[LearnTopicOut] = []
+    by_id: dict[str, LearnTopicOut] = {}
     for t in active_topics(cur):
         tid = str(t.get("id") or "")
-        topics_out.append(
-            LearnTopicOut(
-                id=tid,
-                title=str(t.get("title") or ""),
-                summary=str(t.get("summary") or ""),
-                tags=list(t.get("tags") or []),
-                has_lesson=isinstance(lessons.get(tid), dict),
+        parent_id = str(t.get("parent_id") or "").strip() or None
+        kind = str(t.get("kind") or ("lesson" if parent_id else "chapter"))
+        row = LearnTopicOut(
+            id=tid,
+            title=str(t.get("title") or ""),
+            summary=str(t.get("summary") or ""),
+            tags=list(t.get("tags") or []),
+            has_lesson=isinstance(lessons.get(tid), dict),
+            parent_id=parent_id,
+            kind=kind,
+        )
+        topics_out.append(row)
+        by_id[tid] = row
+
+    # Build chapter tree: roots (no parent) → children.
+    children_of: dict[str, list[LearnTopicOut]] = {}
+    for row in topics_out:
+        if row.parent_id and row.parent_id in by_id:
+            children_of.setdefault(row.parent_id, []).append(row)
+
+    chapters: list[LearnChapterOut] = []
+    roots = [r for r in topics_out if not r.parent_id]
+    # If catalog is still flat (legacy), treat each root as a chapter with no kids.
+    for root in roots:
+        kids = children_of.get(root.id, [])
+        chapters.append(
+            LearnChapterOut(
+                id=root.id,
+                title=root.title,
+                summary=root.summary,
+                tags=root.tags,
+                has_lesson=root.has_lesson,
+                intro_id=root.id,
+                children=kids,
             )
         )
 
@@ -168,6 +212,7 @@ def get_learn_topics(
         needs_setup=False,
         source=str(cur.get("source") or ""),
         topics=topics_out,
+        chapters=chapters,
         last_selected_topic_id=cur.get("last_selected_topic_id"),
     )
 
