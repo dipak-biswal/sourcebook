@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   BookOpen,
   ChevronDown,
@@ -6,9 +6,7 @@ import {
   GraduationCap,
   Loader2,
   PanelLeft,
-  PanelRight,
   RefreshCw,
-  Sparkles,
 } from "lucide-react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
@@ -22,8 +20,6 @@ import {
 import { AppHeader } from "@/components/layout/AppHeader";
 import { WorkspaceSelect } from "@/components/workspace/WorkspaceSelect";
 import { MarkdownContent } from "@/components/chat/MarkdownContent";
-import { GenerativeUIView } from "@/components/agents/GenerativeUI";
-import type { GenerativeUIPayload } from "@/components/agents/generative-ui";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { ErrorAlert } from "@/components/ui/error-alert";
@@ -42,68 +38,91 @@ import { validateWorkspaceName } from "@/lib/validation";
 import { cn, formatError } from "@/lib/utils";
 import { setToken } from "@/api";
 
-function lessonToVisualPayload(lesson: LearnLesson): GenerativeUIPayload | null {
-  const blocks = (lesson.visuals ?? []).map((v) => {
-    // Diagram blocks need nodes/paths; fall back to scannable lists when LLM
-    // only returned pipe/bullet items.
-    let type = v.type;
-    if (
-      (type === "flow_diagram" ||
-        type === "sequence_diagram" ||
-        type === "compare_paths") &&
-      (v.items?.length ?? 0) > 0
-    ) {
-      type = type === "compare_paths" ? "comparison" : "steps";
-    }
-    return {
-      type,
-      title: v.title,
-      body: v.body ?? null,
-      items: v.items ?? null,
-      width: (v.width as "full" | "half") || "full",
-      tags: [`__visual:${v.id}`],
-    };
-  });
-  if (!blocks.length) return null;
-  return {
-    type: "generative_ui",
-    title: `${lesson.title} — figures`,
-    plain_summary: lesson.summary || "",
-    presentation_profile: "learn_visuals",
-    blocks,
-  };
-}
-
 function WorkspaceSetupPanel({
   workspaces,
   workspaceId,
   onWorkspaceChange,
   onRefreshWorkspaces,
   onSaved,
+  initialDocsUrl = "",
 }: {
   workspaces: Workspace[];
   workspaceId: string;
   onWorkspaceChange: (id: string) => void;
   onRefreshWorkspaces: () => void;
-  onSaved: () => void;
+  onSaved: (catalog?: Awaited<ReturnType<typeof api.learnSetup>>) => void;
+  initialDocsUrl?: string;
 }) {
   const { success, error: toastError } = useToast();
   const existing = workspaces.find((w) => w.id === workspaceId);
   const [name, setName] = useState(existing?.name ?? "");
   const [description, setDescription] = useState(
-    existing?.description ?? WORKSPACE_DESCRIPTION_TEMPLATE,
+    existing?.description ?? "",
   );
   const [tagsInput, setTagsInput] = useState(
     (existing?.tags ?? ["learning"]).join(", "),
   );
+  const [docsUrl, setDocsUrl] = useState(initialDocsUrl);
   const [saving, setSaving] = useState(false);
+  const [suggesting, setSuggesting] = useState(false);
   const [nameError, setNameError] = useState<string | null>(null);
+  const lastSuggestedName = useRef<string>("");
 
   useEffect(() => {
     setName(existing?.name ?? "");
-    setDescription(existing?.description ?? WORKSPACE_DESCRIPTION_TEMPLATE);
+    setDescription(existing?.description ?? "");
     setTagsInput((existing?.tags ?? ["learning"]).join(", "));
   }, [existing?.id, existing?.name, existing?.description, existing?.tags]);
+
+  useEffect(() => {
+    if (initialDocsUrl) setDocsUrl(initialDocsUrl);
+  }, [initialDocsUrl]);
+
+  // Auto-suggest description + docs URL when name settles.
+  useEffect(() => {
+    const n = name.trim();
+    if (n.length < 2) return;
+    if (n === lastSuggestedName.current) return;
+    // Don't overwrite a long user-written description on every keystroke of other fields.
+    const t = window.setTimeout(() => {
+      void (async () => {
+        setSuggesting(true);
+        try {
+          const s = await api.learnSuggestDescription(n);
+          lastSuggestedName.current = n;
+          // Fill description if empty or still the old template / previous auto text.
+          setDescription((prev) => {
+            const p = prev.trim();
+            if (
+              !p ||
+              p === WORKSPACE_DESCRIPTION_TEMPLATE ||
+              p.startsWith("Learning workspace for") ||
+              p.length < 40
+            ) {
+              return s.description || prev;
+            }
+            // Keep a longer user-edited description.
+            return prev;
+          });
+          if (s.suggested_docs_url) {
+            setDocsUrl((prev) => prev.trim() || s.suggested_docs_url);
+          }
+          if (s.tags?.length) {
+            setTagsInput((prev) => {
+              const cur = parseTagInput(prev);
+              if (cur.length <= 1) return s.tags.join(", ");
+              return prev;
+            });
+          }
+        } catch {
+          /* suggestion is optional */
+        } finally {
+          setSuggesting(false);
+        }
+      })();
+    }, 650);
+    return () => window.clearTimeout(t);
+  }, [name]);
 
   async function handleSave() {
     const err = validateWorkspaceName(name);
@@ -113,27 +132,28 @@ function WorkspaceSetupPanel({
     try {
       const tags = parseTagInput(tagsInput);
       if (!tags.includes("learning")) tags.push("learning");
-      if (!workspaceId || !existing) {
+      let id = workspaceId;
+      if (!id || !existing) {
         const ws = await api.createWorkspace(name.trim());
-        await api.updateWorkspace(ws.id, {
-          description: description.trim() || null,
-          tags,
-        });
+        id = ws.id;
         onRefreshWorkspaces();
         onWorkspaceChange(ws.id);
-        success("Workspace ready for Learn");
-      } else {
-        await api.updateWorkspace(workspaceId, {
-          name: name.trim(),
-          description: description.trim() || null,
-          tags,
-        });
-        onRefreshWorkspaces();
-        success("Workspace details saved");
       }
-      onSaved();
+      const catalog = await api.learnSetup(id, {
+        name: name.trim(),
+        description: description.trim() || null,
+        tags,
+        docs_url: docsUrl.trim() || null,
+      });
+      onRefreshWorkspaces();
+      success(
+        docsUrl.trim()
+          ? "Topics loaded from documentation + web search"
+          : "Topics loaded from web search",
+      );
+      onSaved(catalog);
     } catch (e) {
-      toastError("Could not save workspace", formatError(e));
+      toastError("Could not set up Learn", formatError(e));
     } finally {
       setSaving(false);
     }
@@ -148,9 +168,9 @@ function WorkspaceSetupPanel({
         <div>
           <h1 className="text-lg font-semibold text-ink">Set up Learn</h1>
           <p className="mt-1 text-sm text-mute">
-            Tell us what this workspace is for. We use the name, description,
-            and tags to fetch a relevant topic catalog — like chapters in a
-            visual textbook.
+            Enter a subject name (e.g. Python). We look up a description via
+            web search, and you can point us at official docs so the left panel
+            lists real subtopics from that source.
           </p>
         </div>
       </div>
@@ -180,12 +200,18 @@ function WorkspaceSetupPanel({
               setName(e.target.value);
               setNameError(null);
             }}
-            placeholder="e.g. ML fundamentals"
+            placeholder="e.g. Python"
             className="h-9 text-sm"
             aria-invalid={!!nameError || undefined}
           />
           {nameError && (
             <p className="mt-1 text-xs text-red-600">{nameError}</p>
+          )}
+          {suggesting && (
+            <p className="mt-1 flex items-center gap-1.5 text-[11px] text-mute">
+              <Loader2 className="h-3 w-3 animate-spin" />
+              Looking up description and docs…
+            </p>
           )}
         </div>
         <div>
@@ -195,10 +221,25 @@ function WorkspaceSetupPanel({
           <textarea
             value={description}
             onChange={(e) => setDescription(e.target.value)}
-            rows={5}
+            rows={4}
             className="w-full resize-y rounded-[8px] border border-hairline bg-canvas px-3 py-2 text-sm text-ink outline-none focus:border-ink/30"
-            placeholder="What do you want to learn?"
+            placeholder="Auto-filled from web search when you type a name…"
           />
+        </div>
+        <div>
+          <label className="mb-1 block text-[11px] font-medium uppercase tracking-wide text-mute">
+            Source (documentation URL)
+          </label>
+          <Input
+            value={docsUrl}
+            onChange={(e) => setDocsUrl(e.target.value)}
+            placeholder="https://docs.python.org/3/…"
+            className="h-9 text-sm font-mono"
+          />
+          <p className="mt-1 text-[11px] text-mute">
+            Optional but recommended. We fetch this page and use web search for
+            the latest TOC / subtopics (e.g. Python language reference chapters).
+          </p>
         </div>
         <div>
           <label className="mb-1 block text-[11px] font-medium uppercase tracking-wide text-mute">
@@ -207,7 +248,7 @@ function WorkspaceSetupPanel({
           <Input
             value={tagsInput}
             onChange={(e) => setTagsInput(e.target.value)}
-            placeholder="learning, system-design, ML"
+            placeholder="learning, python"
             className="h-9 text-sm"
           />
           <div className="mt-2 flex flex-wrap gap-1.5">
@@ -231,13 +272,13 @@ function WorkspaceSetupPanel({
         <Button
           type="button"
           className="w-full"
-          disabled={saving}
+          disabled={saving || suggesting}
           onClick={() => void handleSave()}
         >
           {saving ? (
             <>
               <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-              Saving…
+              Fetching topics…
             </>
           ) : (
             "Continue to topics"
@@ -316,11 +357,21 @@ function TopicSidebar({
             />
           </Button>
         </div>
-        {catalog.source && (
-          <p className="mt-1 text-[10px] text-mute">
-            Source: {catalog.source} · expand a chapter for subtopics
-          </p>
-        )}
+        <p className="mt-1 text-[10px] text-mute">
+          {catalog.source ? `${catalog.source} · ` : ""}
+          expand a chapter for subtopics
+        </p>
+        {catalog.docs_url ? (
+          <a
+            href={catalog.docs_url}
+            target="_blank"
+            rel="noreferrer"
+            className="mt-1 block truncate text-[10px] text-emerald-700 underline dark:text-emerald-400"
+            title={catalog.docs_url}
+          >
+            Docs source
+          </a>
+        ) : null}
       </div>
       <ul className="min-h-0 flex-1 overflow-y-auto p-2">
         {chapters.map((ch) => {
@@ -616,37 +667,6 @@ function LessonMiddle({
   );
 }
 
-function VisualsPanel({ lesson }: { lesson: LearnLesson | null }) {
-  const payload = useMemo(
-    () => (lesson ? lessonToVisualPayload(lesson) : null),
-    [lesson],
-  );
-
-  if (!lesson) {
-    return (
-      <div className="flex h-full flex-col items-center justify-center gap-2 p-6 text-center text-mute">
-        <Sparkles className="h-6 w-6" strokeWidth={1.25} />
-        <p className="text-xs">Figures appear here when a lesson is open.</p>
-      </div>
-    );
-  }
-  if (!payload) {
-    return (
-      <div className="p-4 text-xs text-mute">
-        No figures for this lesson yet. Regenerate to request diagrams.
-      </div>
-    );
-  }
-  return (
-    <div className="min-h-0 flex-1 overflow-y-auto p-3">
-      <div className="mb-2 text-[10px] font-bold uppercase tracking-wide text-mute">
-        Visuals
-      </div>
-      <GenerativeUIView payload={payload} />
-    </div>
-  );
-}
-
 function LearnPageInner() {
   const queryClient = useQueryClient();
   const { data: workspaces = [], isLoading: wsLoading, refetch: refetchWs } =
@@ -658,7 +678,6 @@ function LearnPageInner() {
   );
   const [activeSectionId, setActiveSectionId] = useState<string | null>(null);
   const [leftOpen, setLeftOpen] = useState(false);
-  const [rightOpen, setRightOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [topicsRefreshing, setTopicsRefreshing] = useState(false);
   const [lessonRefreshing, setLessonRefreshing] = useState(false);
@@ -818,10 +837,15 @@ function LearnPageInner() {
             workspaceId={workspaceId}
             onWorkspaceChange={setWorkspaceId}
             onRefreshWorkspaces={() => void refetchWs()}
-            onSaved={() => {
+            initialDocsUrl={catalog?.docs_url ?? ""}
+            onSaved={(cat) => {
+              if (cat && workspaceId) {
+                queryClient.setQueryData(["learnTopics", workspaceId], cat);
+              }
               void queryClient.invalidateQueries({
                 queryKey: ["learnTopics"],
               });
+              void queryClient.invalidateQueries({ queryKey: ["workspaces"] });
             }}
           />
         </main>
@@ -898,15 +922,6 @@ function LearnPageInner() {
               <span className="min-w-0 flex-1 truncate text-sm font-semibold text-ink">
                 {lesson?.title || catalog?.domain || "Learn"}
               </span>
-              <Button
-                type="button"
-                variant="ghost"
-                size="icon"
-                aria-label="Open visuals"
-                onClick={() => setRightOpen(true)}
-              >
-                <PanelRight className="h-4 w-4" strokeWidth={1.5} />
-              </Button>
             </div>
 
             {error && (
@@ -930,29 +945,6 @@ function LearnPageInner() {
               />
             )}
           </main>
-
-          {/* Right: diagrams / GenUI */}
-          <aside className="hidden w-80 shrink-0 flex-col border-l border-hairline bg-canvas-soft xl:flex 2xl:w-[22rem]">
-            <VisualsPanel
-              lesson={
-                lessonQuery.isFetching && !lesson ? null : lesson
-              }
-            />
-          </aside>
-
-          <Sheet
-            open={rightOpen}
-            onClose={() => setRightOpen(false)}
-            title="Visuals"
-            side="right"
-            mobileOnly={false}
-          >
-            <VisualsPanel
-              lesson={
-                lessonQuery.isFetching && !lesson ? null : lesson
-              }
-            />
-          </Sheet>
         </div>
       )}
     </div>

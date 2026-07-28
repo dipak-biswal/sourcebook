@@ -8,17 +8,21 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
+from app.agents.main.tools.fetch_url import validate_fetch_url
 from app.curriculum.discover import discover_topics
 from app.curriculum.domain import domain_label
 from app.curriculum.schema import active_topics, find_topic
-from app.curriculum.service import get_curriculum, set_last_selected
+from app.curriculum.service import get_curriculum, save_curriculum, set_last_selected
 from app.db import get_db
 from app.deps import get_current_user
 from app.learn.lessons import get_or_generate_lesson
+from app.learn.sources import suggest_from_name
 from app.models import User, Workspace, WorkspaceMember
 from app.rate_limit import rate_limit
 
 router = APIRouter(prefix="/workspaces", tags=["learn"])
+# Workspace-agnostic helpers (suggest description before a workspace exists).
+learn_meta_router = APIRouter(prefix="/learn", tags=["learn"])
 
 
 def _require_member(db: Session, user_id: uuid.UUID, workspace_id: uuid.UUID) -> Workspace:
@@ -67,9 +71,29 @@ class LearnCatalogOut(BaseModel):
     needs_setup: bool = False
     setup_hint: str = ""
     source: str = ""
+    docs_url: str = ""
     topics: list[LearnTopicOut] = []
     chapters: list[LearnChapterOut] = []
     last_selected_topic_id: str | None = None
+
+
+class SuggestDescriptionRequest(BaseModel):
+    name: str = Field(min_length=1, max_length=120)
+
+
+class SuggestDescriptionOut(BaseModel):
+    description: str = ""
+    suggested_docs_url: str = ""
+    tags: list[str] = Field(default_factory=list)
+
+
+class LearnSetupRequest(BaseModel):
+    """Save workspace learn setup and refresh topics from web/docs."""
+
+    name: str | None = Field(default=None, max_length=120)
+    description: str | None = Field(default=None, max_length=4000)
+    tags: list[str] | None = None
+    docs_url: str | None = Field(default=None, max_length=2000)
 
 
 class LearnKeyTerm(BaseModel):
@@ -113,27 +137,141 @@ class LearnLessonOut(BaseModel):
 
 
 def _workspace_needs_setup(ws: Workspace) -> tuple[bool, str]:
-    """True when name alone is not enough to infer a learning domain."""
-    desc = (ws.description or "").strip()
-    tags = [str(t).strip() for t in (ws.tags or []) if str(t).strip()] if isinstance(ws.tags, list) else []
+    """True when we still need a name before discovering topics."""
     name = (ws.name or "").strip()
     if not name:
-        return True, "Add a workspace name, description, and tags so we can find topics."
-    if not desc and not tags:
-        return (
-            True,
-            "Add a short description and tags (e.g. learning, system-design, ML) "
-            "so Learn can fetch relevant topics for this workspace.",
-        )
-    domain = domain_label(name=name, description=desc, tags=tags)
-    if not domain or domain.lower() in ("general", "workspace", name.lower()):
-        if not desc:
-            return (
-                True,
-                "Describe what you want to learn (e.g. “System design interview prep” "
-                "or “Machine learning fundamentals”).",
-            )
+        return True, "Add a workspace name (e.g. Python, System Design) to fetch topics."
     return False, ""
+
+
+@learn_meta_router.post(
+    "/suggest-description",
+    response_model=SuggestDescriptionOut,
+)
+def suggest_learn_description(
+    body: SuggestDescriptionRequest,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+    _: None = Depends(rate_limit("agent")),
+):
+    """Suggest description + docs URL from workspace name via web search."""
+    result = suggest_from_name(
+        body.name.strip(),
+        db=db,
+        user_id=current_user.id,
+        workspace_id=None,
+    )
+    return SuggestDescriptionOut(
+        description=str(result.get("description") or ""),
+        suggested_docs_url=str(result.get("suggested_docs_url") or ""),
+        tags=list(result.get("tags") or ["learning"]),
+    )
+
+
+@router.post(
+    "/{workspace_id}/learn/setup",
+    response_model=LearnCatalogOut,
+)
+def learn_setup(
+    workspace_id: uuid.UUID,
+    body: LearnSetupRequest,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+    _: None = Depends(rate_limit("agent")),
+):
+    """
+    Update workspace learn fields (name/description/tags/docs_url) and
+    force-refresh the hierarchical topic catalog from web + documentation.
+    """
+    ws = _require_member(db, current_user.id, workspace_id)
+
+    if body.name is not None and body.name.strip():
+        ws.name = body.name.strip()[:120]
+    if body.description is not None:
+        ws.description = (body.description or "").strip()[:4000] or None
+    if body.tags is not None:
+        tags = [str(t).strip() for t in body.tags if str(t).strip()][:12]
+        if "learning" not in {t.lower() for t in tags}:
+            tags = ["learning", *tags][:12]
+        ws.tags = tags
+
+    docs_url = (body.docs_url if body.docs_url is not None else "").strip()
+    if docs_url:
+        err = validate_fetch_url(docs_url)
+        if err:
+            raise HTTPException(status_code=400, detail=f"Invalid docs URL: {err}")
+
+    db.add(ws)
+    db.commit()
+    db.refresh(ws)
+
+    # Persist docs_url on curriculum before discover (discover also stores it).
+    cur = get_curriculum(ws)
+    cur = dict(cur)
+    cur["docs_url"] = docs_url
+    save_curriculum(db, ws, cur)
+
+    cur = discover_topics(
+        ws,
+        db=db,
+        user_id=current_user.id,
+        force=True,
+        docs_url=docs_url,
+    )
+    return _catalog_out(ws, cur)
+
+
+def _catalog_out(ws: Workspace, cur: dict) -> LearnCatalogOut:
+    lessons = cur.get("lessons") if isinstance(cur.get("lessons"), dict) else {}
+    topics_out: list[LearnTopicOut] = []
+    by_id: dict[str, LearnTopicOut] = {}
+    for t in active_topics(cur):
+        tid = str(t.get("id") or "")
+        parent_id = str(t.get("parent_id") or "").strip() or None
+        kind = str(t.get("kind") or ("lesson" if parent_id else "chapter"))
+        row = LearnTopicOut(
+            id=tid,
+            title=str(t.get("title") or ""),
+            summary=str(t.get("summary") or ""),
+            tags=list(t.get("tags") or []),
+            has_lesson=isinstance(lessons.get(tid), dict),
+            parent_id=parent_id,
+            kind=kind,
+        )
+        topics_out.append(row)
+        by_id[tid] = row
+
+    children_of: dict[str, list[LearnTopicOut]] = {}
+    for row in topics_out:
+        if row.parent_id and row.parent_id in by_id:
+            children_of.setdefault(row.parent_id, []).append(row)
+
+    chapters: list[LearnChapterOut] = []
+    roots = [r for r in topics_out if not r.parent_id]
+    for root in roots:
+        kids = children_of.get(root.id, [])
+        chapters.append(
+            LearnChapterOut(
+                id=root.id,
+                title=root.title,
+                summary=root.summary,
+                tags=root.tags,
+                has_lesson=root.has_lesson,
+                intro_id=root.id,
+                children=kids,
+            )
+        )
+
+    return LearnCatalogOut(
+        workspace_id=str(ws.id),
+        domain=str(cur.get("domain") or ""),
+        needs_setup=False,
+        source=str(cur.get("source") or ""),
+        docs_url=str(cur.get("docs_url") or ""),
+        topics=topics_out,
+        chapters=chapters,
+        last_selected_topic_id=cur.get("last_selected_topic_id"),
+    )
 
 
 @router.get(
@@ -164,57 +302,7 @@ def get_learn_topics(
         user_id=current_user.id,
         force=refresh,
     )
-    lessons = cur.get("lessons") if isinstance(cur.get("lessons"), dict) else {}
-    topics_out: list[LearnTopicOut] = []
-    by_id: dict[str, LearnTopicOut] = {}
-    for t in active_topics(cur):
-        tid = str(t.get("id") or "")
-        parent_id = str(t.get("parent_id") or "").strip() or None
-        kind = str(t.get("kind") or ("lesson" if parent_id else "chapter"))
-        row = LearnTopicOut(
-            id=tid,
-            title=str(t.get("title") or ""),
-            summary=str(t.get("summary") or ""),
-            tags=list(t.get("tags") or []),
-            has_lesson=isinstance(lessons.get(tid), dict),
-            parent_id=parent_id,
-            kind=kind,
-        )
-        topics_out.append(row)
-        by_id[tid] = row
-
-    # Build chapter tree: roots (no parent) → children.
-    children_of: dict[str, list[LearnTopicOut]] = {}
-    for row in topics_out:
-        if row.parent_id and row.parent_id in by_id:
-            children_of.setdefault(row.parent_id, []).append(row)
-
-    chapters: list[LearnChapterOut] = []
-    roots = [r for r in topics_out if not r.parent_id]
-    # If catalog is still flat (legacy), treat each root as a chapter with no kids.
-    for root in roots:
-        kids = children_of.get(root.id, [])
-        chapters.append(
-            LearnChapterOut(
-                id=root.id,
-                title=root.title,
-                summary=root.summary,
-                tags=root.tags,
-                has_lesson=root.has_lesson,
-                intro_id=root.id,
-                children=kids,
-            )
-        )
-
-    return LearnCatalogOut(
-        workspace_id=str(ws.id),
-        domain=str(cur.get("domain") or ""),
-        needs_setup=False,
-        source=str(cur.get("source") or ""),
-        topics=topics_out,
-        chapters=chapters,
-        last_selected_topic_id=cur.get("last_selected_topic_id"),
-    )
+    return _catalog_out(ws, cur)
 
 
 @router.get(

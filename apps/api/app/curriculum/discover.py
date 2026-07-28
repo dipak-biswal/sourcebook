@@ -276,51 +276,30 @@ def _fallback_topics(domain: str) -> list[dict[str, Any]]:
     return _flatten_chapters(_GENERIC_CHAPTERS, source="fallback")
 
 
-def _web_snippets(domain: str) -> list[str]:
-    try:
-        from app.agents.main.tools.web_search import search_web
-
-        payload = search_web(
-            f"{domain} core topics concepts for interviews study guide",
-            max_results=6,
-        )
-    except Exception:
-        return []
-    if not isinstance(payload, dict) or payload.get("error"):
-        return []
-    snippets: list[str] = []
-    for r in payload.get("results") or []:
-        if not isinstance(r, dict):
-            continue
-        title = str(r.get("title") or "").strip()
-        snip = str(r.get("snippet") or "").strip()
-        line = f"{title}: {snip}".strip(": ")
-        if line:
-            snippets.append(line[:300])
-    return snippets[:8]
-
-
-def _llm_topics(
+def _llm_topics_from_sources(
     domain: str,
-    snippets: list[str],
+    source_prompt: str,
     *,
+    docs_url: str = "",
     db: Session | None,
     user_id: Any,
     workspace_id: Any,
 ) -> list[dict[str, Any]] | None:
+    """Structure a hierarchical catalog from real web/docs evidence only."""
     model = getattr(settings, "context_agent_model", None) or settings.chat_model
     prompt = (
-        f"Domain / workspace: {domain}\n\n"
-        "Web context (may be noisy):\n"
-        + ("\n".join(f"- {s}" for s in snippets) if snippets else "(none)")
-        + "\n\n"
-        "Return a hierarchical learning catalog: 4–7 CHAPTERS (main topics). "
-        "Each chapter has 3–5 CHILD lessons nested under it.\n"
-        "Example shape: Scalability principles → Load balancer, Caching, CDN…\n"
-        "Chapter titles: principle/area names (2–5 words). "
-        "Child titles: concrete techniques or concepts. "
-        "Summaries one sentence. tags 1–3 short labels. "
-        "No duplicates across the tree. Prefer interview/practical relevance."
+        f"{source_prompt}\n\n"
+        "Using ONLY the web search results and documentation text above "
+        f"(year context included for latest info), build a hierarchical learning "
+        "catalog for this domain.\n"
+        "Rules:\n"
+        "- 4–10 CHAPTERS (main sections of the subject / docs).\n"
+        "- Each chapter has 3–8 CHILD lessons (real subtopics from the sources).\n"
+        "- Prefer official documentation outline (e.g. Python docs: intro, "
+        "data structures, modules, stdlib topics…).\n"
+        "- Titles short (2–6 words). Summaries one sentence grounded in sources.\n"
+        "- tags 1–3 short labels. No invented APIs that contradict the docs.\n"
+        "- If a docs URL was provided, mirror its TOC structure when visible.\n"
     )
     try:
         from app.agents.visual_summary.llm_json import chat_json
@@ -329,13 +308,14 @@ def _llm_topics(
             _client(),
             model=model,
             system=(
-                "You curate a hierarchical learning catalog (chapters + nested "
-                "lessons). Output only the JSON schema. Relevant to the domain."
+                "You extract a hierarchical learning catalog from documentation "
+                "and web search evidence. Do not invent topics unsupported by "
+                "the sources. Output only the JSON schema."
             ),
             prompt=prompt,
             schema_name="curriculum_chapters",
             schema=_TOPIC_SCHEMA,
-            temperature=0.2,
+            temperature=0.15,
         )
     except Exception:
         return None
@@ -350,7 +330,6 @@ def _llm_topics(
     if not isinstance(chapters, list) or len(chapters) < 2:
         return None
     topics = _flatten_chapters(chapters, source="suggested")
-    # Need at least a few chapters with some children.
     parents = [t for t in topics if not t.get("parent_id")]
     children = [t for t in topics if t.get("parent_id")]
     if len(parents) < 2 or len(children) < 3:
@@ -377,11 +356,12 @@ def _llm_topics(
                     "domain": domain[:120],
                     "topic_count": len(topics),
                     "chapter_count": len(parents),
+                    "docs_url": (docs_url or "")[:200],
                 },
             )
         except Exception:
             pass
-    return topics[:60]
+    return topics[:80]
 
 
 def discover_topics(
@@ -390,11 +370,19 @@ def discover_topics(
     db: Session,
     user_id: Any = None,
     force: bool = False,
+    docs_url: str | None = None,
 ) -> dict[str, Any]:
     """
     Return curriculum with topics, refreshing when fingerprint changes or force=True.
-    Preserves custom topics and preferences on matching ids.
+
+    Always gathers latest web search results; when docs_url (or stored
+    curriculum.docs_url) is set, also fetches that documentation page and
+    structures chapters/subtopics from the evidence.
     """
+    existing = get_curriculum(workspace)
+    stored_docs = str(existing.get("docs_url") or "").strip()
+    effective_docs = (docs_url if docs_url is not None else stored_docs).strip()
+
     domain = domain_label(
         name=workspace.name or "",
         description=workspace.description,
@@ -404,8 +392,8 @@ def discover_topics(
         name=workspace.name or "",
         description=workspace.description,
         tags=workspace.tags if isinstance(workspace.tags, list) else None,
+        docs_url=effective_docs or None,
     )
-    existing = get_curriculum(workspace)
     if (
         not force
         and existing.get("topics")
@@ -421,16 +409,34 @@ def discover_topics(
         if isinstance(t, dict) and t.get("id")
     }
 
-    snippets = _web_snippets(domain)
-    topics = _llm_topics(
+    from app.learn.sources import format_source_context_for_prompt, gather_source_context
+
+    ctx = gather_source_context(
+        domain=domain or (workspace.name or "learning"),
+        name=workspace.name or "",
+        docs_url=effective_docs or None,
+    )
+    source_prompt = format_source_context_for_prompt(ctx)
+    topics = _llm_topics_from_sources(
         domain,
-        snippets,
+        source_prompt,
+        docs_url=effective_docs,
         db=db,
         user_id=user_id,
         workspace_id=workspace.id,
     )
-    source = "web+llm" if topics else "fallback"
-    if not topics:
+    has_docs = bool(effective_docs) and not (ctx.get("docs") or {}).get("error")
+    has_web = bool(ctx.get("snippets"))
+    if topics and has_docs and has_web:
+        source = "docs+web"
+    elif topics and has_docs:
+        source = "docs"
+    elif topics and has_web:
+        source = "web"
+    elif topics:
+        source = "web+llm"
+    else:
+        source = "fallback"
         topics = _fallback_topics(domain)
 
     # Merge: suggested list + any previous custom topics not in list
@@ -466,5 +472,6 @@ def discover_topics(
         "topics": merged,
         "last_selected_topic_id": existing.get("last_selected_topic_id"),
         "lessons": existing.get("lessons") if isinstance(existing.get("lessons"), dict) else {},
+        "docs_url": effective_docs,
     }
     return save_curriculum(db, workspace, curriculum)

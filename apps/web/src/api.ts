@@ -665,6 +665,28 @@ export const api = {
     );
   },
 
+  /** Suggest description + docs URL from workspace name (web search). */
+  learnSuggestDescription: (name: string) =>
+    request<LearnSuggestDescription>(`/learn/suggest-description`, {
+      method: "POST",
+      body: JSON.stringify({ name }),
+    }),
+
+  /** Save learn setup (docs URL etc.) and force-refresh topic catalog. */
+  learnSetup: (
+    workspaceId: string,
+    body: {
+      name?: string;
+      description?: string | null;
+      tags?: string[];
+      docs_url?: string | null;
+    },
+  ) =>
+    request<LearnCatalogResponse>(`/workspaces/${workspaceId}/learn/setup`, {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
+
   learnLesson: (workspaceId: string, topicId: string, refresh = false) => {
     const params = new URLSearchParams();
     if (refresh) params.set("refresh", "true");
@@ -946,9 +968,16 @@ export type LearnCatalogResponse = {
   needs_setup: boolean;
   setup_hint: string;
   source: string;
+  docs_url?: string;
   topics: LearnTopic[];
   chapters?: LearnChapter[];
   last_selected_topic_id?: string | null;
+};
+
+export type LearnSuggestDescription = {
+  description: string;
+  suggested_docs_url: string;
+  tags: string[];
 };
 
 export type LearnLesson = {

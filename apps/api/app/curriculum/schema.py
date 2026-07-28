@@ -30,6 +30,7 @@ def empty_curriculum(*, domain: str = "") -> dict[str, Any]:
         "topics": [],
         "last_selected_topic_id": None,
         "lessons": {},
+        "docs_url": "",
     }
 
 
@@ -107,6 +108,7 @@ def normalize_curriculum(raw: Any) -> dict[str, Any]:
         if kid and isinstance(v, dict):
             lessons[kid] = v
 
+    docs_url = str(raw.get("docs_url") or "").strip()[:2000]
     return {
         "version": CURRICULUM_VERSION,
         "domain": str(raw.get("domain") or "").strip()[:120],
@@ -120,6 +122,7 @@ def normalize_curriculum(raw: Any) -> dict[str, Any]:
             else None
         ),
         "lessons": lessons,
+        "docs_url": docs_url,
     }
 
 

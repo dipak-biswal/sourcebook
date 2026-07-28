@@ -326,13 +326,32 @@ def _generate_lesson_llm(
         if is_chapter
         else "FOCUSED LESSON — deep dive on this specific technique/concept"
     )
+    # Latest web evidence for this topic (do not invent stale facts).
+    web_block = ""
+    try:
+        from app.learn.sources import web_search_snippets
+
+        year = datetime.now(timezone.utc).year
+        hits = web_search_snippets(
+            f"{domain} {title} documentation tutorial {year}",
+            max_results=6,
+        )
+        if hits:
+            web_block = "Latest web search:\n" + "\n".join(
+                f"- {h.get('title')}: {h.get('snippet')} ({h.get('url')})"
+                for h in hits
+            )
+    except Exception:
+        web_block = ""
     prompt = (
         f"Domain: {domain}\n"
         f"Topic: {title}\n"
         f"Topic summary: {summary}\n"
         f"Tags: {tags or '(none)'}\n"
         f"Role: {role}\n\n"
+        f"{web_block}\n\n"
         "Write a textbook-quality learning lesson (ml-visualized style):\n"
+        "- Prefer facts consistent with the web search results above\n"
         "- 6–10 numbered teaching sections with markdown body_md\n"
         "- Concrete names, formulas or code when relevant, pipe tables in prose\n"
         "- Each section may link visual_id to a figure in visuals[]\n"

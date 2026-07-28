@@ -20,8 +20,13 @@ def fingerprint_for(
     name: str,
     description: str | None,
     tags: list[str] | None,
+    docs_url: str | None = None,
 ) -> str:
-    raw = f"{name or ''}\n{description or ''}\n{','.join(sorted(str(t) for t in (tags or []) if t))}"
+    raw = (
+        f"{name or ''}\n{description or ''}\n"
+        f"{','.join(sorted(str(t) for t in (tags or []) if t))}\n"
+        f"{(docs_url or '').strip()}"
+    )
     return hashlib.sha256(raw.encode("utf-8")).hexdigest()[:32]
 
 
