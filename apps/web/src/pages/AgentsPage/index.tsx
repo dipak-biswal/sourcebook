@@ -44,9 +44,14 @@ function AgentsPageInner() {
           <AgentSidebar />
         </Sheet>
 
-        <main id="main-content" tabIndex={-1} className="document-scroll min-h-0 min-w-0 flex-1 overflow-y-auto px-4 py-5 outline-none sm:px-6 sm:py-6">
-          <div className="mx-auto max-w-2xl">
-            <div className="mb-4 md:hidden">
+        <main
+          id="main-content"
+          tabIndex={-1}
+          className="document-scroll min-h-0 min-w-0 flex-1 overflow-y-auto px-4 py-5 outline-none sm:px-6 sm:py-6 lg:px-8"
+        >
+          {/* Full main-column width so topics, form, and results share side space. */}
+          <div className="mx-auto w-full max-w-[1600px] space-y-5">
+            <div className="md:hidden">
               <Button
                 type="button"
                 variant="secondary"
@@ -61,7 +66,6 @@ function AgentsPageInner() {
             {error && (
               <ErrorAlert
                 message={error}
-                className="mb-4"
                 onDismiss={onDismissError}
                 onRetry={onRetryError}
               />
@@ -75,10 +79,6 @@ function AgentsPageInner() {
               />
             ) : null}
             <AgentRunForm />
-          </div>
-
-          {/* Wider than the form column so teaching diagrams have room. */}
-          <div className="mx-auto max-w-5xl">
             <AgentRunDisplay />
           </div>
         </main>

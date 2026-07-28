@@ -219,40 +219,46 @@ export function TopicCatalog({ workspaceId, disabled, onStartTopic }: Props) {
 
       {!selected && (
         <>
-          <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2">
-            {topics.map((t) => (
-              <button
-                key={t.id}
-                type="button"
-                disabled={disabled}
-                onClick={() => void onSelectTopic(t)}
-                className={cn(
-                  "rounded-[10px] border border-hairline bg-canvas-soft px-3 py-2.5 text-left transition-colors",
-                  "hover:border-ink/25 hover:bg-canvas-soft-2",
-                  disabled && "opacity-60",
-                )}
-              >
-                <div className="flex items-center gap-1.5">
-                  <Sparkles className="h-3 w-3 shrink-0 text-mute" strokeWidth={1.5} />
-                  <span className="truncate text-xs font-semibold text-ink">
-                    {t.title}
-                  </span>
-                  {t.source === "custom" && (
-                    <span className="rounded-full border border-hairline px-1.5 text-[9px] uppercase text-mute">
-                      custom
-                    </span>
+          {/* Single horizontal row — scroll when topics overflow. */}
+          <div className="mt-3 -mx-1 overflow-x-auto px-1 pb-1 [scrollbar-width:thin]">
+            <div className="flex w-max min-w-full gap-2">
+              {topics.map((t) => (
+                <button
+                  key={t.id}
+                  type="button"
+                  disabled={disabled}
+                  onClick={() => void onSelectTopic(t)}
+                  className={cn(
+                    "w-[13.5rem] shrink-0 rounded-[10px] border border-hairline bg-canvas-soft px-3 py-2.5 text-left transition-colors",
+                    "hover:border-ink/25 hover:bg-canvas-soft-2",
+                    disabled && "opacity-60",
                   )}
-                </div>
-                {t.summary && (
-                  <p className="mt-1 line-clamp-2 text-[11px] leading-relaxed text-mute">
-                    {t.summary}
-                  </p>
-                )}
-              </button>
-            ))}
+                >
+                  <div className="flex items-center gap-1.5">
+                    <Sparkles
+                      className="h-3 w-3 shrink-0 text-mute"
+                      strokeWidth={1.5}
+                    />
+                    <span className="truncate text-xs font-semibold text-ink">
+                      {t.title}
+                    </span>
+                    {t.source === "custom" && (
+                      <span className="rounded-full border border-hairline px-1.5 text-[9px] uppercase text-mute">
+                        custom
+                      </span>
+                    )}
+                  </div>
+                  {t.summary && (
+                    <p className="mt-1 line-clamp-2 text-[11px] leading-relaxed text-mute">
+                      {t.summary}
+                    </p>
+                  )}
+                </button>
+              ))}
+            </div>
           </div>
 
-          <div className="mt-3 flex gap-1.5">
+          <div className="mt-3 flex max-w-xl gap-1.5">
             <Input
               value={customTitle}
               onChange={(e) => {
