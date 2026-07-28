@@ -593,9 +593,9 @@ function LearnPageInner() {
     ) {
       return;
     }
-    const preferred =
-      catalog.last_selected_topic_id &&
-      catalog.topics.find((t) => t.id === catalog.last_selected_topic_id);
+    const preferred = catalog.last_selected_topic_id
+      ? catalog.topics.find((t) => t.id === catalog.last_selected_topic_id)
+      : undefined;
     setSelectedTopicId(preferred?.id ?? catalog.topics[0]?.id ?? null);
   }, [catalog, selectedTopicId]);
 
