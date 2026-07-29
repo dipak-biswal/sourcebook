@@ -238,12 +238,18 @@ OPENAI_BASE_URL=https://api.openai.com/v1
 EMBEDDING_MODEL=text-embedding-3-small
 CHAT_MODEL=gpt-4o-mini
 
+# Optional: richer agent/Learn web results (1000 free credits/month)
+TAVILY_API_KEY=tvly-...
+WEB_SEARCH_PROVIDER=auto
+TAVILY_SEARCH_DEPTH=basic
+
 INGEST_USE_QUEUE=true
 DEV_MODE=true
 ```
 
 > Use **`OPENAI_API_KEY`** (not `OPEN_API_KEY`).  
-> After changing **embedding** model, **re-ingest** documents.
+> After changing **embedding** model, **re-ingest** documents.  
+> **`TAVILY_API_KEY`**: when set, agents and Learn use Tavily for web search (basic = 1 credit). Without it, DuckDuckGo is used.
 
 Install & start:
 

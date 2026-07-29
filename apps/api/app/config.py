@@ -156,6 +156,14 @@ class Settings(BaseSettings):
     ingest_use_queue: bool = True
     ingest_job_timeout_seconds: int = 600
 
+    # Web search: Tavily (preferred when key set) with DuckDuckGo fallback.
+    # provider: auto | tavily | ddgs
+    tavily_api_key: str = ""
+    web_search_provider: str = "auto"
+    # basic = 1 credit; advanced = 2 credits (richer chunks).
+    tavily_search_depth: str = "basic"
+    tavily_fallback_to_ddgs: bool = True
+
     # Per-user rate limits (fixed window). 0 = unlimited for that scope.
     rate_limit_enabled: bool = True
     rate_limit_window_seconds: int = 60
