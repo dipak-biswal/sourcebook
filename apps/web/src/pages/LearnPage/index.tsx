@@ -310,9 +310,6 @@ function TopicSidebar({
   onSelect,
   onRefresh,
   refreshing,
-  lesson,
-  activeSectionId,
-  onJump,
 }: {
   catalog: LearnCatalogResponse;
   selectedId: string | null;
@@ -321,9 +318,6 @@ function TopicSidebar({
   onSelect: (id: string) => void;
   onRefresh: () => void;
   refreshing: boolean;
-  lesson: LearnLesson | null;
-  activeSectionId: string | null;
-  onJump: (id: string) => void;
 }) {
   const chapters = chaptersFromCatalog(catalog);
 
@@ -451,82 +445,6 @@ function TopicSidebar({
           </li>
         )}
       </ul>
-      {lesson && (
-        <div className="max-h-[38%] shrink-0 overflow-y-auto border-t border-hairline">
-          <LessonDetailsSidebar
-            lesson={lesson}
-            activeSectionId={activeSectionId}
-            onJump={onJump}
-          />
-        </div>
-      )}
-    </div>
-  );
-}
-
-function LessonDetailsSidebar({
-  lesson,
-  activeSectionId,
-  onJump,
-}: {
-  lesson: LearnLesson;
-  activeSectionId: string | null;
-  onJump: (id: string) => void;
-}) {
-  return (
-    <div className="space-y-4 p-3">
-      <div>
-        <div className="text-[10px] font-bold uppercase tracking-wide text-mute">
-          On this page
-        </div>
-        <ul className="mt-2 space-y-0.5">
-          {lesson.outline.map((o) => (
-            <li key={o.id}>
-              <button
-                type="button"
-                onClick={() => onJump(o.id)}
-                className={cn(
-                  "w-full rounded-[6px] px-2 py-1.5 text-left text-[11px] leading-snug",
-                  activeSectionId === o.id
-                    ? "bg-emerald-500/10 font-semibold text-emerald-800 dark:text-emerald-300"
-                    : "text-body hover:bg-canvas-soft",
-                )}
-              >
-                {o.heading}
-              </button>
-            </li>
-          ))}
-        </ul>
-      </div>
-      {lesson.prerequisites.length > 0 && (
-        <div>
-          <div className="text-[10px] font-bold uppercase tracking-wide text-mute">
-            Prerequisites
-          </div>
-          <ul className="mt-1.5 list-disc space-y-1 pl-4 text-[11px] text-body">
-            {lesson.prerequisites.map((p, i) => (
-              <li key={i}>{p}</li>
-            ))}
-          </ul>
-        </div>
-      )}
-      {lesson.key_terms.length > 0 && (
-        <div>
-          <div className="text-[10px] font-bold uppercase tracking-wide text-mute">
-            Key terms
-          </div>
-          <dl className="mt-1.5 space-y-2">
-            {lesson.key_terms.map((kt) => (
-              <div key={kt.term}>
-                <dt className="text-[11px] font-semibold text-ink">{kt.term}</dt>
-                <dd className="text-[11px] leading-snug text-mute">
-                  {kt.definition}
-                </dd>
-              </div>
-            ))}
-          </dl>
-        </div>
-      )}
     </div>
   );
 }
@@ -636,7 +554,6 @@ function LearnPageInner() {
   const [expandedChapterId, setExpandedChapterId] = useState<string | null>(
     null,
   );
-  const [activeSectionId, setActiveSectionId] = useState<string | null>(null);
   const [leftOpen, setLeftOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [topicsRefreshing, setTopicsRefreshing] = useState(false);
@@ -744,12 +661,6 @@ function LearnPageInner() {
 
   const lesson = lessonQuery.data ?? null;
 
-  const jumpToSection = useCallback((id: string) => {
-    setActiveSectionId(id);
-    const el = document.getElementById(`learn-sec-${id}`);
-    el?.scrollIntoView({ behavior: "smooth", block: "start" });
-  }, []);
-
   function handleLogout() {
     setToken(null);
     window.location.href = "/login";
@@ -827,9 +738,6 @@ function LearnPageInner() {
                 onSelect={setSelectedTopicId}
                 onRefresh={() => void handleRefreshTopics()}
                 refreshing={topicsRefreshing || catalogQuery.isFetching}
-                lesson={lessonQuery.isLoading ? null : lesson}
-                activeSectionId={activeSectionId}
-                onJump={jumpToSection}
               />
             )}
           </aside>
@@ -853,12 +761,6 @@ function LearnPageInner() {
                 }}
                 onRefresh={() => void handleRefreshTopics()}
                 refreshing={topicsRefreshing || catalogQuery.isFetching}
-                lesson={lessonQuery.isLoading ? null : lesson}
-                activeSectionId={activeSectionId}
-                onJump={(id) => {
-                  jumpToSection(id);
-                  setLeftOpen(false);
-                }}
               />
             )}
           </Sheet>
