@@ -386,35 +386,22 @@ function TopicSidebar({
                   onSelect(ch.intro_id);
                 }}
                 className={cn(
-                  "flex w-full items-start gap-1.5 rounded-[8px] px-2 py-2 text-left transition-colors",
+                  "flex w-full items-center gap-1.5 rounded-[8px] px-2 py-2 text-left transition-colors",
                   chapterSelected && expanded
                     ? "bg-canvas-soft-2"
                     : "hover:bg-canvas-soft",
                 )}
                 aria-expanded={expanded}
               >
-                <span className="mt-0.5 shrink-0 text-mute">
+                <span className="shrink-0 text-mute">
                   {expanded ? (
                     <ChevronDown className="h-3.5 w-3.5" strokeWidth={1.75} />
                   ) : (
                     <ChevronRight className="h-3.5 w-3.5" strokeWidth={1.75} />
                   )}
                 </span>
-                <span className="min-w-0 flex-1">
-                  <span className="block text-xs font-semibold leading-snug text-ink">
-                    {ch.title}
-                  </span>
-                  {ch.summary && !expanded && (
-                    <span className="mt-0.5 block line-clamp-2 text-[11px] leading-snug text-mute">
-                      {ch.summary}
-                    </span>
-                  )}
-                  {ch.children.length > 0 && (
-                    <span className="mt-0.5 block text-[10px] text-mute">
-                      {ch.children.length} subtopic
-                      {ch.children.length === 1 ? "" : "s"}
-                    </span>
-                  )}
+                <span className="min-w-0 flex-1 truncate text-xs font-semibold leading-snug text-ink">
+                  {ch.title}
                 </span>
               </button>
 
@@ -425,25 +412,13 @@ function TopicSidebar({
                       type="button"
                       onClick={() => onSelect(ch.intro_id)}
                       className={cn(
-                        "w-full rounded-[6px] px-2 py-1.5 text-left text-[11px] leading-snug transition-colors",
+                        "w-full truncate rounded-[6px] px-2 py-1.5 text-left text-[11px] leading-snug transition-colors",
                         selectedId === ch.intro_id
                           ? "bg-ink font-semibold text-[var(--canvas)]"
                           : "text-body hover:bg-canvas-soft",
                       )}
                     >
                       Introduction
-                      {ch.summary ? (
-                        <span
-                          className={cn(
-                            "mt-0.5 block line-clamp-2 text-[10px] font-normal",
-                            selectedId === ch.intro_id
-                              ? "text-[var(--canvas)]/75"
-                              : "text-mute",
-                          )}
-                        >
-                          {ch.summary}
-                        </span>
-                      ) : null}
                     </button>
                   </li>
                   {ch.children.map((child: LearnTopic) => {
@@ -454,25 +429,13 @@ function TopicSidebar({
                           type="button"
                           onClick={() => onSelect(child.id)}
                           className={cn(
-                            "w-full rounded-[6px] px-2 py-1.5 text-left text-[11px] leading-snug transition-colors",
+                            "w-full truncate rounded-[6px] px-2 py-1.5 text-left text-[11px] leading-snug transition-colors",
                             active
                               ? "bg-ink font-semibold text-[var(--canvas)]"
                               : "text-body hover:bg-canvas-soft",
                           )}
                         >
                           {child.title}
-                          {child.summary ? (
-                            <span
-                              className={cn(
-                                "mt-0.5 block line-clamp-2 text-[10px] font-normal",
-                                active
-                                  ? "text-[var(--canvas)]/75"
-                                  : "text-mute",
-                              )}
-                            >
-                              {child.summary}
-                            </span>
-                          ) : null}
                         </button>
                       </li>
                     );
