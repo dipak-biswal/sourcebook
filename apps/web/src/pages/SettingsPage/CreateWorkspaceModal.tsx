@@ -372,27 +372,47 @@ export function CreateWorkspaceModal({
     setCuratePreview(null);
   }
 
-  function addFiles(list: FileList | null) {
-    if (!list?.length) return;
+  function addFiles(list: FileList | File[] | null) {
+    if (!list || (Array.isArray(list) ? list.length === 0 : !list.length)) {
+      return;
+    }
+    const incoming = Array.isArray(list) ? list : Array.from(list);
     setFormError(null);
+
     setFiles((prev) => {
       const next = [...prev];
-      for (const f of Array.from(list)) {
+      let added = 0;
+      for (const f of incoming) {
         if (next.length >= MAX_FILES) break;
         const dup = next.some(
-          (x) => x.name === f.name && x.size === f.size && x.lastModified === f.lastModified,
+          (x) =>
+            x.name === f.name &&
+            x.size === f.size &&
+            x.lastModified === f.lastModified,
         );
-        if (!dup) next.push(f);
+        if (!dup) {
+          next.push(f);
+          added += 1;
+        }
       }
-      if (next.length >= MAX_FILES && list.length > 0) {
-        setFormError(`Maximum ${MAX_FILES} files.`);
-      }
+      const truncated = next.length >= MAX_FILES && incoming.length > added;
+      // Defer side effects so React can commit the new file list first.
+      window.setTimeout(() => {
+        if (truncated) setFormError(`Maximum ${MAX_FILES} files.`);
+        if (added > 0) {
+          success(
+            added === 1 ? "File added" : `${added} files added`,
+            "Click Create workspace to upload and ingest.",
+          );
+        }
+      }, 0);
       return next.slice(0, MAX_FILES);
     });
   }
 
   function removeFile(index: number) {
     setFiles((prev) => prev.filter((_, i) => i !== index));
+    setFileProgress([]);
   }
 
   async function handleCurate() {
@@ -649,42 +669,91 @@ export function CreateWorkspaceModal({
               </div>
 
               <div>
-                <div className="mb-1 flex items-center justify-between gap-2">
-                  <label className="text-[11px] font-medium uppercase tracking-wide text-mute">
-                    Documents
-                  </label>
-                  <Button
-                    type="button"
-                    variant="secondary"
-                    size="sm"
-                    className="h-7 gap-1 text-[11px]"
-                    disabled={
-                      submitting || curating || files.length >= MAX_FILES
-                    }
-                    onClick={() => fileInputRef.current?.click()}
-                  >
-                    <FileUp className="h-3 w-3" strokeWidth={1.5} />
-                    Upload files
-                  </Button>
-                  <input
-                    ref={fileInputRef}
-                    type="file"
-                    className="hidden"
-                    accept={FILE_ACCEPT}
-                    multiple
-                    disabled={submitting || curating}
-                    onChange={(e) => {
-                      addFiles(e.target.files);
-                      e.target.value = "";
-                    }}
-                  />
+                <div className="mb-1 text-[11px] font-medium uppercase tracking-wide text-mute">
+                  Documents
                 </div>
-                <p className="text-[10px] text-mute">
-                  PDF, DOCX, Markdown, text, and similar. On create each file is
-                  uploaded and ingested (same as Documents).
-                </p>
+                <input
+                  ref={fileInputRef}
+                  id="create-ws-file-input"
+                  type="file"
+                  className="sr-only"
+                  accept={FILE_ACCEPT}
+                  multiple
+                  disabled={submitting || curating || files.length >= MAX_FILES}
+                  onChange={(e) => {
+                    const selected = e.target.files;
+                    if (selected?.length) addFiles(selected);
+                    // Allow re-selecting the same file
+                    e.target.value = "";
+                  }}
+                />
+                <div
+                  role="button"
+                  tabIndex={submitting || curating ? -1 : 0}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" || e.key === " ") {
+                      e.preventDefault();
+                      if (!submitting && !curating && files.length < MAX_FILES) {
+                        fileInputRef.current?.click();
+                      }
+                    }
+                  }}
+                  onClick={() => {
+                    if (!submitting && !curating && files.length < MAX_FILES) {
+                      fileInputRef.current?.click();
+                    }
+                  }}
+                  onDragOver={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                  }}
+                  onDrop={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    if (submitting || curating) return;
+                    addFiles(e.dataTransfer.files);
+                  }}
+                  className={
+                    submitting || curating
+                      ? "cursor-not-allowed rounded-[10px] border border-dashed border-hairline bg-canvas-soft/30 px-3 py-5 opacity-60"
+                      : "cursor-pointer rounded-[10px] border border-dashed border-hairline bg-canvas-soft/40 px-3 py-5 transition-colors hover:border-ink/30 hover:bg-canvas-soft"
+                  }
+                >
+                  <div className="flex flex-col items-center gap-1.5 text-center">
+                    <FileUp className="h-5 w-5 text-mute" strokeWidth={1.5} />
+                    <p className="text-xs font-medium text-ink">
+                      {files.length >= MAX_FILES
+                        ? `Maximum ${MAX_FILES} files`
+                        : "Drop files here or click to browse"}
+                    </p>
+                    <p className="text-[10px] text-mute">
+                      PDF, DOCX, Markdown, text · max {MAX_FILES} files
+                    </p>
+                    {files.length < MAX_FILES && !submitting && !curating ? (
+                      <Button
+                        type="button"
+                        variant="secondary"
+                        size="sm"
+                        className="mt-1 h-7 gap-1 text-[11px]"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          fileInputRef.current?.click();
+                        }}
+                      >
+                        <FileUp className="h-3 w-3" strokeWidth={1.5} />
+                        Choose files
+                      </Button>
+                    ) : null}
+                  </div>
+                </div>
                 {files.length > 0 ? (
                   <ul className="mt-2 space-y-1.5">
+                    <li className="px-0.5 text-[10px] font-medium text-mute">
+                      {files.length} file{files.length === 1 ? "" : "s"} selected
+                      {!submitting
+                        ? " · will upload & ingest when you create"
+                        : ""}
+                    </li>
                     {files.map((f, i) => {
                       const prog = fileProgress[i];
                       const busy =
@@ -693,8 +762,8 @@ export function CreateWorkspaceModal({
                           prog.phase === "ingesting");
                       return (
                         <li
-                          key={`${f.name}-${f.size}-${f.lastModified}`}
-                          className="rounded-[8px] border border-hairline bg-canvas-soft/40 px-2.5 py-2"
+                          key={`${f.name}-${f.size}-${f.lastModified}-${i}`}
+                          className="rounded-[8px] border border-hairline bg-canvas px-2.5 py-2"
                         >
                           <div className="flex items-start gap-2">
                             {busy ? (
@@ -736,7 +805,7 @@ export function CreateWorkspaceModal({
                                 </div>
                               ) : (
                                 <div className="mt-0.5 text-[10px] text-mute">
-                                  Will upload & ingest on create
+                                  Selected — click Create workspace to upload
                                 </div>
                               )}
                             </div>
@@ -746,7 +815,10 @@ export function CreateWorkspaceModal({
                                 className="rounded p-0.5 text-mute hover:text-red-600"
                                 aria-label={`Remove ${f.name}`}
                                 disabled={curating}
-                                onClick={() => removeFile(i)}
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  removeFile(i);
+                                }}
                               >
                                 <Trash2 className="h-3 w-3" strokeWidth={1.5} />
                               </button>
