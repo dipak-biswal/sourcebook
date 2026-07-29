@@ -47,6 +47,21 @@ type DocResult = {
   error?: string;
 };
 
+type FilePhase =
+  | "queued"
+  | "uploading"
+  | "ingesting"
+  | "ready"
+  | "failed"
+  | "error"
+  | "processing";
+
+type FileProgress = {
+  phase: FilePhase;
+  detail: string;
+  error?: string;
+};
+
 async function sleep(ms: number) {
   await new Promise((r) => setTimeout(r, ms));
 }
@@ -58,9 +73,9 @@ async function sleep(ms: number) {
 async function uploadAndIngestFile(
   workspaceId: string,
   file: File,
-  onProgress: (msg: string) => void,
+  onProgress: (phase: FilePhase, detail: string) => void,
 ): Promise<DocResult> {
-  onProgress(`Uploading ${file.name}…`);
+  onProgress("uploading", "Uploading to storage…");
   let docId: string;
   try {
     const doc = await api.upload(workspaceId, file);
@@ -73,7 +88,7 @@ async function uploadAndIngestFile(
     };
   }
 
-  onProgress(`Starting ingest: ${file.name}…`);
+  onProgress("ingesting", "Starting ingest…");
   try {
     await api.ingestDocument(docId);
   } catch (e) {
@@ -86,7 +101,8 @@ async function uploadAndIngestFile(
 
   for (let i = 0; i < 40; i++) {
     onProgress(
-      `${INGEST_STEPS[Math.min(i, INGEST_STEPS.length - 1)]} ${file.name}`,
+      "ingesting",
+      INGEST_STEPS[Math.min(i, INGEST_STEPS.length - 1)],
     );
     await sleep(1500);
     try {
@@ -94,23 +110,23 @@ async function uploadAndIngestFile(
       const d = list.find((x) => x.id === docId);
       const s = (d?.status || "").toLowerCase();
       if (s === "ready") {
+        onProgress("ready", "Ready for chat");
         return { filename: file.name, status: "ready" };
       }
       if (s === "failed") {
+        const err = d?.error || "Ingest failed";
+        onProgress("failed", err);
         return {
           filename: file.name,
           status: "failed",
-          error: d?.error || "Ingest failed",
+          error: err,
         };
       }
-      if (s === "uploaded") {
-        // Ingest never started — retry once
-        if (i === 2) {
-          try {
-            await api.ingestDocument(docId);
-          } catch {
-            /* keep polling */
-          }
+      if (s === "uploaded" && i === 2) {
+        try {
+          await api.ingestDocument(docId);
+        } catch {
+          /* keep polling */
         }
       }
     } catch {
@@ -118,11 +134,31 @@ async function uploadAndIngestFile(
     }
   }
 
+  onProgress("processing", "Still running in background…");
   return {
     filename: file.name,
     status: "processing",
     error: "Ingest still running — check Documents if status stays processing.",
   };
+}
+
+function phaseLabel(phase: FilePhase): string {
+  switch (phase) {
+    case "queued":
+      return "Queued";
+    case "uploading":
+      return "Uploading";
+    case "ingesting":
+      return "Ingesting";
+    case "ready":
+      return "Ready";
+    case "failed":
+      return "Failed";
+    case "error":
+      return "Error";
+    case "processing":
+      return "Processing";
+  }
 }
 
 function CurriculumPreview({ catalog }: { catalog: LearnCatalogResponse }) {
@@ -260,7 +296,8 @@ export function CreateWorkspaceModal({
   const [formError, setFormError] = useState<string | null>(null);
   const [curating, setCurating] = useState(false);
   const [submitting, setSubmitting] = useState(false);
-  const [uploadStatus, setUploadStatus] = useState<string | null>(null);
+  const [createPhase, setCreatePhase] = useState<string | null>(null);
+  const [fileProgress, setFileProgress] = useState<FileProgress[]>([]);
   const [curatePreview, setCuratePreview] = useState<WorkspaceCurateResult | null>(
     null,
   );
@@ -270,6 +307,15 @@ export function CreateWorkspaceModal({
 
   const hasSources = sourceUrls.length > 0 || files.length > 0;
   const readyCount = docResults.filter((d) => d.status === "ready").length;
+  const doneFileCount = fileProgress.filter((p) =>
+    ["ready", "failed", "error", "processing"].includes(p.phase),
+  ).length;
+  const progressPct =
+    files.length > 0
+      ? Math.round((doneFileCount / files.length) * 100)
+      : submitting
+        ? 15
+        : 0;
 
   useEffect(() => {
     if (!open) return;
@@ -286,7 +332,8 @@ export function CreateWorkspaceModal({
     setCatalog(null);
     setCreatedId(null);
     setDocResults([]);
-    setUploadStatus(null);
+    setFileProgress([]);
+    setCreatePhase(null);
     setCurating(false);
     setSubmitting(false);
     requestAnimationFrame(() => nameRef.current?.focus());
@@ -386,6 +433,19 @@ export function CreateWorkspaceModal({
     }
   }
 
+  function patchFileProgress(
+    index: number,
+    phase: FilePhase,
+    detail: string,
+    error?: string,
+  ) {
+    setFileProgress((prev) => {
+      const next = [...prev];
+      next[index] = { phase, detail, error };
+      return next;
+    });
+  }
+
   async function handleCreate() {
     const err = validateWorkspaceName(name);
     setNameError(err);
@@ -397,9 +457,13 @@ export function CreateWorkspaceModal({
 
     setSubmitting(true);
     setFormError(null);
-    setUploadStatus(null);
+    setCreatePhase("Creating workspace…");
+    setFileProgress(
+      files.map(() => ({ phase: "queued" as const, detail: "Waiting…" })),
+    );
     try {
       const ws = await api.createWorkspace(name.trim());
+      setCreatePhase("Saving workspace details…");
       await api.updateWorkspace(ws.id, {
         description: description.trim() || null,
         tags: tags.length ? tags : ["learning"],
@@ -407,31 +471,34 @@ export function CreateWorkspaceModal({
 
       const results: DocResult[] = [];
       if (files.length) {
+        setCreatePhase(`Uploading & ingesting ${files.length} document(s)…`);
         for (let i = 0; i < files.length; i++) {
           const file = files[i];
-          setUploadStatus(
-            `Document ${i + 1}/${files.length}: ${file.name}`,
-          );
           const result = await uploadAndIngestFile(
             ws.id,
             file,
-            (msg) =>
-              setUploadStatus(
-                `Document ${i + 1}/${files.length}: ${msg}`,
-              ),
+            (phase, detail) => patchFileProgress(i, phase, detail),
           );
           results.push(result);
           if (result.status === "ready") {
-            success("Document ready", file.name);
+            patchFileProgress(i, "ready", "Ready for chat");
           } else if (result.status === "failed" || result.status === "error") {
+            patchFileProgress(
+              i,
+              result.status === "error" ? "error" : "failed",
+              result.error || "Failed",
+              result.error,
+            );
             toastError(
               result.status === "error" ? "Upload failed" : "Ingest failed",
               `${file.name}: ${result.error || "Unknown error"}`,
             );
           } else {
-            success(
-              "Ingest still running",
-              `${file.name} — check Documents if needed.`,
+            patchFileProgress(
+              i,
+              "processing",
+              result.error || "Still running…",
+              result.error,
             );
           }
         }
@@ -440,7 +507,7 @@ export function CreateWorkspaceModal({
 
       let cat: LearnCatalogResponse | null = null;
       if (sourceUrls.length) {
-        setUploadStatus("Building curriculum from URLs…");
+        setCreatePhase("Building curriculum from URLs…");
         cat = await api.workspaceSetupCurriculum(ws.id, {
           name: name.trim(),
           description: description.trim() || null,
@@ -472,7 +539,7 @@ export function CreateWorkspaceModal({
       toastError("Create failed", msg);
     } finally {
       setSubmitting(false);
-      setUploadStatus(null);
+      setCreatePhase(null);
     }
   }
 
@@ -617,34 +684,77 @@ export function CreateWorkspaceModal({
                   uploaded and ingested (same as Documents).
                 </p>
                 {files.length > 0 ? (
-                  <ul className="mt-2 space-y-1">
-                    {files.map((f, i) => (
-                      <li
-                        key={`${f.name}-${f.size}-${f.lastModified}`}
-                        className="flex items-center gap-2 rounded-[6px] border border-hairline bg-canvas-soft/40 px-2 py-1.5"
-                      >
-                        <FileUp
-                          className="h-3 w-3 shrink-0 text-mute"
-                          strokeWidth={1.5}
-                        />
-                        <span className="min-w-0 flex-1 truncate text-[11px] text-body">
-                          {f.name}
-                          <span className="text-mute">
-                            {" "}
-                            · {(f.size / 1024).toFixed(0)} KB
-                          </span>
-                        </span>
-                        <button
-                          type="button"
-                          className="rounded p-0.5 text-mute hover:text-red-600"
-                          aria-label={`Remove ${f.name}`}
-                          disabled={submitting || curating}
-                          onClick={() => removeFile(i)}
+                  <ul className="mt-2 space-y-1.5">
+                    {files.map((f, i) => {
+                      const prog = fileProgress[i];
+                      const busy =
+                        prog &&
+                        (prog.phase === "uploading" ||
+                          prog.phase === "ingesting");
+                      return (
+                        <li
+                          key={`${f.name}-${f.size}-${f.lastModified}`}
+                          className="rounded-[8px] border border-hairline bg-canvas-soft/40 px-2.5 py-2"
                         >
-                          <Trash2 className="h-3 w-3" strokeWidth={1.5} />
-                        </button>
-                      </li>
-                    ))}
+                          <div className="flex items-start gap-2">
+                            {busy ? (
+                              <Loader2 className="mt-0.5 h-3.5 w-3.5 shrink-0 animate-spin text-ink" />
+                            ) : prog?.phase === "ready" ? (
+                              <span className="mt-0.5 text-emerald-700">✓</span>
+                            ) : prog?.phase === "failed" ||
+                              prog?.phase === "error" ? (
+                              <span className="mt-0.5 text-red-600">×</span>
+                            ) : (
+                              <FileUp
+                                className="mt-0.5 h-3.5 w-3.5 shrink-0 text-mute"
+                                strokeWidth={1.5}
+                              />
+                            )}
+                            <div className="min-w-0 flex-1">
+                              <div className="truncate text-[11px] font-medium text-ink">
+                                {f.name}
+                                <span className="font-normal text-mute">
+                                  {" "}
+                                  · {(f.size / 1024).toFixed(0)} KB
+                                </span>
+                              </div>
+                              {prog ? (
+                                <div
+                                  className={
+                                    prog.phase === "ready"
+                                      ? "mt-0.5 text-[10px] text-emerald-700"
+                                      : prog.phase === "failed" ||
+                                          prog.phase === "error"
+                                        ? "mt-0.5 text-[10px] text-red-600"
+                                        : "mt-0.5 text-[10px] text-mute"
+                                  }
+                                >
+                                  <span className="font-medium">
+                                    {phaseLabel(prog.phase)}
+                                  </span>
+                                  {prog.detail ? ` · ${prog.detail}` : ""}
+                                </div>
+                              ) : (
+                                <div className="mt-0.5 text-[10px] text-mute">
+                                  Will upload & ingest on create
+                                </div>
+                              )}
+                            </div>
+                            {!submitting ? (
+                              <button
+                                type="button"
+                                className="rounded p-0.5 text-mute hover:text-red-600"
+                                aria-label={`Remove ${f.name}`}
+                                disabled={curating}
+                                onClick={() => removeFile(i)}
+                              >
+                                <Trash2 className="h-3 w-3" strokeWidth={1.5} />
+                              </button>
+                            ) : null}
+                          </div>
+                        </li>
+                      );
+                    })}
                   </ul>
                 ) : null}
               </div>
@@ -699,13 +809,6 @@ export function CreateWorkspaceModal({
                   </div>
                 ) : null}
               </div>
-
-              {uploadStatus ? (
-                <p className="flex items-center gap-1.5 text-[11px] text-mute">
-                  <Loader2 className="h-3 w-3 animate-spin" />
-                  {uploadStatus}
-                </p>
-              ) : null}
 
               {formError ? (
                 <p className="text-xs text-red-600">{formError}</p>
@@ -784,6 +887,37 @@ export function CreateWorkspaceModal({
           )}
         </div>
 
+        {step === "form" && submitting ? (
+          <div className="shrink-0 border-t border-hairline bg-canvas-soft px-4 py-3">
+            <div className="mb-1.5 flex items-center justify-between gap-2 text-[11px]">
+              <span className="flex min-w-0 items-center gap-1.5 font-medium text-ink">
+                <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin" />
+                <span className="truncate">
+                  {createPhase || "Working…"}
+                </span>
+              </span>
+              {files.length > 0 ? (
+                <span className="shrink-0 tabular-nums text-mute">
+                  {doneFileCount}/{files.length} docs · {progressPct}%
+                </span>
+              ) : null}
+            </div>
+            <div className="h-1.5 overflow-hidden rounded-full bg-canvas">
+              <div
+                className="h-full rounded-full bg-ink transition-[width] duration-300 ease-out"
+                style={{
+                  width: `${Math.max(progressPct, files.length ? 5 : 20)}%`,
+                }}
+              />
+            </div>
+            <p className="mt-1.5 text-[10px] text-mute">
+              {files.length
+                ? "Each file is uploaded then ingested (parse → embed). Keep this open until done."
+                : "Please wait…"}
+            </p>
+          </div>
+        ) : null}
+
         <div className="flex shrink-0 justify-end gap-2 border-t border-hairline px-4 py-3">
           {step === "form" ? (
             <>
@@ -810,7 +944,9 @@ export function CreateWorkspaceModal({
                 {submitting ? (
                   <>
                     <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
-                    Creating…
+                    {files.length
+                      ? `Ingesting… ${doneFileCount}/${files.length}`
+                      : "Creating…"}
                   </>
                 ) : (
                   "Create workspace"
