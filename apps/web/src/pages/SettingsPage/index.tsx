@@ -8,7 +8,6 @@ import {
   Activity,
   LayoutGrid,
   PanelLeft,
-  Settings,
   User,
 } from "lucide-react";
 import { SettingsPageProvider } from "./SettingsPageContext";
@@ -101,11 +100,6 @@ function SettingsPageInner() {
   return (
     <div className="app-shell">
       <AppHeader onLogout={onLogout} />
-
-      <div className="flex shrink-0 items-center gap-2 border-b border-hairline bg-canvas px-3 py-2 sm:px-4">
-        <Settings className="hidden h-4 w-4 text-mute sm:block" strokeWidth={1.5} />
-        <span className="text-sm font-semibold text-ink">Settings</span>
-      </div>
 
       <div className="flex min-h-0 flex-1">
         <aside className="hidden w-72 shrink-0 flex-col border-r border-hairline bg-canvas lg:flex">

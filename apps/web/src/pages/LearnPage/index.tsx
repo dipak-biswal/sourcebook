@@ -310,6 +310,10 @@ function TopicSidebar({
   onSelect,
   onRefresh,
   refreshing,
+  workspaces,
+  workspaceId,
+  onWorkspaceChange,
+  onRefreshWorkspaces,
 }: {
   catalog: LearnCatalogResponse;
   selectedId: string | null;
@@ -318,12 +322,16 @@ function TopicSidebar({
   onSelect: (id: string) => void;
   onRefresh: () => void;
   refreshing: boolean;
+  workspaces: Workspace[];
+  workspaceId: string;
+  onWorkspaceChange: (id: string) => void;
+  onRefreshWorkspaces: () => void;
 }) {
   const chapters = chaptersFromCatalog(catalog);
 
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <div className="shrink-0 border-b border-hairline px-3 py-3">
+      <div className="shrink-0 space-y-2 border-b border-hairline px-3 py-3">
         <div className="flex items-center justify-between gap-2">
           <div className="min-w-0">
             <div className="text-[10px] font-bold uppercase tracking-wide text-mute">
@@ -348,20 +356,13 @@ function TopicSidebar({
             />
           </Button>
         </div>
-        <p className="mt-1 text-[10px] text-mute">
-          {catalog.source ? `${catalog.source} · ` : ""}
-          expand a chapter for subtopics
-        </p>
-        {catalog.docs_url ? (
-          <a
-            href={catalog.docs_url}
-            target="_blank"
-            rel="noreferrer"
-            className="mt-1 block truncate text-[10px] text-emerald-700 underline dark:text-emerald-400"
-            title={catalog.docs_url}
-          >
-            Docs source
-          </a>
+        {workspaces.length > 0 && workspaceId ? (
+          <WorkspaceSelect
+            workspaces={workspaces}
+            workspaceId={workspaceId}
+            onChange={onWorkspaceChange}
+            onRefresh={onRefreshWorkspaces}
+          />
         ) : null}
       </div>
       <ul className="min-h-0 flex-1 overflow-y-auto p-2">
@@ -672,21 +673,6 @@ function LearnPageInner() {
     <div className="app-shell">
       <AppHeader onLogout={handleLogout} />
 
-      <div className="flex shrink-0 items-center gap-2 border-b border-hairline bg-canvas px-3 py-2 sm:px-4">
-        <GraduationCap className="hidden h-4 w-4 text-mute sm:block" strokeWidth={1.5} />
-        <span className="text-sm font-semibold text-ink">Learn</span>
-        <div className="ml-auto flex min-w-0 items-center gap-2">
-          {workspaces.length > 0 && workspaceId && (
-            <WorkspaceSelect
-              workspaces={workspaces}
-              workspaceId={workspaceId}
-              onChange={setWorkspaceId}
-              onRefresh={() => void refetchWs()}
-            />
-          )}
-        </div>
-      </div>
-
       {wsLoading ? (
         <div className="flex flex-1 items-center justify-center text-mute">
           <Loader2 className="h-5 w-5 animate-spin" />
@@ -738,6 +724,10 @@ function LearnPageInner() {
                 onSelect={setSelectedTopicId}
                 onRefresh={() => void handleRefreshTopics()}
                 refreshing={topicsRefreshing || catalogQuery.isFetching}
+                workspaces={workspaces}
+                workspaceId={workspaceId}
+                onWorkspaceChange={setWorkspaceId}
+                onRefreshWorkspaces={() => void refetchWs()}
               />
             )}
           </aside>
@@ -761,6 +751,10 @@ function LearnPageInner() {
                 }}
                 onRefresh={() => void handleRefreshTopics()}
                 refreshing={topicsRefreshing || catalogQuery.isFetching}
+                workspaces={workspaces}
+                workspaceId={workspaceId}
+                onWorkspaceChange={setWorkspaceId}
+                onRefreshWorkspaces={() => void refetchWs()}
               />
             )}
           </Sheet>
