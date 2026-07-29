@@ -331,39 +331,53 @@ function TopicSidebar({
 
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <div className="shrink-0 space-y-2 border-b border-hairline px-3 py-3">
-        <div className="flex items-center justify-between gap-2">
-          <div className="min-w-0">
+      <div className="shrink-0 border-b border-hairline px-3 py-3">
+        {workspaces.length > 0 && workspaceId ? (
+          <div className="flex items-end gap-1.5">
+            <div className="min-w-0 flex-1">
+              <WorkspaceSelect
+                workspaces={workspaces}
+                workspaceId={workspaceId}
+                onChange={onWorkspaceChange}
+                onRefresh={onRefreshWorkspaces}
+              />
+            </div>
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              className="mb-0.5 h-9 w-9 shrink-0"
+              aria-label="Refresh topics"
+              disabled={refreshing}
+              onClick={onRefresh}
+            >
+              <RefreshCw
+                className={cn("h-3.5 w-3.5", refreshing && "animate-spin")}
+                strokeWidth={1.5}
+              />
+            </Button>
+          </div>
+        ) : (
+          <div className="flex items-center justify-between gap-2">
             <div className="text-[10px] font-bold uppercase tracking-wide text-mute">
               Topics
             </div>
-            <div className="truncate text-sm font-semibold text-ink">
-              {catalog.domain || "Learning path"}
-            </div>
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              className="h-8 w-8 shrink-0"
+              aria-label="Refresh topics"
+              disabled={refreshing}
+              onClick={onRefresh}
+            >
+              <RefreshCw
+                className={cn("h-3.5 w-3.5", refreshing && "animate-spin")}
+                strokeWidth={1.5}
+              />
+            </Button>
           </div>
-          <Button
-            type="button"
-            variant="ghost"
-            size="icon"
-            className="h-8 w-8 shrink-0"
-            aria-label="Refresh topics"
-            disabled={refreshing}
-            onClick={onRefresh}
-          >
-            <RefreshCw
-              className={cn("h-3.5 w-3.5", refreshing && "animate-spin")}
-              strokeWidth={1.5}
-            />
-          </Button>
-        </div>
-        {workspaces.length > 0 && workspaceId ? (
-          <WorkspaceSelect
-            workspaces={workspaces}
-            workspaceId={workspaceId}
-            onChange={onWorkspaceChange}
-            onRefresh={onRefreshWorkspaces}
-          />
-        ) : null}
+        )}
       </div>
       <ul className="min-h-0 flex-1 overflow-y-auto p-2">
         {chapters.map((ch) => {
