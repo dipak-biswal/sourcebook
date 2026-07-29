@@ -249,7 +249,11 @@ DEV_MODE=true
 
 > Use **`OPENAI_API_KEY`** (not `OPEN_API_KEY`).  
 > After changing **embedding** model, **re-ingest** documents.  
-> **`TAVILY_API_KEY`**: when set, agents and Learn use Tavily for web search (basic = 1 credit). Without it, DuckDuckGo is used.
+> **`TAVILY_API_KEY`**: when set, agents and Learn use Tavily for web search (basic = 1 credit). Without it, DuckDuckGo is used.  
+> **Cloudflare R2 (documents):** set all four on the **API** host (e.g. Render), not Vercel:
+> `S3_ENDPOINT_URL=https://<ACCOUNT_ID>.r2.cloudflarestorage.com`,  
+> `S3_BUCKET`, `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY`.  
+> Then every user upload (Documents page + Add workspace modal) is stored in R2.
 
 Install & start:
 

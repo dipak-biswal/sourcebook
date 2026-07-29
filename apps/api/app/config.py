@@ -51,8 +51,9 @@ class Settings(BaseSettings):
 
     upload_dir: str = "./data/uploads"
 
-    # S3-compatible object storage (R2 / B2 / S3). Setting S3_ENDPOINT_URL
-    # switches document storage from local disk to the bucket.
+    # S3-compatible object storage (Cloudflare R2 / B2 / S3).
+    # When all four are set, every document upload uses the bucket (not local disk).
+    # R2 example endpoint: https://<ACCOUNT_ID>.r2.cloudflarestorage.com
     s3_endpoint_url: str = ""
     s3_access_key_id: str = ""
     s3_secret_access_key: str = ""

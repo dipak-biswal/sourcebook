@@ -30,8 +30,10 @@ class FakeS3Client:
     def __init__(self):
         self.objects: dict[tuple[str, str], bytes] = {}
 
-    def put_object(self, Bucket, Key, Body):
+    def put_object(self, Bucket, Key, Body, ContentType=None, **kwargs):
+        del kwargs
         self.objects[(Bucket, Key)] = Body
+        self.last_content_type = ContentType
 
     def delete_object(self, Bucket, Key):
         self.objects.pop((Bucket, Key), None)
@@ -46,8 +48,12 @@ class TestS3Storage:
     def test_save_read_delete_roundtrip(self):
         client = FakeS3Client()
         storage = S3Storage(client=client, bucket="b")
-        storage.save("ws1/doc1_test.pdf", b"pdfbytes")
+        storage.save(
+            "ws1/doc1_test.pdf", b"pdfbytes", content_type="application/pdf"
+        )
         assert client.objects[("b", "ws1/doc1_test.pdf")] == b"pdfbytes"
+        assert client.last_content_type == "application/pdf"
+        assert storage.backend_name == "s3/r2"
 
         with storage.local_path("ws1/doc1_test.pdf") as path:
             assert path.read_bytes() == b"pdfbytes"

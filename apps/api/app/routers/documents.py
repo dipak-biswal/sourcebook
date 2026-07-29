@@ -77,7 +77,25 @@ async def upload_document(
     rel_key = f"{workspace_id}/{doc_id}_{safe_name}"
 
     content = await file.read()
-    get_storage().save(rel_key, content)
+    if not content:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail="Empty file"
+        )
+
+    try:
+        storage = get_storage()
+        storage.save(rel_key, content, content_type=file.content_type)
+    except RuntimeError as e:
+        # Misconfigured R2/S3 env (partial keys, etc.)
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=str(e),
+        ) from e
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=f"Failed to store file ({type(e).__name__}): {e}",
+        ) from e
 
     doc = Document(
         id=doc_id,
@@ -85,7 +103,7 @@ async def upload_document(
         filename=safe_name,
         content_type=file.content_type,
         storage_key=rel_key,
-        status="Uploaded",
+        status="uploaded",
     )
 
     db.add(doc)
