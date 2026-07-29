@@ -47,8 +47,7 @@ function CurriculumPreview({ catalog }: { catalog: LearnCatalogResponse }) {
   if (!chapters.length) {
     return (
       <p className="rounded-[8px] border border-dashed border-hairline px-3 py-6 text-center text-xs text-mute">
-        No curriculum topics were extracted from your URLs. Prefer public docs
-        or TOC/index pages.
+        No topics extracted from the sources.
       </p>
     );
   }
@@ -222,9 +221,7 @@ export function CreateWorkspaceModal({
     setNameError(err);
     if (err) return;
     if (!sourceUrls.length) {
-      setFormError(
-        "Add at least one documentation or article URL. Curate only uses those URLs — no random web search.",
-      );
+      setFormError("Add at least one source URL.");
       return;
     }
     setCurating(true);
@@ -241,13 +238,11 @@ export function CreateWorkspaceModal({
         );
       }
       if (result.ok_source_count === 0) {
-        setFormError(
-          "None of the URLs could be fetched. Use public http(s) pages (docs, TOCs, articles).",
-        );
+        setFormError("None of the URLs could be fetched.");
         toastError("Curate failed", "No readable sources");
       } else {
         success(
-          `Fetched ${result.ok_source_count} source(s) · outline ready (${result.topic_count} topics)`,
+          `Fetched ${result.ok_source_count} source(s) · ${result.topic_count} topics`,
         );
       }
     } catch (e) {
@@ -264,9 +259,7 @@ export function CreateWorkspaceModal({
     setNameError(err);
     if (err) return;
     if (!sourceUrls.length) {
-      setFormError(
-        "Add source URLs so the curriculum can be grounded and cited later in Learn.",
-      );
+      setFormError("Add at least one source URL.");
       return;
     }
 
@@ -294,7 +287,7 @@ export function CreateWorkspaceModal({
         setup_hint: "",
       });
       setStep("curriculum");
-      success("Workspace created · curriculum from your sources");
+      success("Workspace created");
       onCreated(ws.id);
     } catch (e) {
       const msg = formatError(e);
@@ -319,13 +312,8 @@ export function CreateWorkspaceModal({
               id="create-ws-title"
               className="text-sm font-semibold text-ink"
             >
-              {step === "form" ? "Add workspace" : "Curriculum from sources"}
+              {step === "form" ? "Add workspace" : "Curriculum ready"}
             </h2>
-            <p className="mt-0.5 text-[11px] text-mute">
-              {step === "form"
-                ? "Name the subject, add the open-site URLs you trust, then curate — we only fetch those URLs and structure topics for Learn citations."
-                : "Topics are grounded in your sources (not invented from open web search)."}
-            </p>
           </div>
           <button
             type="button"
@@ -390,10 +378,6 @@ export function CreateWorkspaceModal({
                     Add
                   </Button>
                 </div>
-                <p className="mt-1 text-[11px] text-mute">
-                  Paste multiple public pages (e.g. system design primers). Curate
-                  fetches <strong>only these URLs</strong> — no random discovery.
-                </p>
                 {sourceUrls.length > 0 ? (
                   <ul className="mt-2 space-y-1">
                     {sourceUrls.map((u) => (
@@ -456,14 +440,14 @@ export function CreateWorkspaceModal({
                   rows={4}
                   disabled={submitting || curating}
                   className="w-full resize-y rounded-[8px] border border-hairline bg-canvas px-3 py-2 text-sm text-ink outline-none focus:border-ink/30 disabled:opacity-60"
-                  placeholder="Run “Curate from URLs” to fill this from your sources, or write your own…"
+                  placeholder="Optional description"
                 />
                 {curatePreview ? (
                   <div className="mt-2 space-y-1.5">
-                    <p className="text-[10px] font-bold uppercase tracking-wide text-mute">
-                      Fetch status · {curatePreview.ok_source_count}/
-                      {curatePreview.sources.length} ok ·{" "}
-                      {curatePreview.topic_count} topics outlined
+                    <p className="text-[10px] text-mute">
+                      {curatePreview.ok_source_count}/
+                      {curatePreview.sources.length} sources ·{" "}
+                      {curatePreview.topic_count} topics
                     </p>
                     <SourceStatusList sources={curatePreview.sources} />
                   </div>
@@ -523,10 +507,10 @@ export function CreateWorkspaceModal({
                 {submitting ? (
                   <>
                     <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
-                    Creating & structuring…
+                    Creating…
                   </>
                 ) : (
-                  "Create & structure curriculum"
+                  "Create workspace"
                 )}
               </Button>
             </>

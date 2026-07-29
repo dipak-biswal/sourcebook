@@ -90,10 +90,9 @@ export function SettingsMonitoring() {
       <div className="rounded-vercel-md border border-hairline bg-canvas p-4">
         <h2 className="text-sm font-semibold text-ink">Monitoring</h2>
         <p className="mt-2 text-xs text-body">
-          This tab is limited to admin accounts. Ask an operator to add your
-          email to <code className="rounded bg-canvas-soft px-1">ADMIN_EMAILS</code>{" "}
-          on the API, or leave that variable empty to allow all signed-in users
-          (self-hosted).
+          Admin only. Add your email to{" "}
+          <code className="rounded bg-canvas-soft px-1">ADMIN_EMAILS</code> on
+          the API.
         </p>
       </div>
     );
@@ -127,10 +126,6 @@ export function SettingsMonitoring() {
               <Activity className="h-4 w-4" strokeWidth={1.5} />
               User activity
             </h2>
-            <p className="mt-1 text-xs text-mute">
-              Online = last API activity within the last{" "}
-              {data.online_window_minutes} minutes. Refreshes every minute.
-            </p>
           </div>
           <Button
             type="button"

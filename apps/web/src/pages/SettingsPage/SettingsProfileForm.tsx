@@ -37,9 +37,6 @@ export function SettingsProfileForm() {
       noValidate
     >
       <h2 className="text-sm font-semibold text-ink">Profile</h2>
-      <p className="mt-1 text-xs text-mute">
-        Update your email address.
-      </p>
 
       <label className="mt-3 block">
         <span className="mb-1 flex items-center gap-1 text-xs text-mute">

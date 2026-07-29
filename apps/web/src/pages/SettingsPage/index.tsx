@@ -23,27 +23,11 @@ type SettingsTab = "profile" | "workspace" | "monitoring";
 const TABS: {
   id: SettingsTab;
   label: string;
-  description: string;
   icon: typeof User;
 }[] = [
-  {
-    id: "profile",
-    label: "User profile",
-    description: "Email and password",
-    icon: User,
-  },
-  {
-    id: "workspace",
-    label: "Workspace",
-    description: "Topics and call audit per workspace",
-    icon: LayoutGrid,
-  },
-  {
-    id: "monitoring",
-    label: "Monitoring",
-    description: "Online users and activity",
-    icon: Activity,
-  },
+  { id: "profile", label: "Profile", icon: User },
+  { id: "workspace", label: "Workspaces", icon: LayoutGrid },
+  { id: "monitoring", label: "Monitoring", icon: Activity },
 ];
 
 function SettingsNav({
@@ -57,19 +41,16 @@ function SettingsNav({
     <div className="flex h-full min-h-0 flex-col">
       <div className="shrink-0 border-b border-hairline px-3 py-3">
         <div className="text-[10px] font-bold uppercase tracking-wide text-mute">
-          Sections
+          Settings
         </div>
-        <div className="truncate text-sm font-semibold text-ink">Settings</div>
-        <p className="mt-1 text-[10px] text-mute">
-          Account, workspaces, and admin tools
-        </p>
+        <div className="truncate text-sm font-semibold text-ink">Sections</div>
       </div>
       <nav
         aria-label="Settings sections"
         className="min-h-0 flex-1 overflow-y-auto p-2"
       >
         <ul className="space-y-0.5">
-          {TABS.map(({ id, label, description, icon: Icon }) => {
+          {TABS.map(({ id, label, icon: Icon }) => {
             const isActive = active === id;
             return (
               <li key={id}>
@@ -79,7 +60,7 @@ function SettingsNav({
                   aria-selected={isActive}
                   onClick={() => onChange(id)}
                   className={cn(
-                    "flex w-full items-start gap-2.5 rounded-[8px] px-2.5 py-2 text-left transition-colors",
+                    "flex w-full items-center gap-2.5 rounded-[8px] px-2.5 py-2 text-left transition-colors",
                     isActive
                       ? "bg-ink font-semibold text-[var(--canvas)]"
                       : "text-body hover:bg-canvas-soft",
@@ -87,25 +68,13 @@ function SettingsNav({
                 >
                   <Icon
                     className={cn(
-                      "mt-0.5 h-3.5 w-3.5 shrink-0",
+                      "h-3.5 w-3.5 shrink-0",
                       isActive ? "text-[var(--canvas)]" : "text-mute",
                     )}
                     strokeWidth={1.5}
                   />
-                  <span className="min-w-0">
-                    <span className="block text-xs font-semibold leading-snug">
-                      {label}
-                    </span>
-                    <span
-                      className={cn(
-                        "mt-0.5 block text-[11px] leading-snug",
-                        isActive
-                          ? "text-[var(--canvas)]/75"
-                          : "text-mute",
-                      )}
-                    >
-                      {description}
-                    </span>
+                  <span className="min-w-0 truncate text-xs font-semibold">
+                    {label}
                   </span>
                 </button>
               </li>
@@ -192,46 +161,14 @@ function SettingsPageInner() {
               <div role="tabpanel">
                 {tab === "profile" && (
                   <div className="space-y-4">
-                    <div className="mb-1">
-                      <h2 className="text-sm font-semibold text-ink">
-                        User profile
-                      </h2>
-                      <p className="mt-0.5 text-xs text-mute">
-                        Email and password
-                      </p>
-                    </div>
                     <SettingsProfileForm />
                     <SettingsPasswordForm />
                   </div>
                 )}
 
-                {tab === "workspace" && (
-                  <div className="space-y-4">
-                    <div className="mb-1">
-                      <h2 className="text-sm font-semibold text-ink">
-                        Workspace
-                      </h2>
-                      <p className="mt-0.5 text-xs text-mute">
-                        Topics and call audit per workspace
-                      </p>
-                    </div>
-                    <SettingsWorkspaces />
-                  </div>
-                )}
+                {tab === "workspace" && <SettingsWorkspaces />}
 
-                {tab === "monitoring" && (
-                  <div className="space-y-4">
-                    <div className="mb-1">
-                      <h2 className="text-sm font-semibold text-ink">
-                        Monitoring
-                      </h2>
-                      <p className="mt-0.5 text-xs text-mute">
-                        Online users and activity
-                      </p>
-                    </div>
-                    <SettingsMonitoring />
-                  </div>
-                )}
+                {tab === "monitoring" && <SettingsMonitoring />}
               </div>
             </div>
           </div>

@@ -48,9 +48,6 @@ export function SettingsPasswordForm() {
       noValidate
     >
       <h2 className="text-sm font-semibold text-ink">Change password</h2>
-      <p className="mt-1 text-xs text-mute">
-        Enter your current password and a new one.
-      </p>
 
       <label className="mt-3 block">
         <span className="mb-1 flex items-center gap-1 text-xs text-mute">
