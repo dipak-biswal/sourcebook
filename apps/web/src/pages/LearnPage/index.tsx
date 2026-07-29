@@ -302,11 +302,23 @@ function chaptersFromCatalog(catalog: LearnCatalogResponse): LearnChapter[] {
     }));
 }
 
+/** Dot + tint for topics with a cached lesson. */
+function LoadedMark({ loaded, selected }: { loaded: boolean; selected?: boolean }) {
+  if (!loaded || selected) return null;
+  return (
+    <span
+      className="h-1.5 w-1.5 shrink-0 rounded-full bg-emerald-500"
+      title="Lesson loaded"
+      aria-hidden
+    />
+  );
+}
+
 function TopicSidebar({
   catalog,
   selectedId,
-  expandedChapterId,
-  onExpandChapter,
+  expandedIds,
+  onToggleChapter,
   onSelect,
   onRefresh,
   refreshing,
@@ -317,8 +329,8 @@ function TopicSidebar({
 }: {
   catalog: LearnCatalogResponse;
   selectedId: string | null;
-  expandedChapterId: string | null;
-  onExpandChapter: (id: string) => void;
+  expandedIds: Set<string>;
+  onToggleChapter: (id: string) => void;
   onSelect: (id: string) => void;
   onRefresh: () => void;
   refreshing: boolean;
@@ -381,37 +393,52 @@ function TopicSidebar({
       </div>
       <ul className="min-h-0 flex-1 overflow-y-auto p-2">
         {chapters.map((ch) => {
-          const expanded = ch.id === expandedChapterId;
+          const expanded = expandedIds.has(ch.id);
           const chapterSelected =
             selectedId === ch.intro_id ||
             ch.children.some((c) => c.id === selectedId);
+          const introLoaded = ch.has_lesson;
+          const anyChildLoaded = ch.children.some((c) => c.has_lesson);
+          const chapterHasLoaded = introLoaded || anyChildLoaded;
           return (
             <li key={ch.id} className="mb-1">
               <button
                 type="button"
-                onClick={() => {
-                  onExpandChapter(ch.id);
-                  // Opening a chapter selects its Introduction lesson.
-                  onSelect(ch.intro_id);
-                }}
+                onClick={() => onToggleChapter(ch.id)}
                 className={cn(
                   "flex w-full items-center gap-1.5 rounded-[8px] px-2 py-2 text-left transition-colors",
                   chapterSelected && expanded
                     ? "bg-canvas-soft-2"
                     : "hover:bg-canvas-soft",
+                  chapterHasLoaded &&
+                    !chapterSelected &&
+                    "bg-emerald-500/[0.06] ring-1 ring-inset ring-emerald-500/20",
                 )}
                 aria-expanded={expanded}
               >
-                <span className="shrink-0 text-mute">
+                <span
+                  className={cn(
+                    "shrink-0",
+                    chapterHasLoaded ? "text-emerald-600 dark:text-emerald-400" : "text-mute",
+                  )}
+                >
                   {expanded ? (
                     <ChevronDown className="h-3.5 w-3.5" strokeWidth={1.75} />
                   ) : (
                     <ChevronRight className="h-3.5 w-3.5" strokeWidth={1.75} />
                   )}
                 </span>
-                <span className="min-w-0 flex-1 truncate text-xs font-semibold leading-snug text-ink">
+                <span
+                  className={cn(
+                    "min-w-0 flex-1 truncate text-xs font-semibold leading-snug",
+                    chapterHasLoaded
+                      ? "text-emerald-800 dark:text-emerald-300"
+                      : "text-ink",
+                  )}
+                >
                   {ch.title}
                 </span>
+                <LoadedMark loaded={chapterHasLoaded} selected={chapterSelected} />
               </button>
 
               {expanded && (
@@ -421,30 +448,40 @@ function TopicSidebar({
                       type="button"
                       onClick={() => onSelect(ch.intro_id)}
                       className={cn(
-                        "w-full truncate rounded-[6px] px-2 py-1.5 text-left text-[11px] leading-snug transition-colors",
+                        "flex w-full items-center gap-1.5 truncate rounded-[6px] px-2 py-1.5 text-left text-[11px] leading-snug transition-colors",
                         selectedId === ch.intro_id
                           ? "bg-ink font-semibold text-[var(--canvas)]"
-                          : "text-body hover:bg-canvas-soft",
+                          : introLoaded
+                            ? "text-emerald-700 hover:bg-emerald-500/10 dark:text-emerald-300"
+                            : "text-body hover:bg-canvas-soft",
                       )}
                     >
-                      Introduction
+                      <span className="min-w-0 flex-1 truncate">Introduction</span>
+                      <LoadedMark
+                        loaded={introLoaded}
+                        selected={selectedId === ch.intro_id}
+                      />
                     </button>
                   </li>
                   {ch.children.map((child: LearnTopic) => {
                     const active = child.id === selectedId;
+                    const loaded = child.has_lesson;
                     return (
                       <li key={child.id}>
                         <button
                           type="button"
                           onClick={() => onSelect(child.id)}
                           className={cn(
-                            "w-full truncate rounded-[6px] px-2 py-1.5 text-left text-[11px] leading-snug transition-colors",
+                            "flex w-full items-center gap-1.5 truncate rounded-[6px] px-2 py-1.5 text-left text-[11px] leading-snug transition-colors",
                             active
                               ? "bg-ink font-semibold text-[var(--canvas)]"
-                              : "text-body hover:bg-canvas-soft",
+                              : loaded
+                                ? "text-emerald-700 hover:bg-emerald-500/10 dark:text-emerald-300"
+                                : "text-body hover:bg-canvas-soft",
                           )}
                         >
-                          {child.title}
+                          <span className="min-w-0 flex-1 truncate">{child.title}</span>
+                          <LoadedMark loaded={loaded} selected={active} />
                         </button>
                       </li>
                     );
@@ -566,9 +603,7 @@ function LearnPageInner() {
     useWorkspaces();
   const { workspaceId, setWorkspaceId } = useLastWorkspace(workspaces);
   const [selectedTopicId, setSelectedTopicId] = useState<string | null>(null);
-  const [expandedChapterId, setExpandedChapterId] = useState<string | null>(
-    null,
-  );
+  const [expandedIds, setExpandedIds] = useState<Set<string>>(() => new Set());
   const [leftOpen, setLeftOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [topicsRefreshing, setTopicsRefreshing] = useState(false);
@@ -589,6 +624,39 @@ function LearnPageInner() {
     workspaces.length === 0 ||
     catalog?.needs_setup === true;
 
+  const expandChapter = useCallback((id: string) => {
+    setExpandedIds((prev) => {
+      if (prev.has(id)) return prev;
+      const next = new Set(prev);
+      next.add(id);
+      return next;
+    });
+  }, []);
+
+  const toggleChapter = useCallback((id: string) => {
+    setExpandedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }, []);
+
+  const selectTopic = useCallback(
+    (id: string) => {
+      setSelectedTopicId(id);
+      if (!catalog) return;
+      const chapters = chaptersFromCatalog(catalog);
+      const parent =
+        catalog.topics.find((t) => t.id === id)?.parent_id ||
+        chapters.find(
+          (c) => c.intro_id === id || c.children.some((ch) => ch.id === id),
+        )?.id;
+      if (parent) expandChapter(parent);
+    },
+    [catalog, expandChapter],
+  );
+
   useEffect(() => {
     if (!catalog) return;
     const chapters = chaptersFromCatalog(catalog);
@@ -599,7 +667,6 @@ function LearnPageInner() {
       catalog.topics.some((t) => t.id === selectedTopicId);
 
     if (topicExists && selectedTopicId) {
-      // Keep expanded chapter in sync with selection.
       const parent =
         catalog.topics.find((t) => t.id === selectedTopicId)?.parent_id ||
         chapters.find(
@@ -607,9 +674,7 @@ function LearnPageInner() {
             c.intro_id === selectedTopicId ||
             c.children.some((ch) => ch.id === selectedTopicId),
         )?.id;
-      if (parent && parent !== expandedChapterId) {
-        setExpandedChapterId(parent);
-      }
+      if (parent) expandChapter(parent);
       return;
     }
 
@@ -619,14 +684,14 @@ function LearnPageInner() {
     const nextId = preferred?.id ?? chapters[0]?.intro_id ?? null;
     setSelectedTopicId(nextId);
     if (preferred?.parent_id) {
-      setExpandedChapterId(preferred.parent_id);
+      expandChapter(preferred.parent_id);
     } else if (nextId) {
       const ch =
         chapters.find((c) => c.intro_id === nextId || c.id === nextId) ??
         chapters[0];
-      setExpandedChapterId(ch?.id ?? null);
+      if (ch?.id) expandChapter(ch.id);
     }
-  }, [catalog, selectedTopicId, expandedChapterId]);
+  }, [catalog, selectedTopicId, expandChapter]);
 
   const lessonQuery = useQuery({
     queryKey: ["learnLesson", workspaceId, selectedTopicId],
@@ -634,6 +699,36 @@ function LearnPageInner() {
     enabled: !!workspaceId && !!selectedTopicId && !needsSetup,
     staleTime: 5 * 60_000,
   });
+
+  // Mark topic as loaded in the sidebar once a lesson is available.
+  useEffect(() => {
+    if (!workspaceId || !selectedTopicId || !lessonQuery.data) return;
+    if (lessonQuery.data.fallback) return;
+    queryClient.setQueryData<LearnCatalogResponse>(
+      ["learnTopics", workspaceId],
+      (prev) => {
+        if (!prev) return prev;
+        const already = prev.topics.some(
+          (t) => t.id === selectedTopicId && t.has_lesson,
+        );
+        if (already) return prev;
+        return {
+          ...prev,
+          topics: prev.topics.map((t) =>
+            t.id === selectedTopicId ? { ...t, has_lesson: true } : t,
+          ),
+          chapters: prev.chapters?.map((ch) => ({
+            ...ch,
+            has_lesson:
+              ch.intro_id === selectedTopicId ? true : ch.has_lesson,
+            children: ch.children.map((c) =>
+              c.id === selectedTopicId ? { ...c, has_lesson: true } : c,
+            ),
+          })),
+        };
+      },
+    );
+  }, [workspaceId, selectedTopicId, lessonQuery.data, queryClient]);
 
   const handleRefreshTopics = useCallback(async () => {
     if (!workspaceId) return;
@@ -733,9 +828,9 @@ function LearnPageInner() {
               <TopicSidebar
                 catalog={catalog}
                 selectedId={selectedTopicId}
-                expandedChapterId={expandedChapterId}
-                onExpandChapter={setExpandedChapterId}
-                onSelect={setSelectedTopicId}
+                expandedIds={expandedIds}
+                onToggleChapter={toggleChapter}
+                onSelect={selectTopic}
                 onRefresh={() => void handleRefreshTopics()}
                 refreshing={topicsRefreshing || catalogQuery.isFetching}
                 workspaces={workspaces}
@@ -757,10 +852,10 @@ function LearnPageInner() {
               <TopicSidebar
                 catalog={catalog}
                 selectedId={selectedTopicId}
-                expandedChapterId={expandedChapterId}
-                onExpandChapter={setExpandedChapterId}
+                expandedIds={expandedIds}
+                onToggleChapter={toggleChapter}
                 onSelect={(id) => {
-                  setSelectedTopicId(id);
+                  selectTopic(id);
                   setLeftOpen(false);
                 }}
                 onRefresh={() => void handleRefreshTopics()}
