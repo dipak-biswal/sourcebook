@@ -302,12 +302,12 @@ function chaptersFromCatalog(catalog: LearnCatalogResponse): LearnChapter[] {
     }));
 }
 
-/** Dot + tint for topics with a cached lesson. */
+/** Dot for topics with a cached lesson (high contrast in light mode). */
 function LoadedMark({ loaded, selected }: { loaded: boolean; selected?: boolean }) {
   if (!loaded || selected) return null;
   return (
     <span
-      className="h-1.5 w-1.5 shrink-0 rounded-full bg-emerald-500"
+      className="h-2 w-2 shrink-0 rounded-full bg-emerald-600 ring-2 ring-emerald-200 dark:bg-emerald-400 dark:ring-emerald-900/50"
       title="Lesson loaded"
       aria-hidden
     />
@@ -412,14 +412,16 @@ function TopicSidebar({
                     : "hover:bg-canvas-soft",
                   chapterHasLoaded &&
                     !chapterSelected &&
-                    "bg-emerald-500/[0.06] ring-1 ring-inset ring-emerald-500/20",
+                    "border border-emerald-300 bg-emerald-50 dark:border-emerald-700/50 dark:bg-emerald-950/40",
                 )}
                 aria-expanded={expanded}
               >
                 <span
                   className={cn(
                     "shrink-0",
-                    chapterHasLoaded ? "text-emerald-600 dark:text-emerald-400" : "text-mute",
+                    chapterHasLoaded
+                      ? "text-emerald-700 dark:text-emerald-400"
+                      : "text-mute",
                   )}
                 >
                   {expanded ? (
@@ -432,7 +434,7 @@ function TopicSidebar({
                   className={cn(
                     "min-w-0 flex-1 truncate text-xs font-semibold leading-snug",
                     chapterHasLoaded
-                      ? "text-emerald-800 dark:text-emerald-300"
+                      ? "text-emerald-900 dark:text-emerald-200"
                       : "text-ink",
                   )}
                 >
@@ -452,7 +454,7 @@ function TopicSidebar({
                         selectedId === ch.intro_id
                           ? "bg-ink font-semibold text-[var(--canvas)]"
                           : introLoaded
-                            ? "text-emerald-700 hover:bg-emerald-500/10 dark:text-emerald-300"
+                            ? "bg-emerald-50 font-medium text-emerald-900 hover:bg-emerald-100 dark:bg-emerald-950/30 dark:text-emerald-200 dark:hover:bg-emerald-950/50"
                             : "text-body hover:bg-canvas-soft",
                       )}
                     >
@@ -476,7 +478,7 @@ function TopicSidebar({
                             active
                               ? "bg-ink font-semibold text-[var(--canvas)]"
                               : loaded
-                                ? "text-emerald-700 hover:bg-emerald-500/10 dark:text-emerald-300"
+                                ? "bg-emerald-50 font-medium text-emerald-900 hover:bg-emerald-100 dark:bg-emerald-950/30 dark:text-emerald-200 dark:hover:bg-emerald-950/50"
                                 : "text-body hover:bg-canvas-soft",
                           )}
                         >
