@@ -416,28 +416,14 @@ function TopicSidebar({
                 )}
                 aria-expanded={expanded}
               >
-                <span
-                  className={cn(
-                    "shrink-0",
-                    chapterHasLoaded
-                      ? "text-emerald-700 dark:text-emerald-400"
-                      : "text-mute",
-                  )}
-                >
+                <span className="shrink-0 text-mute">
                   {expanded ? (
                     <ChevronDown className="h-3.5 w-3.5" strokeWidth={1.75} />
                   ) : (
                     <ChevronRight className="h-3.5 w-3.5" strokeWidth={1.75} />
                   )}
                 </span>
-                <span
-                  className={cn(
-                    "min-w-0 flex-1 truncate text-xs font-semibold leading-snug",
-                    chapterHasLoaded
-                      ? "text-emerald-900 dark:text-emerald-200"
-                      : "text-ink",
-                  )}
-                >
+                <span className="min-w-0 flex-1 truncate text-xs font-semibold leading-snug text-ink">
                   {ch.title}
                 </span>
                 <LoadedMark loaded={chapterHasLoaded} selected={chapterSelected} />
@@ -454,7 +440,7 @@ function TopicSidebar({
                         selectedId === ch.intro_id
                           ? "bg-ink font-semibold text-[var(--canvas)]"
                           : introLoaded
-                            ? "bg-emerald-50 font-medium text-emerald-900 hover:bg-emerald-100 dark:bg-emerald-950/30 dark:text-emerald-200 dark:hover:bg-emerald-950/50"
+                            ? "bg-emerald-50 text-ink hover:bg-emerald-100 dark:bg-emerald-950/30 dark:hover:bg-emerald-950/50"
                             : "text-body hover:bg-canvas-soft",
                       )}
                     >
@@ -478,7 +464,7 @@ function TopicSidebar({
                             active
                               ? "bg-ink font-semibold text-[var(--canvas)]"
                               : loaded
-                                ? "bg-emerald-50 font-medium text-emerald-900 hover:bg-emerald-100 dark:bg-emerald-950/30 dark:text-emerald-200 dark:hover:bg-emerald-950/50"
+                                ? "bg-emerald-50 text-ink hover:bg-emerald-100 dark:bg-emerald-950/30 dark:hover:bg-emerald-950/50"
                                 : "text-body hover:bg-canvas-soft",
                           )}
                         >
