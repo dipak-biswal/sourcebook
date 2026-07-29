@@ -3,6 +3,7 @@ import {
   BookOpen,
   ChevronDown,
   ChevronRight,
+  FileUp,
   Loader2,
   Plus,
   Sparkles,
@@ -25,6 +26,10 @@ import { validateWorkspaceName } from "@/lib/validation";
 import { formatError } from "@/lib/utils";
 
 type Step = "form" | "curriculum";
+
+const FILE_ACCEPT =
+  ".txt,.md,.markdown,.pdf,.docx,.csv,.tsv,.json,.html,.htm,.rst,.xml,.yml,.yaml,.log";
+const MAX_FILES = 10;
 
 function CurriculumPreview({ catalog }: { catalog: LearnCatalogResponse }) {
   const chapters: LearnChapter[] =
@@ -148,22 +153,28 @@ export function CreateWorkspaceModal({
 }) {
   const { success, error: toastError } = useToast();
   const nameRef = useRef<HTMLInputElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const [step, setStep] = useState<Step>("form");
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
   const [urlDraft, setUrlDraft] = useState("");
   const [sourceUrls, setSourceUrls] = useState<string[]>([]);
+  const [files, setFiles] = useState<File[]>([]);
   const [tags, setTags] = useState<string[]>(["learning"]);
   const [nameError, setNameError] = useState<string | null>(null);
   const [formError, setFormError] = useState<string | null>(null);
   const [curating, setCurating] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  const [uploadStatus, setUploadStatus] = useState<string | null>(null);
   const [curatePreview, setCuratePreview] = useState<WorkspaceCurateResult | null>(
     null,
   );
   const [catalog, setCatalog] = useState<LearnCatalogResponse | null>(null);
   const [createdId, setCreatedId] = useState<string | null>(null);
+  const [uploadedCount, setUploadedCount] = useState(0);
+
+  const hasSources = sourceUrls.length > 0 || files.length > 0;
 
   useEffect(() => {
     if (!open) return;
@@ -172,12 +183,15 @@ export function CreateWorkspaceModal({
     setDescription("");
     setUrlDraft("");
     setSourceUrls([]);
+    setFiles([]);
     setTags(["learning"]);
     setNameError(null);
     setFormError(null);
     setCuratePreview(null);
     setCatalog(null);
     setCreatedId(null);
+    setUploadedCount(0);
+    setUploadStatus(null);
     setCurating(false);
     setSubmitting(false);
     requestAnimationFrame(() => nameRef.current?.focus());
@@ -216,12 +230,35 @@ export function CreateWorkspaceModal({
     setCuratePreview(null);
   }
 
+  function addFiles(list: FileList | null) {
+    if (!list?.length) return;
+    setFormError(null);
+    setFiles((prev) => {
+      const next = [...prev];
+      for (const f of Array.from(list)) {
+        if (next.length >= MAX_FILES) break;
+        const dup = next.some(
+          (x) => x.name === f.name && x.size === f.size && x.lastModified === f.lastModified,
+        );
+        if (!dup) next.push(f);
+      }
+      if (next.length >= MAX_FILES && list.length > 0) {
+        setFormError(`Maximum ${MAX_FILES} files.`);
+      }
+      return next.slice(0, MAX_FILES);
+    });
+  }
+
+  function removeFile(index: number) {
+    setFiles((prev) => prev.filter((_, i) => i !== index));
+  }
+
   async function handleCurate() {
     const err = validateWorkspaceName(name);
     setNameError(err);
     if (err) return;
     if (!sourceUrls.length) {
-      setFormError("Add at least one source URL.");
+      setFormError("Add at least one source URL to curate.");
       return;
     }
     setCurating(true);
@@ -258,13 +295,14 @@ export function CreateWorkspaceModal({
     const err = validateWorkspaceName(name);
     setNameError(err);
     if (err) return;
-    if (!sourceUrls.length) {
-      setFormError("Add at least one source URL.");
+    if (!sourceUrls.length && !files.length) {
+      setFormError("Add at least one source URL or upload a file.");
       return;
     }
 
     setSubmitting(true);
     setFormError(null);
+    setUploadStatus(null);
     try {
       const ws = await api.createWorkspace(name.trim());
       await api.updateWorkspace(ws.id, {
@@ -272,22 +310,49 @@ export function CreateWorkspaceModal({
         tags: tags.length ? tags : ["learning"],
       });
 
-      const cat = await api.workspaceSetupCurriculum(ws.id, {
-        name: name.trim(),
-        description: description.trim() || null,
-        tags: tags.length ? tags : ["learning"],
-        source_urls: sourceUrls,
-        docs_only: true,
-      });
+      let okUploads = 0;
+      if (files.length) {
+        for (let i = 0; i < files.length; i++) {
+          const file = files[i];
+          setUploadStatus(`Uploading ${i + 1}/${files.length}: ${file.name}`);
+          try {
+            const doc = await api.upload(ws.id, file);
+            setUploadStatus(`Ingesting ${i + 1}/${files.length}: ${file.name}`);
+            await api.ingestDocument(doc.id);
+            okUploads += 1;
+          } catch (e) {
+            toastError("Upload failed", `${file.name}: ${formatError(e)}`);
+          }
+        }
+        setUploadedCount(okUploads);
+      }
+
+      let cat: LearnCatalogResponse | null = null;
+      if (sourceUrls.length) {
+        setUploadStatus("Building curriculum from URLs…");
+        cat = await api.workspaceSetupCurriculum(ws.id, {
+          name: name.trim(),
+          description: description.trim() || null,
+          tags: tags.length ? tags : ["learning"],
+          source_urls: sourceUrls,
+          docs_only: true,
+        });
+      }
 
       setCreatedId(ws.id);
-      setCatalog({
-        ...cat,
-        needs_setup: false,
-        setup_hint: "",
-      });
+      setCatalog(
+        cat
+          ? { ...cat, needs_setup: false, setup_hint: "" }
+          : null,
+      );
       setStep("curriculum");
-      success("Workspace created");
+      success(
+        okUploads > 0 && sourceUrls.length
+          ? `Workspace created · ${okUploads} file(s) · curriculum ready`
+          : okUploads > 0
+            ? `Workspace created · ${okUploads} file(s) uploaded`
+            : "Workspace created",
+      );
       onCreated(ws.id);
     } catch (e) {
       const msg = formatError(e);
@@ -295,6 +360,7 @@ export function CreateWorkspaceModal({
       toastError("Create failed", msg);
     } finally {
       setSubmitting(false);
+      setUploadStatus(null);
     }
   }
 
@@ -406,6 +472,74 @@ export function CreateWorkspaceModal({
               <div>
                 <div className="mb-1 flex items-center justify-between gap-2">
                   <label className="text-[11px] font-medium uppercase tracking-wide text-mute">
+                    Documents
+                  </label>
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    size="sm"
+                    className="h-7 gap-1 text-[11px]"
+                    disabled={
+                      submitting || curating || files.length >= MAX_FILES
+                    }
+                    onClick={() => fileInputRef.current?.click()}
+                  >
+                    <FileUp className="h-3 w-3" strokeWidth={1.5} />
+                    Upload files
+                  </Button>
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    className="hidden"
+                    accept={FILE_ACCEPT}
+                    multiple
+                    disabled={submitting || curating}
+                    onChange={(e) => {
+                      addFiles(e.target.files);
+                      e.target.value = "";
+                    }}
+                  />
+                </div>
+                <p className="text-[10px] text-mute">
+                  PDF, DOCX, Markdown, text, and similar. Uploaded after create
+                  and queued for ingest.
+                </p>
+                {files.length > 0 ? (
+                  <ul className="mt-2 space-y-1">
+                    {files.map((f, i) => (
+                      <li
+                        key={`${f.name}-${f.size}-${f.lastModified}`}
+                        className="flex items-center gap-2 rounded-[6px] border border-hairline bg-canvas-soft/40 px-2 py-1.5"
+                      >
+                        <FileUp
+                          className="h-3 w-3 shrink-0 text-mute"
+                          strokeWidth={1.5}
+                        />
+                        <span className="min-w-0 flex-1 truncate text-[11px] text-body">
+                          {f.name}
+                          <span className="text-mute">
+                            {" "}
+                            · {(f.size / 1024).toFixed(0)} KB
+                          </span>
+                        </span>
+                        <button
+                          type="button"
+                          className="rounded p-0.5 text-mute hover:text-red-600"
+                          aria-label={`Remove ${f.name}`}
+                          disabled={submitting || curating}
+                          onClick={() => removeFile(i)}
+                        >
+                          <Trash2 className="h-3 w-3" strokeWidth={1.5} />
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                ) : null}
+              </div>
+
+              <div>
+                <div className="mb-1 flex items-center justify-between gap-2">
+                  <label className="text-[11px] font-medium uppercase tracking-wide text-mute">
                     Description
                   </label>
                   <Button
@@ -454,6 +588,13 @@ export function CreateWorkspaceModal({
                 ) : null}
               </div>
 
+              {uploadStatus ? (
+                <p className="flex items-center gap-1.5 text-[11px] text-mute">
+                  <Loader2 className="h-3 w-3 animate-spin" />
+                  {uploadStatus}
+                </p>
+              ) : null}
+
               {formError ? (
                 <p className="text-xs text-red-600">{formError}</p>
               ) : null}
@@ -472,11 +613,24 @@ export function CreateWorkspaceModal({
                     chapters
                   </span>
                 ) : null}
+                {uploadedCount > 0 ? (
+                  <span className="text-mute">
+                    · {uploadedCount} file{uploadedCount === 1 ? "" : "s"}
+                  </span>
+                ) : null}
               </div>
               {catalog?.sources?.length ? (
                 <SourceStatusList sources={catalog.sources} />
               ) : null}
-              {catalog ? <CurriculumPreview catalog={catalog} /> : null}
+              {catalog ? (
+                <CurriculumPreview catalog={catalog} />
+              ) : (
+                <p className="rounded-[8px] border border-dashed border-hairline px-3 py-6 text-center text-xs text-mute">
+                  {uploadedCount > 0
+                    ? "Documents uploaded. Open Documents to manage them, or Learn after adding source URLs for a topic tree."
+                    : "Workspace ready."}
+                </p>
+              )}
             </div>
           )}
         </div>
@@ -500,7 +654,7 @@ export function CreateWorkspaceModal({
                   submitting ||
                   curating ||
                   !name.trim() ||
-                  sourceUrls.length === 0
+                  !hasSources
                 }
                 onClick={() => void handleCreate()}
               >
