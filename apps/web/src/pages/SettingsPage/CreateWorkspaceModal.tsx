@@ -31,6 +31,100 @@ const FILE_ACCEPT =
   ".txt,.md,.markdown,.pdf,.docx,.csv,.tsv,.json,.html,.htm,.rst,.xml,.yml,.yaml,.log";
 const MAX_FILES = 10;
 
+/** Same progress labels as Documents page ingest. */
+const INGEST_STEPS = [
+  "Starting ingest…",
+  "Parsing document…",
+  "Chunking text…",
+  "Embedding chunks…",
+  "Saving vectors…",
+  "Almost done…",
+];
+
+type DocResult = {
+  filename: string;
+  status: "ready" | "failed" | "processing" | "error";
+  error?: string;
+};
+
+async function sleep(ms: number) {
+  await new Promise((r) => setTimeout(r, ms));
+}
+
+/**
+ * Upload to storage (R2 when configured) then ingest — same API path as Documents.
+ * Polls until ready / failed (background worker).
+ */
+async function uploadAndIngestFile(
+  workspaceId: string,
+  file: File,
+  onProgress: (msg: string) => void,
+): Promise<DocResult> {
+  onProgress(`Uploading ${file.name}…`);
+  let docId: string;
+  try {
+    const doc = await api.upload(workspaceId, file);
+    docId = doc.id;
+  } catch (e) {
+    return {
+      filename: file.name,
+      status: "error",
+      error: formatError(e),
+    };
+  }
+
+  onProgress(`Starting ingest: ${file.name}…`);
+  try {
+    await api.ingestDocument(docId);
+  } catch (e) {
+    return {
+      filename: file.name,
+      status: "error",
+      error: formatError(e),
+    };
+  }
+
+  for (let i = 0; i < 40; i++) {
+    onProgress(
+      `${INGEST_STEPS[Math.min(i, INGEST_STEPS.length - 1)]} ${file.name}`,
+    );
+    await sleep(1500);
+    try {
+      const list = await api.documents(workspaceId);
+      const d = list.find((x) => x.id === docId);
+      const s = (d?.status || "").toLowerCase();
+      if (s === "ready") {
+        return { filename: file.name, status: "ready" };
+      }
+      if (s === "failed") {
+        return {
+          filename: file.name,
+          status: "failed",
+          error: d?.error || "Ingest failed",
+        };
+      }
+      if (s === "uploaded") {
+        // Ingest never started — retry once
+        if (i === 2) {
+          try {
+            await api.ingestDocument(docId);
+          } catch {
+            /* keep polling */
+          }
+        }
+      }
+    } catch {
+      /* keep polling */
+    }
+  }
+
+  return {
+    filename: file.name,
+    status: "processing",
+    error: "Ingest still running — check Documents if status stays processing.",
+  };
+}
+
 function CurriculumPreview({ catalog }: { catalog: LearnCatalogResponse }) {
   const chapters: LearnChapter[] =
     catalog.chapters?.length
@@ -172,9 +266,10 @@ export function CreateWorkspaceModal({
   );
   const [catalog, setCatalog] = useState<LearnCatalogResponse | null>(null);
   const [createdId, setCreatedId] = useState<string | null>(null);
-  const [uploadedCount, setUploadedCount] = useState(0);
+  const [docResults, setDocResults] = useState<DocResult[]>([]);
 
   const hasSources = sourceUrls.length > 0 || files.length > 0;
+  const readyCount = docResults.filter((d) => d.status === "ready").length;
 
   useEffect(() => {
     if (!open) return;
@@ -190,7 +285,7 @@ export function CreateWorkspaceModal({
     setCuratePreview(null);
     setCatalog(null);
     setCreatedId(null);
-    setUploadedCount(0);
+    setDocResults([]);
     setUploadStatus(null);
     setCurating(false);
     setSubmitting(false);
@@ -310,21 +405,37 @@ export function CreateWorkspaceModal({
         tags: tags.length ? tags : ["learning"],
       });
 
-      let okUploads = 0;
+      const results: DocResult[] = [];
       if (files.length) {
         for (let i = 0; i < files.length; i++) {
           const file = files[i];
-          setUploadStatus(`Uploading ${i + 1}/${files.length}: ${file.name}`);
-          try {
-            const doc = await api.upload(ws.id, file);
-            setUploadStatus(`Ingesting ${i + 1}/${files.length}: ${file.name}`);
-            await api.ingestDocument(doc.id);
-            okUploads += 1;
-          } catch (e) {
-            toastError("Upload failed", `${file.name}: ${formatError(e)}`);
+          setUploadStatus(
+            `Document ${i + 1}/${files.length}: ${file.name}`,
+          );
+          const result = await uploadAndIngestFile(
+            ws.id,
+            file,
+            (msg) =>
+              setUploadStatus(
+                `Document ${i + 1}/${files.length}: ${msg}`,
+              ),
+          );
+          results.push(result);
+          if (result.status === "ready") {
+            success("Document ready", file.name);
+          } else if (result.status === "failed" || result.status === "error") {
+            toastError(
+              result.status === "error" ? "Upload failed" : "Ingest failed",
+              `${file.name}: ${result.error || "Unknown error"}`,
+            );
+          } else {
+            success(
+              "Ingest still running",
+              `${file.name} — check Documents if needed.`,
+            );
           }
         }
-        setUploadedCount(okUploads);
+        setDocResults(results);
       }
 
       let cat: LearnCatalogResponse | null = null;
@@ -346,11 +457,12 @@ export function CreateWorkspaceModal({
           : null,
       );
       setStep("curriculum");
+      const nReady = results.filter((r) => r.status === "ready").length;
       success(
-        okUploads > 0 && sourceUrls.length
-          ? `Workspace created · ${okUploads} file(s) · curriculum ready`
-          : okUploads > 0
-            ? `Workspace created · ${okUploads} file(s) uploaded`
+        nReady > 0 && sourceUrls.length
+          ? `Workspace created · ${nReady} document(s) ready · curriculum ready`
+          : nReady > 0
+            ? `Workspace created · ${nReady} document(s) ready`
             : "Workspace created",
       );
       onCreated(ws.id);
@@ -501,8 +613,8 @@ export function CreateWorkspaceModal({
                   />
                 </div>
                 <p className="text-[10px] text-mute">
-                  PDF, DOCX, Markdown, text, and similar. Uploaded after create
-                  and queued for ingest.
+                  PDF, DOCX, Markdown, text, and similar. On create each file is
+                  uploaded and ingested (same as Documents).
                 </p>
                 {files.length > 0 ? (
                   <ul className="mt-2 space-y-1">
@@ -613,12 +725,47 @@ export function CreateWorkspaceModal({
                     chapters
                   </span>
                 ) : null}
-                {uploadedCount > 0 ? (
+                {docResults.length > 0 ? (
                   <span className="text-mute">
-                    · {uploadedCount} file{uploadedCount === 1 ? "" : "s"}
+                    · {readyCount}/{docResults.length} docs ready
                   </span>
                 ) : null}
               </div>
+
+              {docResults.length > 0 ? (
+                <ul className="space-y-1 rounded-[8px] border border-hairline bg-canvas-soft/40 p-2">
+                  {docResults.map((d) => (
+                    <li
+                      key={d.filename}
+                      className="flex items-start gap-2 text-[11px] leading-snug"
+                    >
+                      <span
+                        className={
+                          d.status === "ready"
+                            ? "text-emerald-700"
+                            : d.status === "processing"
+                              ? "text-amber-700"
+                              : "text-red-600"
+                        }
+                      >
+                        {d.status === "ready"
+                          ? "✓"
+                          : d.status === "processing"
+                            ? "…"
+                            : "×"}
+                      </span>
+                      <span className="min-w-0 flex-1">
+                        <span className="font-medium text-ink">{d.filename}</span>
+                        <span className="text-mute"> · {d.status}</span>
+                        {d.error ? (
+                          <span className="block text-mute">{d.error}</span>
+                        ) : null}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              ) : null}
+
               {catalog?.sources?.length ? (
                 <SourceStatusList sources={catalog.sources} />
               ) : null}
@@ -626,9 +773,11 @@ export function CreateWorkspaceModal({
                 <CurriculumPreview catalog={catalog} />
               ) : (
                 <p className="rounded-[8px] border border-dashed border-hairline px-3 py-6 text-center text-xs text-mute">
-                  {uploadedCount > 0
-                    ? "Documents uploaded. Open Documents to manage them, or Learn after adding source URLs for a topic tree."
-                    : "Workspace ready."}
+                  {readyCount > 0
+                    ? "Documents are ready for chat and agents. Open Documents anytime to manage them."
+                    : docResults.length > 0
+                      ? "Some documents are still processing or failed. Open Documents to retry ingest."
+                      : "Workspace ready."}
                 </p>
               )}
             </div>

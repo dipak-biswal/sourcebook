@@ -78,6 +78,8 @@ export function SettingsWorkspaces() {
           setSelectedId(id);
           void queryClient.invalidateQueries({ queryKey: ["workspaces"] });
           void queryClient.invalidateQueries({ queryKey: ["learnTopics"] });
+          void queryClient.invalidateQueries({ queryKey: ["documents", id] });
+          void queryClient.invalidateQueries({ queryKey: ["documents"] });
         }}
       />
 
