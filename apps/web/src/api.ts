@@ -253,24 +253,6 @@ export type WorkspaceActivity = {
   summary: Record<string, number>;
 };
 
-export type WorkspaceContextPreview = {
-  confidence: string;
-  derivation_version: number;
-  outcome_phrase: string;
-  audience_phrase: string;
-  success_criteria: string;
-  tone: string;
-  answer_sections: string[];
-  visual_affordances: string[];
-  external_context_ok: boolean;
-  max_search_documents: number;
-  max_web_search: number;
-  documents_ready: string[];
-  documents_pending: string[];
-  filename_hints: string[];
-  agent_prompt_excerpt: string;
-};
-
 export type Document = {
   id: string;
   workspace_id: string;
@@ -651,49 +633,7 @@ export const api = {
       handlers,
     ),
 
-  /** Settings: still use curriculum routes for archived topic admin. */
-  getCurriculum: (
-    workspaceId: string,
-    options: { refresh?: boolean; includeArchived?: boolean } | boolean = false,
-  ) => {
-    const opts =
-      typeof options === "boolean"
-        ? { refresh: options, includeArchived: false }
-        : options;
-    const params = new URLSearchParams();
-    if (opts.refresh) params.set("refresh", "true");
-    if (opts.includeArchived) params.set("include_archived", "true");
-    const q = params.toString();
-    return request<CurriculumResponse>(
-      `/workspaces/${workspaceId}/curriculum${q ? `?${q}` : ""}`,
-    );
-  },
-
-  refreshCurriculum: (workspaceId: string) =>
-    request<CurriculumResponse>(`/workspaces/${workspaceId}/curriculum/refresh`, {
-      method: "POST",
-    }),
-
-  addCurriculumTopic: (workspaceId: string, title: string) =>
-    request<CurriculumTopic>(`/workspaces/${workspaceId}/curriculum/topics`, {
-      method: "POST",
-      body: JSON.stringify({ title }),
-    }),
-
-  patchCurriculumTopic: (
-    workspaceId: string,
-    topicId: string,
-    patch: { status?: string; preferences?: Record<string, string[]> },
-  ) =>
-    request<CurriculumTopic>(
-      `/workspaces/${workspaceId}/curriculum/topics/${encodeURIComponent(topicId)}`,
-      {
-        method: "PATCH",
-        body: JSON.stringify(patch),
-      },
-    ),
-
-  // ── Agents page topics (dedicated /agents APIs — do not use /curriculum) ─
+  // ── Agents page topics (dedicated /agents APIs) ─
 
   agentTopics: (workspaceId: string, refresh = false) => {
     const params = new URLSearchParams();
@@ -930,22 +870,6 @@ export const api = {
       `/workspaces/${workspaceId}/activity?${params.toString()}`,
     );
   },
-
-  previewWorkspaceContext: (
-    workspaceId: string,
-    draft?: { name?: string; description?: string | null; tags?: string[] | null },
-  ) =>
-    request<WorkspaceContextPreview>(
-      `/workspaces/${workspaceId}/context-preview`,
-      {
-        method: "POST",
-        body: JSON.stringify({
-          name: draft?.name,
-          description: draft?.description,
-          tags: draft?.tags,
-        }),
-      },
-    ),
 
   createNote: (workspaceId: string, title: string, body = "") =>
     request<Note>("/notes", {
