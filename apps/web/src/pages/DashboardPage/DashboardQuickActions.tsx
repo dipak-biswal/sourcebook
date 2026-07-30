@@ -1,11 +1,11 @@
-import { Bot, FileUp, MessageCircle, StickyNote } from "lucide-react";
+import { Bot, FileUp, GraduationCap, MessageCircle } from "lucide-react";
 import { Link } from "react-router-dom";
 
 const ACTIONS = [
-  { to: "/chat", icon: MessageCircle, label: "New chat", desc: "Ask grounded questions" },
-  { to: "/documents", icon: FileUp, label: "Upload document", desc: "Add sources to ingest" },
-  { to: "/agents", icon: Bot, label: "Agent run", desc: "Tools with HITL" },
-  { to: "/notes", icon: StickyNote, label: "View notes", desc: "Browse saved notes" },
+  { to: "/learn", icon: GraduationCap, label: "Learn", desc: "Study your curriculum" },
+  { to: "/chat", icon: MessageCircle, label: "Ask", desc: "Grounded Q&A on sources" },
+  { to: "/documents", icon: FileUp, label: "Library", desc: "Upload and manage docs" },
+  { to: "/agents", icon: Bot, label: "Agents", desc: "Deep research runs" },
 ] as const;
 
 export function DashboardQuickActions() {

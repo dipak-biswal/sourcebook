@@ -25,17 +25,27 @@ type AppHeaderProps = {
   onLogout?: () => void;
 };
 
-/** Primary destinations — sticky app bar under the chrome header. */
+/**
+ * Primary product loop — keep the top bar short so the app feels one product,
+ * not a toolbox of equal peers.
+ *  Learn → structured study
+ *  Ask   → Q&A chat
+ *  Library → uploaded documents
+ */
 const APP_NAV = [
-  { to: "/", label: "Dashboard", icon: LayoutDashboard, match: "/" },
-  { to: "/chat", label: "Chat", icon: MessageCircle, match: "/chat" },
   { to: "/learn", label: "Learn", icon: GraduationCap, match: "/learn" },
+  { to: "/chat", label: "Ask", icon: MessageCircle, match: "/chat" },
+  { to: "/documents", label: "Library", icon: Files, match: "/documents" },
+] as const;
+
+/** Tools / extras — profile menu + mobile drawer (not top bar). */
+const TOOLS_NAV = [
+  { to: "/", label: "Home", icon: LayoutDashboard, match: "/" },
   { to: "/agents", label: "Agents", icon: Bot, match: "/agents" },
-  { to: "/documents", label: "Documents", icon: Files, match: "/documents" },
   { to: "/notes", label: "Notes", icon: StickyNote, match: "/notes" },
 ] as const;
 
-/** Account / secondary destinations — profile menu + mobile drawer only. */
+/** Account destinations — profile menu + mobile drawer. */
 const ACCOUNT_NAV = [
   { to: "/usage", label: "Usage", icon: Activity, match: "/usage" },
   { to: "/settings", label: "Settings", icon: User, match: "/settings" },
@@ -137,6 +147,25 @@ function UserProfileMenu({ onLogout }: { onLogout?: () => void }) {
           </div>
 
           <div className="p-1.5">
+            <p className="px-2.5 pb-1 pt-0.5 text-[10px] font-medium uppercase tracking-wide text-mute">
+              Tools
+            </p>
+            {TOOLS_NAV.map(({ to, label, icon: Icon }) => (
+              <Link
+                key={to}
+                to={to}
+                role="menuitem"
+                onClick={() => setOpen(false)}
+                className="flex w-full items-center gap-2 rounded-[6px] px-2.5 py-2 text-[13px] text-body transition-colors hover:bg-canvas-soft-2 hover:text-ink"
+              >
+                <Icon className="h-3.5 w-3.5" strokeWidth={1.5} />
+                {label}
+              </Link>
+            ))}
+            <div className="my-1.5 border-t border-hairline" />
+            <p className="px-2.5 pb-1 pt-0.5 text-[10px] font-medium uppercase tracking-wide text-mute">
+              Account
+            </p>
             {ACCOUNT_NAV.map(({ to, label, icon: Icon }) => (
               <Link
                 key={to}
@@ -230,6 +259,15 @@ function MobileAccountMenu({
 
       <div className="document-scroll max-h-[min(70vh,28rem)] overflow-y-auto px-3 py-3">
         <p className="px-3 pb-1 text-[10px] font-medium uppercase tracking-wide text-mute">
+          Tools
+        </p>
+        <nav className="flex flex-col gap-0.5">
+          {TOOLS_NAV.map((item) => (
+            <MobileNavLink key={item.to} {...item} onNavigate={onClose} />
+          ))}
+        </nav>
+
+        <p className="mt-4 px-3 pb-1 text-[10px] font-medium uppercase tracking-wide text-mute">
           Account
         </p>
         <nav className="flex flex-col gap-0.5">
